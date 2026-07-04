@@ -202,7 +202,9 @@ PL 侧执行 profile validator；
 - error_code 行为不应退化；
 - UDP rate set/status 协议不变。
 
-本轮功能等价性目前基于 RTL 结构检查和 Vivado synthesis/implementation 结果。尚未重新执行上板 UDP 往返回归，因此不能把 build 通过写成硬件回归通过。
+本轮功能等价性先通过 RTL 结构检查和 Vivado synthesis/implementation 确认；随后已完成 profile table 重构后的上板 UDP 功能等价回归。回归结果显示 `rate set 500`、`rate set 1000` 以及 500M <-> 1000M 多次循环均返回 `state=DONE`，`current_rate` 与目标一致，`gt_drp_written=1`，`mmcm_drp_written=1`。
+
+本次回归没有重新保存 ILA 波形；硬件内部 reset/lock/ready 链路仍沿用上一阶段 500M/1000M 动态切换收口时的 ILA 代表性证据。
 
 ## 6. 测试与验证
 
@@ -264,23 +266,26 @@ dbg_tx_mmcm_reset_wizard/rate/final
 dbg_txoutclk_alive_axi
 ```
 
-### 6.4 未执行项
+### 6.4 上板 UDP 功能等价回归
 
 ```text
 Simulation was not run
-Hardware test was not run
+Hardware UDP regression was run
 ```
 
-尚未重新执行：
+本轮 profile table 重构后已完成上板 UDP 功能等价回归：
 
 ```text
-rate set 1000
-rate set 500
-500M <-> 1000M UDP 循环
-上板 ILA capture
+rate set 500  -> current_rate=500,  state=DONE, gt_drp_written=1, mmcm_drp_written=1
+rate set 1000 -> current_rate=1000, state=DONE, gt_drp_written=1, mmcm_drp_written=1
+500M <-> 1000M 多次循环切换均返回 OK
 ```
 
-这些是下一步硬件回归项。
+![profile table 重构后 500M/1000M UDP 循环回归通过](../images/dynamic_rate/profile_table_refactor/udp_profile_table_refactor_500_1000_loop_pass.png)
+
+图：profile table 重构后，UDP `rate set 500` / `rate set 1000` 及 500M <-> 1000M 循环回归均返回成功。该图证明软件命令路径、PL rate controller 状态回读、`current_rate` 更新、GT/MMCM DRP 写入标志在本轮重构后保持功能等价。
+
+本次没有重新保存 ILA 波形；`dbg_hub/clk`、AXI/FCLK ILA rate/reset/lock/ready probe、txusrclk2 域 ILA 的内部链路证据沿用上一阶段动态切换收口时的代表性 ILA 结果。本轮截图只作为 profile table 重构后的 UDP 功能等价回归证据。
 
 ## 7. QoR / timing 对比
 
@@ -338,27 +343,14 @@ reports/dynamic_rate_500m_1000m/artifacts/laser_tx_board_top_dynamic_500m_1000m.
 
 ### 10.1 残留风险
 
-1. 本轮重构已通过 synthesis/implementation/timing，但尚未重新上板执行 UDP 回归；
+1. 本轮重构已通过 synthesis/implementation/timing，并已完成 500M/1000M 上板 UDP 功能等价回归；
 2. `profile_refclk_id/refclk_freq_hz/pll_type/flags` 当前为预留字段，不表示已经实现 AD9528/refclk 切换；
 3. profile accessor 在综合后可能仍实现为比较器、mux、LUT 或 case，这是正常硬件实现，不是问题；
 4. 后续新增第三速率前仍必须先做 static profile build/ILA 验证；
-5. 本轮没有改变 error_code 编码，但硬件回归仍需确认错误路径没有退化。
+5. 本轮 UDP 回归覆盖成功路径；错误路径仍建议在后续专门回归中确认没有退化。
 
 ### 10.2 下一步建议
 
-建议下一步只做 500M/1000M 功能等价上板回归：
-
-```text
-1. Program 本轮 bit/LTX；
-2. UDP 执行 rate status；
-3. rate set 1000；
-4. rate status 确认 current_rate=1000、RATE_DONE、error_code=NONE、gt_ready=1；
-5. rate set 500；
-6. rate status 确认 current_rate=500、RATE_DONE、error_code=NONE、gt_ready=1；
-7. 执行 500M <-> 1000M 循环；
-8. 必要时用 AXI/FCLK ILA 观察 target/current/state/error/reset/lock/ready。
-```
-
-只有上述回归通过后，再进入 Level 2：选择第三速率并先做 static build/ILA 验证。
+500M/1000M profile table 功能等价回归已经完成。下一步可以进入 Level 2：选择第三速率并先做 static build/ILA 验证；如果需要更高等级证据，也可以补充一次 profile table 重构后的 AXI/FCLK ILA 代表性截图，但当前阶段不强制要求重新抓 ILA。
 
 当前仍不建议引入 AD9528 动态输出、156.25MHz refclk 切换或宽范围任意速率。
