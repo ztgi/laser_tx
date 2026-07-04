@@ -1,0 +1,82 @@
+# Vivado temporary/cache/generated
+.Xil/
+*.jou
+*.log
+*.str
+*.backup.jou
+*.backup.log
+*.tmp
+*.wdb
+*.pb
+*.dcp
+
+xsim.dir/
+tmp/
+
+# Vivado project generated directories
+*.cache/
+*.gen/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+
+laser_tx.cache/
+laser_tx.gen/
+laser_tx.hw/
+laser_tx.ip_user_files/
+laser_tx.runs/
+laser_tx.sim/
+project_gtx.gen/
+
+# Temporary/derived Vivado projects
+_p1_1g_vivado/
+
+# Generated hardware outputs
+*.bit
+*.ltx
+*.xsa
+*.hdf
+*.hwdef
+
+# Generated reports and local output artifacts
+*.rpt
+outputs/
+reports/
+
+# Vitis / Eclipse workspace generated files
+.metadata/
+.vscode/
+RemoteSystemsTempFiles/
+.vitis_bringup/
+.analytics
+IDE.log
+
+# Vitis generated/build folders
+vitis_bringup/.metadata/
+vitis_bringup/RemoteSystemsTempFiles/
+vitis_bringup/**/Debug/
+vitis_bringup/**/Release/
+vitis_bringup/**/_ide/
+vitis_bringup/**/.log/
+vitis_bringup/**/logs/
+vitis_bringup/**/export/
+vitis_bringup/**/hw/
+vitis_bringup/**/tempdsa/
+vitis_bringup/**/bsp/
+vitis_bringup/**/libsrc/
+vitis_bringup/**/ps7_cortexa9_0/
+vitis_bringup/**/zynq_fsbl/
+vitis_bringup/**/standalone_ps7_cortexa9_0/
+
+# Keep Vitis application sources trackable.
+# Do NOT ignore:
+# vitis_bringup/bringup/src/
+# vitis_bringup/bringup/lscript.ld
+# vitis_bringup/bringup/.project
+# vitis_bringup/bringup/.cproject
+# vitis_bringup/bringup/*.prj
+
+# OS/editor
+Thumbs.db
+.DS_Store
