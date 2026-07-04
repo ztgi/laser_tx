@@ -7,6 +7,14 @@
 // CPLL_FBDIV/CPLL_REFCLK_DIV, RXOUT_DIV, QPLL, AD9528 or any wide-range rate
 // planning fields.  The GTXE2 and MMCME2 DRP tables are taken from
 // docs/debug_reports/06_drp_parameter_confirmation_for_500m_1000m.md.
+//
+// Level-3 profile-table refactor note:
+// The current implementation still supports only the validated 500M/1000M
+// pair on the existing 125 MHz refclk.  The profile accessors below collect
+// rate-specific parameters in one place so the FSM acts as a common Rate
+// Switch Executor.  Reserved profile fields such as refclk_id and flags are
+// intentionally constant for both profiles; they document that AD9528/refclk
+// dynamic switching is not implemented in this stage.
 module laser_gt_rate_switch_500m_1000m #(
     parameter integer RESET_HOLD_CYCLES      = 1024,
     parameter integer TX_QUIESCE_TIMEOUT     = 1000000,
@@ -110,6 +118,14 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [1:0] RATE_ID_500M  = 2'd1;
     localparam [1:0] RATE_ID_1000M = 2'd2;
 
+    localparam [1:0] REFCLK_125M = 2'd0;
+    localparam [1:0] PLL_TYPE_CPLL = 2'd0;
+    localparam [3:0] GT_DRP_SEQ_TXOUT_DIV = 4'd1;
+    localparam [3:0] MMCM_DRP_SEQ_PROFILE0_500M = 4'd1;
+    localparam [3:0] MMCM_DRP_SEQ_PROFILE1_1000M = 4'd2;
+    localparam [7:0] PROFILE_FLAG_NONE = 8'h00;
+    localparam [7:0] PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED = 8'h01;
+
     localparam [8:0] GTX_DRP_ADDR_OUT_DIV = 9'h088;
 
     localparam [3:0] GT_STEP_READ_OUTDIV      = 4'd0;
@@ -127,6 +143,15 @@ module laser_gt_rate_switch_500m_1000m #(
     reg [2:0] target_txout_div_enc;
     reg [15:0] expected_min_count;
     reg [15:0] expected_max_count;
+    reg [1:0] target_refclk_id;
+    reg [31:0] target_refclk_freq_hz;
+    reg [1:0] target_pll_type;
+    reg [3:0] target_gt_drp_seq_id;
+    reg [3:0] target_mmcm_drp_seq_id;
+    reg [31:0] target_expected_txusrclk2_hz;
+    reg [31:0] target_lock_timeout;
+    reg [31:0] target_reset_timeout;
+    reg [7:0] target_profile_flags;
     reg [31:0] timeout_count;
     reg [31:0] reset_hold_count;
     reg [31:0] verify_count;
@@ -140,8 +165,7 @@ module laser_gt_rate_switch_500m_1000m #(
     wire laser_busy = gpio_status[3];
     wire laser_done = gpio_status[4];
     wire laser_idle = (!laser_busy) || laser_done;
-    wire target_supported = (target_rate_id == RATE_ID_500M) ||
-                            (target_rate_id == RATE_ID_1000M);
+    wire target_supported = profile_supported(target_rate_id);
     wire target_is_current = target_supported &&
                              (target_rate_id == current_rate_id);
     wire freq_in_window =
@@ -149,6 +173,129 @@ module laser_gt_rate_switch_500m_1000m #(
         (txusrclk2_freq_counter_axi <= {16'd0, expected_max_count});
 
     assign dbg_timeout_count = timeout_count;
+
+    function profile_supported;
+        input [1:0] rate_id;
+        begin
+            profile_supported = (rate_id == RATE_ID_500M) ||
+                                (rate_id == RATE_ID_1000M);
+        end
+    endfunction
+
+    function [15:0] profile_rate_mbps;
+        input [1:0] rate_id;
+        begin
+            case (rate_id)
+            RATE_ID_500M:  profile_rate_mbps = 16'd500;
+            RATE_ID_1000M: profile_rate_mbps = 16'd1000;
+            default:       profile_rate_mbps = 16'd0;
+            endcase
+        end
+    endfunction
+
+    function [1:0] profile_refclk_id;
+        input [1:0] rate_id;
+        begin
+            profile_refclk_id = REFCLK_125M;
+        end
+    endfunction
+
+    function [31:0] profile_refclk_freq_hz;
+        input [1:0] rate_id;
+        begin
+            profile_refclk_freq_hz = 32'd125000000;
+        end
+    endfunction
+
+    function [1:0] profile_pll_type;
+        input [1:0] rate_id;
+        begin
+            profile_pll_type = PLL_TYPE_CPLL;
+        end
+    endfunction
+
+    function [3:0] profile_gt_drp_seq_id;
+        input [1:0] rate_id;
+        begin
+            profile_gt_drp_seq_id = GT_DRP_SEQ_TXOUT_DIV;
+        end
+    endfunction
+
+    function [3:0] profile_mmcm_drp_seq_id;
+        input [1:0] rate_id;
+        begin
+            case (rate_id)
+            RATE_ID_500M:  profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE0_500M;
+            RATE_ID_1000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE1_1000M;
+            default:       profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE0_500M;
+            endcase
+        end
+    endfunction
+
+    function [2:0] profile_txout_div_enc;
+        input [1:0] rate_id;
+        begin
+            case (rate_id)
+            RATE_ID_500M:  profile_txout_div_enc = 3'b011;
+            RATE_ID_1000M: profile_txout_div_enc = 3'b010;
+            default:       profile_txout_div_enc = 3'b011;
+            endcase
+        end
+    endfunction
+
+    function [31:0] profile_expected_txusrclk2_hz;
+        input [1:0] rate_id;
+        begin
+            case (rate_id)
+            RATE_ID_500M:  profile_expected_txusrclk2_hz = 32'd7812500;
+            RATE_ID_1000M: profile_expected_txusrclk2_hz = 32'd15625000;
+            default:       profile_expected_txusrclk2_hz = 32'd7812500;
+            endcase
+        end
+    endfunction
+
+    function [15:0] profile_freq_min_count;
+        input [1:0] rate_id;
+        begin
+            case (rate_id)
+            RATE_ID_500M:  profile_freq_min_count = FREQ_500M_MIN_COUNT[15:0];
+            RATE_ID_1000M: profile_freq_min_count = FREQ_1000M_MIN_COUNT[15:0];
+            default:       profile_freq_min_count = FREQ_500M_MIN_COUNT[15:0];
+            endcase
+        end
+    endfunction
+
+    function [15:0] profile_freq_max_count;
+        input [1:0] rate_id;
+        begin
+            case (rate_id)
+            RATE_ID_500M:  profile_freq_max_count = FREQ_500M_MAX_COUNT[15:0];
+            RATE_ID_1000M: profile_freq_max_count = FREQ_1000M_MAX_COUNT[15:0];
+            default:       profile_freq_max_count = FREQ_500M_MAX_COUNT[15:0];
+            endcase
+        end
+    endfunction
+
+    function [31:0] profile_lock_timeout;
+        input [1:0] rate_id;
+        begin
+            profile_lock_timeout = LOCK_TIMEOUT_CYCLES;
+        end
+    endfunction
+
+    function [31:0] profile_reset_timeout;
+        input [1:0] rate_id;
+        begin
+            profile_reset_timeout = RESET_HOLD_CYCLES;
+        end
+    endfunction
+
+    function [7:0] profile_flags;
+        input [1:0] rate_id;
+        begin
+            profile_flags = PROFILE_FLAG_NONE;
+        end
+    endfunction
 
     function [6:0] mmcm_addr_for_index;
         input [4:0] index;
@@ -219,14 +366,14 @@ module laser_gt_rate_switch_500m_1000m #(
         end
     endfunction
 
-    function [15:0] mmcm_data_for_target;
-        input [1:0] rate_id;
+    function [15:0] mmcm_data_for_seq;
+        input [3:0] seq_id;
         input [4:0] index;
         begin
-            if (rate_id == RATE_ID_500M) begin
-                mmcm_data_for_target = mmcm_data_500m(index);
+            if (seq_id == MMCM_DRP_SEQ_PROFILE0_500M) begin
+                mmcm_data_for_seq = mmcm_data_500m(index);
             end else begin
-                mmcm_data_for_target = mmcm_data_1000m(index);
+                mmcm_data_for_seq = mmcm_data_1000m(index);
             end
         end
     endfunction
@@ -254,6 +401,15 @@ module laser_gt_rate_switch_500m_1000m #(
             target_txout_div_enc    <= 3'd3;
             expected_min_count      <= FREQ_500M_MIN_COUNT[15:0];
             expected_max_count      <= FREQ_500M_MAX_COUNT[15:0];
+            target_refclk_id        <= REFCLK_125M;
+            target_refclk_freq_hz   <= 32'd125000000;
+            target_pll_type         <= PLL_TYPE_CPLL;
+            target_gt_drp_seq_id    <= GT_DRP_SEQ_TXOUT_DIV;
+            target_mmcm_drp_seq_id  <= MMCM_DRP_SEQ_PROFILE0_500M;
+            target_expected_txusrclk2_hz <= 32'd7812500;
+            target_lock_timeout     <= LOCK_TIMEOUT_CYCLES;
+            target_reset_timeout    <= RESET_HOLD_CYCLES;
+            target_profile_flags    <= PROFILE_FLAG_NONE;
             current_rate_id         <= RATE_ID_500M;
             current_rate_mbps       <= 16'd500;
             timeout_count           <= 32'd0;
@@ -306,26 +462,19 @@ module laser_gt_rate_switch_500m_1000m #(
             if (request_event) begin
                 request_pending <= 1'b1;
                 target_rate_id <= requested_rate_id;
-                case (requested_rate_id)
-                RATE_ID_500M: begin
-                    target_rate_mbps <= 16'd500;
-                    target_txout_div_enc <= 3'b011;
-                    expected_min_count <= FREQ_500M_MIN_COUNT[15:0];
-                    expected_max_count <= FREQ_500M_MAX_COUNT[15:0];
-                end
-                RATE_ID_1000M: begin
-                    target_rate_mbps <= 16'd1000;
-                    target_txout_div_enc <= 3'b010;
-                    expected_min_count <= FREQ_1000M_MIN_COUNT[15:0];
-                    expected_max_count <= FREQ_1000M_MAX_COUNT[15:0];
-                end
-                default: begin
-                    target_rate_mbps <= 16'd0;
-                    target_txout_div_enc <= 3'b011;
-                    expected_min_count <= FREQ_500M_MIN_COUNT[15:0];
-                    expected_max_count <= FREQ_500M_MAX_COUNT[15:0];
-                end
-                endcase
+                target_rate_mbps <= profile_rate_mbps(requested_rate_id);
+                target_txout_div_enc <= profile_txout_div_enc(requested_rate_id);
+                expected_min_count <= profile_freq_min_count(requested_rate_id);
+                expected_max_count <= profile_freq_max_count(requested_rate_id);
+                target_refclk_id <= profile_refclk_id(requested_rate_id);
+                target_refclk_freq_hz <= profile_refclk_freq_hz(requested_rate_id);
+                target_pll_type <= profile_pll_type(requested_rate_id);
+                target_gt_drp_seq_id <= profile_gt_drp_seq_id(requested_rate_id);
+                target_mmcm_drp_seq_id <= profile_mmcm_drp_seq_id(requested_rate_id);
+                target_expected_txusrclk2_hz <= profile_expected_txusrclk2_hz(requested_rate_id);
+                target_lock_timeout <= profile_lock_timeout(requested_rate_id);
+                target_reset_timeout <= profile_reset_timeout(requested_rate_id);
+                target_profile_flags <= profile_flags(requested_rate_id);
             end
 
             case (rate_state)
@@ -413,6 +562,13 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_VALIDATE: begin
                 if (!target_supported) begin
                     set_error(RATE_ERR_UNSUPPORTED_RATE);
+                end else if ((target_refclk_id != REFCLK_125M) ||
+                             (target_refclk_freq_hz != 32'd125000000) ||
+                             (target_pll_type != PLL_TYPE_CPLL) ||
+                             (target_gt_drp_seq_id != GT_DRP_SEQ_TXOUT_DIV) ||
+                             ((target_profile_flags & PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED) != 8'h00) ||
+                             (target_expected_txusrclk2_hz == 32'd0)) begin
+                    set_error(RATE_ERR_UNSUPPORTED_RATE);
                 end else if (target_is_current) begin
                     rate_state <= RATE_DONE;
                     rate_busy <= 1'b0;
@@ -449,7 +605,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_gt_tx_reset <= 1'b1;
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b1;
-                if (reset_hold_count >= RESET_HOLD_CYCLES) begin
+                if (reset_hold_count >= target_reset_timeout) begin
                     rate_state <= RATE_PROGRAM_GT_DRP;
                     gt_step <= GT_STEP_READ_OUTDIV;
                     gt_drp_busy <= 1'b1;
@@ -550,7 +706,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 if (mmcm_index < MMCM_TABLE_LEN) begin
                     if (timeout_count == 32'd0) begin
                         mmcm_drp_addr <= mmcm_addr_for_index(mmcm_index);
-                        mmcm_drp_di <= mmcm_data_for_target(target_rate_id, mmcm_index);
+                        mmcm_drp_di <= mmcm_data_for_seq(target_mmcm_drp_seq_id, mmcm_index);
                         mmcm_drp_en <= 1'b1;
                         mmcm_drp_we <= 1'b1;
                         mmcm_drp_write_attempted <= 1'b1;
@@ -595,7 +751,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_gt_tx_reset <= 1'b0;
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b0;
-                if (timeout_count >= RESET_HOLD_CYCLES) begin
+                if (timeout_count >= target_reset_timeout) begin
                     rate_state <= RATE_WAIT_LOCK;
                     timeout_count <= 32'd0;
                 end else begin
@@ -612,7 +768,7 @@ module laser_gt_rate_switch_500m_1000m #(
                     // drive tx_mmcm_reset_wizard low and allow MMCM lock.
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b1;
-                    if (timeout_count >= LOCK_TIMEOUT_CYCLES) begin
+                    if (timeout_count >= target_lock_timeout) begin
                         set_error(RATE_ERR_MMCM_LOCK_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;
@@ -620,7 +776,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 end else if (!cplllock_sync) begin
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b1;
-                    if (timeout_count >= LOCK_TIMEOUT_CYCLES) begin
+                    if (timeout_count >= target_lock_timeout) begin
                         set_error(RATE_ERR_GT_READY_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;
@@ -628,7 +784,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 end else if (!txresetdone_sync) begin
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b0;
-                    if (timeout_count >= LOCK_TIMEOUT_CYCLES) begin
+                    if (timeout_count >= target_lock_timeout) begin
                         set_error(RATE_ERR_TX_RESETDONE_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;
@@ -636,7 +792,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 end else if (!gt_ready_ctrl) begin
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b0;
-                    if (timeout_count >= LOCK_TIMEOUT_CYCLES) begin
+                    if (timeout_count >= target_lock_timeout) begin
                         set_error(RATE_ERR_GT_READY_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;

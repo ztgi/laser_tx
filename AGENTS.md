@@ -1047,3 +1047,51 @@ The engineering change report must be written in Chinese.
 Code comments may remain in the original project language unless the task explicitly asks to translate or rewrite comments.
 
 Technical terms such as RTL, pipeline, QoR, WNS, TNS, CDC, BD, IP Integrator, AXI, EMIO, MIO, XDC, HDL wrapper, XSA, Vitis, BSP, SPI, GPIO, linker script, ELF, DMA, cache, interrupt, CPOL, CPHA, and register readback may remain in English.
+
+以后每次修改工程代码前，必须先使用 Git 工作流。
+
+规则如下：
+
+1. 修改前先执行：
+   git status
+   git branch
+
+2. 如果当前工作区已有未提交修改，不要直接覆盖。
+   先报告当前 dirty 文件列表，让我确认。
+
+3. 每个功能改动必须创建独立分支，例如：
+   feature/profile-table-refactor-500m-1000m
+   feature/add-third-rate-static
+   fix/rate-switch-timeout
+   docs/dynamic-rate-summary
+
+4. 不允许直接在 main/master 上修改并提交。
+
+5. 每次修改后必须输出：
+   - 修改文件列表；
+   - git diff 摘要；
+   - build/test 结果；
+   - 是否生成 bit/LTX；
+   - 是否完成 hardware test；
+   - 仍未验证的边界。
+
+6. 提交前必须确认不要加入 Vivado 生成目录和临时文件：
+   .Xil/
+   *.runs/
+   *.cache/
+   *.gen/
+   *.jou
+   *.log
+   *.str
+   *.dcp
+
+7. 除非我明确要求，不要提交 bit/LTX。
+   如需保存 bit/LTX，只在报告中记录本地路径，或提示我是否要放到 GitHub Release。
+
+8. 提交命名格式：
+   git commit -m "简短英文说明"
+
+9. 推送格式：
+   git push -u origin <branch_name>
+
+10. 不允许 force push。
