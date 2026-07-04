@@ -1,0 +1,5 @@
+open_project ./laser_tx.xpr
+open_run impl_1
+report_debug_core -file reports/dynamic_rate_500m_1000m/gui_project_debug_cores_impl_1.rpt
+write_debug_probes -force reports/dynamic_rate_500m_1000m/artifacts/laser_tx_board_top_dynamic_500m_1000m.ltx
+close_project

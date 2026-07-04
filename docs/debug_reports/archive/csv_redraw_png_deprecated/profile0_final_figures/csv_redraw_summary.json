@@ -1,0 +1,101 @@
+{
+  "gui_attempt": {
+    "success": false,
+    "reason": "No visible Vivado/Hardware Manager/ILA window or vivado process was enumerated in the current desktop session."
+  },
+  "ila1": {
+    "direct63": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\direct63_ila1_axi_control.png",
+      "final_status": "0x00020015",
+      "cfg_valid": 1,
+      "cfg_error": 0,
+      "error_code": "0x00"
+    },
+    "direct127": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\direct127_ila1_axi_control.png",
+      "final_status": "0x00020015",
+      "cfg_valid": 1,
+      "cfg_error": 0,
+      "error_code": "0x00"
+    },
+    "prbs6": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\prbs6_ila1_axi_control.png",
+      "final_status": "0x00020015",
+      "cfg_valid": 1,
+      "cfg_error": 0,
+      "error_code": "0x00"
+    },
+    "prbs7": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\prbs7_ila1_axi_control.png",
+      "final_status": "0x00020015",
+      "cfg_valid": 1,
+      "cfg_error": 0,
+      "error_code": "0x00"
+    },
+    "invalid_repeat_zero": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\invalid_repeat_zero_ila1_status.png",
+      "final_status": "0x01000002",
+      "cfg_valid": 0,
+      "cfg_error": 1,
+      "error_code": "0x01"
+    },
+    "invalid_insert_after": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\invalid_insert_after_ila1_status.png",
+      "final_status": "0x03000002",
+      "cfg_valid": 0,
+      "cfg_error": 1,
+      "error_code": "0x03"
+    },
+    "invalid_prbs_order": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\invalid_prbs_order_ila1_status.png",
+      "final_status": "0x02000002",
+      "cfg_valid": 0,
+      "cfg_error": 1,
+      "error_code": "0x02"
+    },
+    "invalid_seed_zero": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\invalid_seed_zero_ila1_status.png",
+      "final_status": "0x00000005",
+      "cfg_valid": 1,
+      "cfg_error": 0,
+      "error_code": "0x00"
+    },
+    "invalid_direct_mode_mismatch": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\invalid_direct_mode_mismatch_ila1_status.png",
+      "final_status": "0x00000005",
+      "cfg_valid": 1,
+      "cfg_error": 0,
+      "error_code": "0x00"
+    }
+  },
+  "ila2": {
+    "direct63": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\direct63_ila2_tx_activity.png",
+      "first_valid_mask_sample": 263,
+      "first_valid_mask": "0xffffffffffffffff",
+      "first_txdata_sample": 263,
+      "first_txdata": "0x8123456789abcdef"
+    },
+    "direct127": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\direct127_ila2_tx_activity.png",
+      "first_valid_mask_sample": 263,
+      "first_valid_mask": "0xffffffffffffffff",
+      "first_txdata_sample": 263,
+      "first_txdata": "0x0123456789abcdef"
+    },
+    "prbs6": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\prbs6_ila2_tx_activity.png",
+      "first_valid_mask_sample": 263,
+      "first_valid_mask": "0xffffffffffffffff",
+      "first_txdata_sample": 263,
+      "first_txdata": "0x376938bca3083f56"
+    },
+    "prbs7": {
+      "file": "reports\\board_validation\\profile0_final\\figures\\prbs7_ila2_tx_activity.png",
+      "first_valid_mask_sample": 263,
+      "first_valid_mask": "0xffffffffffffffff",
+      "first_txdata_sample": 263,
+      "first_txdata": "0x103faa6774b1bdad"
+    }
+  }
+}

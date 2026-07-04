@@ -1,0 +1,370 @@
+# 激光发送数据流系统外部信号与内部信号总结
+
+## 一、信号划分原则
+
+本系统的信号可分为外部信号和内部信号两类。外部信号指 FPGA/Zynq 板卡与外部设备之间实际连接的物理信号，包括上位机通信、参考时钟、高速串行输出、EOM、SOA、采集卡触发等。内部信号指 PS 软件、PL 逻辑、数据流调度器、GTX 接口以及同步控制模块之间传递的逻辑信号。
+
+系统设计中应遵循一个核心原则：PS 负责参数配置、命令解析和低速控制；PL 负责精确定时、pattern 调度、64bit 数据打包和同步信号生成；GTX 只负责高速并串转换；外部 EOM、SOA、采集触发等信号应由 PL 状态机直接产生，而不应由 PS 软件实时拉高或拉低。
+
+---
+
+## 二、外部信号
+
+### 1. 上位机通信信号
+
+上位机通过以太网向 Zynq PS 发送控制命令。该通道用于配置 pattern 参数、启动发送、停止发送、切换工作模式、查询状态等。
+
+| 信号/接口          | 方向      | 作用                |
+| -------------- | ------- | ----------------- |
+| Ethernet / UDP | PC → PS | 上位机向 PS 发送控制命令    |
+| Ethernet / UDP | PS → PC | PS 返回状态、配置结果或错误信息 |
+
+该接口属于控制面，不参与高速数据实时生成。上位机只负责下发参数，不直接控制 EOM、SOA 或采集触发的精确定时。
+
+---
+
+### 2. 参考时钟输入信号
+
+参考时钟用于 GTX 发送通道。根据系统实际设计，可包括本地固定参考时钟和 AD9528 输出的可编程参考时钟。
+
+| 信号                 | 方向                | 作用           |
+| ------------------ | ----------------- | ------------ |
+| 125 MHz Refclk     | 外部/板载 → FPGA MGT  | GTX 可选参考时钟   |
+| 156.25 MHz Refclk  | 外部/板载 → FPGA MGT  | GTX 可选参考时钟   |
+| AD9528 Prog Refclk | AD9528 → FPGA MGT | 可编程 GTX 参考时钟 |
+
+需要注意，AD9528 的可编程参考时钟是 AD9528 输出到 FPGA MGT 参考时钟输入端，不是 PL 输出给 AD9528。
+
+---
+
+### 3. AD9528 控制信号
+
+AD9528 时钟芯片通常由 PS 通过 SPI 和 GPIO 控制，用于产生 GTX 所需的参考时钟。
+
+| 信号                | 方向             | 作用                |
+| ----------------- | -------------- | ----------------- |
+| SPI_SCLK          | PS → AD9528    | SPI 时钟            |
+| SPI_MOSI          | PS → AD9528    | SPI 写数据           |
+| SPI_MISO          | AD9528 → PS    | SPI 读数据           |
+| SPI_CS            | PS → AD9528    | SPI 片选            |
+| AD9528_RESETB     | PS/PL → AD9528 | AD9528 复位控制       |
+| AD9528_SYSREF_REQ | PS/PL → AD9528 | SYSREF 请求，视系统需求使用 |
+
+这部分属于时钟配置链路，不属于 pattern 数据流调度核心。AD9528 配置完成并锁定后，GTX 才能基于其输出参考时钟工作。
+
+---
+
+### 4. GTX 高速串行输出信号
+
+GTX 是高速发送链路的最终输出接口。PL 每个 txusrclk2 周期向 GTX 送入 64bit 并行数据，GTX 将其并串转换为高速差分信号。
+
+| 信号      | 方向            | 作用     |
+| ------- | ------------- | ------ |
+| GTX_TXP | FPGA → 外部激光驱动 | 高速串行正端 |
+| GTX_TXN | FPGA → 外部激光驱动 | 高速串行负端 |
+
+GTX 不理解 PRBS、pattern、phase、gap 等逻辑，它只负责把 PL 提供的 TXDATA[63:0] 串行发送出去。
+
+---
+
+### 5. EOM 输出信号
+
+EOM 用于标记当前发送的数据是否属于有效 pattern 段。它应由 PL 数据流调度状态机根据 valid_mask 生成。
+
+| 信号      | 方向        | 作用             |
+| ------- | --------- | -------------- |
+| eom_out | PL → 外部设备 | 有效 pattern 段标志 |
+
+第一版可实现为 word 级 EOM：
+
+```verilog
+eom_out = |valid_mask[63:0];
+```
+
+含义是：当前 64bit word 中只要存在有效 pattern bit，eom_out 就为高。
+
+需要注意，普通 PL GPIO 输出的 eom_out 只能做到 word/window 级同步，不能做到 bit 级精确。如果未来需要 bit 级 EOM，应将 valid_mask[63:0] 通过 OSERDES 或另一条高速通道串行化输出。
+
+---
+
+### 6. SOA 门控信号
+
+SOA_GATE 是光放大器或光门控的大窗口控制信号。它不应该在每个 pattern 重复周期之间拉低，也不应该在 gap 插零期间拉低。
+
+| 信号           | 方向             | 作用          |
+| ------------ | -------------- | ----------- |
+| soa_gate_out | PL → SOA/光门控设备 | 控制 SOA 开启窗口 |
+
+一个 phase 内的关系应为：
+
+```text
+TXDATA:    S0#1 S0#2 00000 S0#3 S0#4
+EOM:       高   高   低    高   高
+SOA_GATE:  高━━━━━━━━━━━━━━━━━━━━高
+```
+
+也就是说，EOM 表示有效 pattern 段，SOA_GATE 表示整个 phase 的发射窗口。SOA_GATE 可以后续扩展提前打开和延迟关闭功能。
+
+---
+
+### 7. 采集卡同步信号
+
+采集卡同步信号用于通知外部采集设备何时开始采集，以及哪些时间范围属于有效采集窗口。
+
+| 信号           | 方向       | 作用                   |
+| ------------ | -------- | -------------------- |
+| acq_trig_out | PL → 采集卡 | 每个 phase 开始时输出一个触发脉冲 |
+| acq_gate_out | PL → 采集卡 | 当前 phase 的采集有效窗口     |
+
+phase_start 指的是当前循环移位序列 S_k 的第一个有效 pattern 周期即将开始发送的时刻。它不是每个 63bit 或 127bit pattern 周期开始，也不是每个 64bit word 开始。
+
+第一版可定义：
+
+```verilog
+acq_trig_out = phase_start_pulse;
+acq_gate_out = phase_active;
+```
+
+---
+
+### 8. PL GPIO 输出引脚
+
+EOM、SOA_GATE、ACQ_TRIG、ACQ_GATE 应作为 PL 顶层输出端口，通过 XDC 约束到普通 PL I/O 引脚。
+
+示例：
+
+```verilog
+output wire eom_out;
+output wire soa_gate_out;
+output wire acq_trig_out;
+output wire acq_gate_out;
+```
+
+示例约束：
+
+```tcl
+set_property PACKAGE_PIN AG17 [get_ports eom_out]
+set_property PACKAGE_PIN AB12 [get_ports soa_gate_out]
+set_property PACKAGE_PIN AC14 [get_ports acq_trig_out]
+set_property PACKAGE_PIN AD16 [get_ports acq_gate_out]
+```
+
+IOSTANDARD 需要根据对应 PL Bank 的 VCCO 电压设置，例如 LVCMOS18 或 LVCMOS33。
+
+这些信号不应通过 Zynq PS 的 GPIO MIO 输出，因为它们需要和 TXDATA、valid_mask 保持确定的时序关系。
+
+---
+
+## 三、内部信号
+
+### 1. PS 控制面内部信号
+
+PS 主要负责接收上位机命令、解析参数、写入配置寄存器或 BRAM、启动 PL 数据流，以及读取 PL 状态。
+
+| 信号/变量        | 作用              |
+| ------------ | --------------- |
+| udp_command  | 上位机下发的控制命令      |
+| config_index | 当前配置组编号         |
+| apply_toggle | 通知 PL 加载新配置     |
+| enable       | 启动或停止 PL 数据流    |
+| soft_reset   | 软件复位数据流模块       |
+| status_word  | PL 返回给 PS 的状态信息 |
+
+PS 控制面不应参与 txusrclk2 域内的逐 bit 定时。所有精确同步信号应在 PL 内部产生。
+
+---
+
+### 2. 配置加载内部信号
+
+配置加载模块负责把 PS 写入的参数整理为 PL 可用的 active_config。
+
+建议使用 shadow_config 和 active_config 两级结构，避免 PS 写参数时影响正在运行的数据流。
+
+| 信号                    | 作用                                      |
+| --------------------- | --------------------------------------- |
+| cfg_pattern_in[126:0] | PS 直传的 63bit 或 127bit pattern           |
+| cfg_seed[31:0]        | seed 生成模式下使用的种子                         |
+| cfg_pattern_source    | pattern 来源选择，0 为 seed 生成，1 为 pattern 直传 |
+| cfg_prbs_order        | PRBS 阶数，支持 6 或 7                        |
+| cfg_pattern_len       | pattern 长度，支持 63 或 127                  |
+| cfg_repeat_cycles     | 每个 phase 内重复发送的完整 pattern 周期数           |
+| cfg_insert_after      | 第几个完整 pattern 周期后插入 gap                 |
+| cfg_gap_len_bits      | gap 插零长度                                |
+| cfg_phase_shift_en    | 是否启用 phase 循环移位                         |
+| cfg_loop_en           | 一轮 phase 完成后是否循环                        |
+| cfg_valid             | 配置有效标志                                  |
+| cfg_error             | 配置非法标志                                  |
+
+非法配置包括：pattern_len 不是 63 或 127、repeat_cycles 为 0、seed 为 0 且未替换为默认 seed 等。
+
+---
+
+### 3. pattern 来源模块内部信号
+
+pattern_source 模块负责把不同来源的 pattern 统一成 base_pattern。
+
+| 信号                  | 作用                         |
+| ------------------- | -------------------------- |
+| pattern_source_sel  | 选择 seed 生成或 direct pattern |
+| seed                | PRBS seed                  |
+| prbs_order          | PRBS 阶数                    |
+| pattern_in[126:0]   | 直传 pattern                 |
+| base_pattern[126:0] | 统一后的基准 pattern             |
+| base_pattern_len    | 基准 pattern 长度，63 或 127     |
+| pattern_valid       | pattern 生成或加载完成            |
+
+seed 生成模式下：
+
+```text
+PRBS6 → base_pattern[62:0]，pattern_len = 63
+PRBS7 → base_pattern[126:0]，pattern_len = 127
+```
+
+pattern 直传模式下：
+
+```text
+63bit direct pattern → base_pattern[62:0]
+127bit direct pattern → base_pattern[126:0]
+```
+
+---
+
+### 4. pattern 调度状态机内部信号
+
+pattern_tx_engine 是核心模块，负责 phase 调度、重复发送、插零、64bit 打包和同步信号派生。
+
+| 信号                | 作用                            |
+| ----------------- | ----------------------------- |
+| phase_offset      | 当前循环移位相位                      |
+| bit_idx           | 当前 phase 内 pattern 周期的 bit 位置 |
+| cycle_cnt         | 当前 phase 已完成的完整 pattern 周期数   |
+| in_gap            | 当前是否处于 gap 插零阶段               |
+| gap_rem           | gap 剩余 bit 数                  |
+| gap_used          | 当前 phase 内是否已经插入过 gap         |
+| phase_active      | 当前 phase 正在发送                 |
+| sequence_active   | 整轮 phase 扫描正在进行               |
+| phase_start_pulse | phase 开始脉冲                    |
+| phase_done_pulse  | phase 完成脉冲                    |
+| busy              | 模块正在运行                        |
+| done              | 发送任务完成                        |
+
+phase_offset 的范围由 pattern_len 决定：
+
+```text
+pattern_len = 63  → phase_offset = 0~62
+pattern_len = 127 → phase_offset = 0~126
+```
+
+---
+
+### 5. 64bit 打包内部信号
+
+每个 txusrclk2 周期，打包逻辑需要组合推演 64 个即将串行输出的 bit，并在时钟沿寄存输出。
+
+| 信号                    | 作用                       |
+| --------------------- | ------------------------ |
+| txdata_next[63:0]     | 下一个 64bit 输出数据           |
+| valid_mask_next[63:0] | 下一个 64bit 有效标志           |
+| txdata[63:0]          | 当前寄存输出数据                 |
+| valid_mask[63:0]      | 当前寄存输出有效标志               |
+| addr                  | 当前读取 base_pattern 的地址    |
+| phase_done_next       | 当前 64bit 推演中是否完成一个 phase |
+
+打包规则为：
+
+```text
+处于 pattern 段：
+    txdata_next[i] = base_pattern[(phase_offset + bit_idx) mod pattern_len]
+    valid_mask_next[i] = 1
+
+处于 gap 段：
+    txdata_next[i] = 0
+    valid_mask_next[i] = 0
+```
+
+注意：这是每个 txusrclk2 周期内的组合逻辑推演，不是状态机连续运行 64 个时钟。
+
+---
+
+### 6. 同步信号派生内部信号
+
+同步信号必须从同一个 pattern_tx_engine 状态机派生，保证与 txdata 和 valid_mask 不漂移。
+
+| 信号           | 来源                             | 作用                     |
+| ------------ | ------------------------------ | ---------------------- |
+| eom_out      | valid_mask                     | 表示当前 word 包含有效 pattern |
+| soa_gate_out | phase_active / sequence_active | SOA 大窗口                |
+| acq_trig_out | phase_start_pulse              | phase 开始触发             |
+| acq_gate_out | phase_active                   | 采集窗口                   |
+
+第一版推荐关系：
+
+```verilog
+eom_out      <= |valid_mask;
+soa_gate_out <= phase_active;
+acq_trig_out <= phase_start_pulse;
+acq_gate_out <= phase_active;
+```
+
+后续可扩展：
+
+```text
+soa_pre_delay
+soa_post_delay
+acq_delay
+acq_width
+```
+
+---
+
+## 四、推荐信号连接关系
+
+整体连接关系如下：
+
+```text
+PC / 上位机
+    ↓ UDP
+Zynq PS
+    ↓ AXI GPIO / AXI BRAM
+config_loader
+    ↓
+pattern_source
+    ↓
+base_pattern[126:0] + pattern_len
+    ↓
+pattern_tx_engine
+    ↓
+txdata[63:0]       → GTX TX
+valid_mask[63:0]   → eom_out / 后续 bit 级 EOM
+phase_active       → soa_gate_out / acq_gate_out
+phase_start_pulse  → acq_trig_out
+```
+
+---
+
+## 五、外部信号与内部信号对应关系
+
+| 外部信号         | 内部来源              | 说明                     |
+| ------------ | ----------------- | ---------------------- |
+| GTX_TXP/TXN  | txdata[63:0]      | GTX 将 64bit 并行数据串行输出   |
+| eom_out      | valid_mask[63:0]  | 第一版为 word 级有效标志        |
+| soa_gate_out | phase_active      | 覆盖整个 phase，不在 gap 期间拉低 |
+| acq_trig_out | phase_start_pulse | 每个 phase 开始打一拍         |
+| acq_gate_out | phase_active      | phase 有效采集窗口           |
+| AD9528 SPI   | PS 软件             | 配置外部时钟芯片               |
+| Ethernet/UDP | PS 软件             | 接收上位机命令                |
+
+---
+
+## 六、设计注意事项
+
+1. EOM、SOA_GATE、ACQ_TRIG、ACQ_GATE 应由 PL 逻辑生成，不应由 PS 软件实时控制。
+2. 这些同步信号应从同一个 txusrclk2 域状态机派生，避免和 TXDATA 发生时序漂移。
+3. 普通 PL GPIO 输出的 EOM 只能做到 word 级同步，不能实现 bit 级精确 EOM。
+4. 若未来需要 bit 级 EOM，应将 valid_mask[63:0] 通过 OSERDES 或高速串行通道输出。
+5. SOA_GATE 是大窗口信号，gap 期间仍应保持高。
+6. ACQ_TRIG 建议每个 phase 触发一次，而不是每个 pattern 周期触发一次。
+7. pattern_len 本设计只支持 63 和 127，不支持 128。
+8. seed 生成模式下，seed 不能为 0；若输入为 0，应替换为默认非零值。
+9. PS 负责写配置和启动，PL 负责精确定时。
+10. GTX 不参与 pattern 边界识别，只负责发送 txdata[63:0]。

@@ -1,0 +1,681 @@
+# Codex 任务：根据 laser_tx_core 集成文档生成 Vivado 集成脚本与第一阶段上板验证文件
+
+## 一、当前工程状态
+
+当前工程为 Zynq-7000 Vivado 工程，工程名为：
+
+```text
+laser_tx
+```
+
+当前 Block Design 为：
+
+```text
+system.bd
+```
+
+工程中已经包含并通过仿真的 PL 数据流核心：
+
+```text
+laser_tx_core.v
+config_loader.v
+pattern_source.v
+pattern_tx_engine.v
+sync_signal_gen.v
+status_register.v
+cdc_toggle_sync.v
+```
+
+`laser_tx_core` 已完成以下内容：
+
+1. 支持 Vivado 原生 BRAM Port B 接口；
+2. PL 侧只通过 BRAM Port B 读取参数；
+3. PS 侧通过 AXI BRAM Controller / BRAM Port A 写参数；
+4. PS 侧通过 AXI GPIO 输出 `gpio_ctrl[31:0]`；
+5. PL 侧通过 `gpio_status[31:0]` 回读状态；
+6. 内部 pattern / phase / gap / valid_mask / EOM / SOA / ACQ 逻辑已经通过 testbench；
+7. 不允许修改核心 pattern / phase / gap 行为。
+
+本任务只负责 **Vivado BD 集成脚本、ILA 调试脚本、第一阶段上板验证说明和最小 Vitis bring-up 程序框架**。
+
+---
+
+## 二、本阶段禁止修改的内容
+
+不要修改以下核心逻辑：
+
+```text
+pattern_source.v
+pattern_tx_engine.v
+config_loader.v
+sync_signal_gen.v
+status_register.v
+cdc_toggle_sync.v
+```
+
+除非只是添加 `MARK_DEBUG` 属性或增加纯调试输出端口。
+
+不要改动：
+
+```text
+PRBS6 / PRBS7 生成规则
+63bit / 127bit pattern 长度规则
+phase_offset 移位规则
+repeat_cycles 规则
+insert_after 规则
+gap_len_bits 规则
+valid_mask 生成规则
+EOM / SOA / ACQ 派生关系
+```
+
+本阶段不要做：
+
+```text
+不要写 UDP
+不要配置 AD9528
+不要写 GTX 动态速率切换
+不要实现复杂 rate plan
+不要重新写 AD9528 驱动
+不要把 valid_mask 送入 GTX
+不要做 bit 级 EOM
+不要用 OSERDES
+```
+
+---
+
+## 三、需要 Codex 生成的内容
+
+请生成以下文件：
+
+```text
+scripts/
+ ├── bd_connect_laser_tx_core.tcl
+ ├── bd_add_laser_ila.tcl
+ ├── run_build_bitstream.tcl
+
+docs/
+ ├── board_bringup_checklist.md
+ ├── ila_signal_map.md
+
+vitis_bringup/
+ ├── main.c
+ ├── laser_hw.h
+ ├── laser_gpio.h
+ ├── laser_gpio.c
+ ├── laser_bram.h
+ ├── laser_bram.c
+ ├── laser_status.h
+ └── laser_status.c
+```
+
+其中：
+
+1. `bd_connect_laser_tx_core.tcl` 用于连接 BD 中的 `laser_tx_core_0`、BRAM、AXI GPIO、时钟和复位；
+2. `bd_add_laser_ila.tcl` 用于添加两个 ILA；
+3. `run_build_bitstream.tcl` 用于执行 Validate、Generate Output Products、Update Wrapper、Synthesis、Implementation、Generate Bitstream；
+4. `board_bringup_checklist.md` 写第一阶段上板验证流程；
+5. `ila_signal_map.md` 写 ILA 信号含义；
+6. `vitis_bringup` 只写最小 Vitis 测试程序，用于写 BRAM、翻转 apply、enable、读取 status。
+
+---
+
+## 四、BD 集成要求
+
+当前 BD 中已有以下模块：
+
+```text
+processing_system7_0
+rst_ps7_0_50M
+axi_smc
+axi_bram_ctrl_0
+blk_mem_gen_0
+axi_gpio_0
+laser_tx_core_0
+```
+
+请在 Tcl 脚本中检查这些 cell 是否存在。如果不存在，要明确报错并停止，不要静默失败。
+
+---
+
+## 五、BRAM Port B 连接要求
+
+`laser_tx_core_0` 的 BRAM 接口已经补全为 Vivado 原生 BRAM Port B master 接口。
+
+连接方式：
+
+```text
+blk_mem_gen_0/BRAM_PORTB → laser_tx_core_0/BRAM_PORTB
+```
+
+要求：
+
+1. 如果当前 BD 中存在外部 `BRAM_PORTB_0`，请删除该 external interface port；
+2. 保留 `blk_mem_gen_0/BRAM_PORTB`；
+3. 将 `laser_tx_core_0/BRAM_PORTB` 直接接到 `blk_mem_gen_0/BRAM_PORTB`；
+4. 不要额外给 `bram_we`、`bram_din` 接常量，因为 RTL 内部已经固定：
+
+   * `bram_we = 4'b0000`
+   * `bram_din = 32'd0`
+5. 确认 Block Memory Generator 为 True Dual Port RAM；
+6. Port B 数据宽度为 32 bit；
+7. Port B 读延迟为 1；
+8. Port A 继续连接 `axi_bram_ctrl_0/BRAM_PORTA`，供 PS 读写。
+
+---
+
+## 六、AXI GPIO 连接要求
+
+`axi_gpio_0` 必须配置为双通道。
+
+请在脚本中设置：
+
+```text
+Channel 1：All Outputs，width = 32
+Channel 2：All Inputs，width = 32
+```
+
+连接方式：
+
+```text
+axi_gpio_0/gpio_io_o[31:0]       → laser_tx_core_0/gpio_ctrl[31:0]
+laser_tx_core_0/gpio_status[31:0] → axi_gpio_0/gpio2_io_i[31:0]
+```
+
+如果当前 BD 中存在旧的外部端口 `gpio_rtl_0`，请删除。
+
+GPIO bit 定义如下：
+
+```text
+gpio_ctrl[7:0]  = config_index
+gpio_ctrl[8]    = apply_toggle
+gpio_ctrl[9]    = enable
+gpio_ctrl[10]   = soft_reset
+gpio_ctrl[11]   = pattern_source_sel
+                  0 = seed PRBS
+                  1 = direct pattern
+gpio_ctrl[12]   = direct_pattern_len_sel
+                  0 = 63bit
+                  1 = 127bit
+```
+
+注意：软件每次应用新配置时必须翻转 bit 8，而不是输出窄脉冲。
+
+---
+
+## 七、时钟与复位要求
+
+### 1. AXI 侧
+
+连接：
+
+```text
+laser_tx_core_0/axi_clk  ← processing_system7_0/FCLK_CLK0
+laser_tx_core_0/axi_rstn ← rst_ps7_0_50M/peripheral_aresetn[0]
+```
+
+### 2. TX 发送侧
+
+最终设计中：
+
+```text
+laser_tx_core_0/txusrclk2 必须来自 GT TX user-clock 网络
+```
+
+不得长期使用 PS FCLK 或原始参考时钟代替。
+
+如果当前阶段尚未添加 GT Wizard，可以在 `bd_connect_laser_tx_core.tcl` 中支持一个参数：
+
+```tcl
+set USE_TEMP_TXCLK 1
+```
+
+当 `USE_TEMP_TXCLK = 1` 时，临时连接：
+
+```text
+laser_tx_core_0/txusrclk2 ← processing_system7_0/FCLK_CLK0
+laser_tx_core_0/tx_rst    ← rst_ps7_0_50M/peripheral_reset[0]
+```
+
+并在脚本输出警告：
+
+```text
+WARNING: txusrclk2 is temporarily connected to FCLK_CLK0 for PL-core bring-up only. Do not use this for final GTX transmission.
+```
+
+当后续接入 GT Wizard 时，应改成：
+
+```text
+GT Wizard TX user clock → laser_tx_core_0/txusrclk2
+tx_rst = txusrclk2 域同步复位
+GT TX reset 完成前保持 laser_tx_core 复位
+```
+
+---
+
+## 八、GT Wizard 连接说明
+
+如果当前工程已经存在 GT Wizard，请生成连接说明，但不要强制修改 GT Wizard 配置。
+
+最终连接原则：
+
+```text
+laser_tx_core_0/txdata[63:0] → GT Wizard 对应通道的 txdata_in[63:0]
+GT Wizard TX user clock      → laser_tx_core_0/txusrclk2
+```
+
+要求：
+
+1. GT Wizard TX 用户数据宽度必须是 64 bit；
+2. 如果生成的 GT 端口不是 64 bit，不能截断 `txdata`，必须先修改 Wizard 配置；
+3. `valid_mask[63:0]` 不送入 GTX；
+4. `valid_mask` 只用于 EOM 生成和 ILA 观察；
+5. 不同 Wizard 版本端口可能叫 `gt0_txdata_in`、`ch0_txdata_in` 或类似名称，请以当前工程实际端口为准；
+6. 如果没有 GT Wizard，本阶段只完成临时 FCLK 验证，不要硬写不存在的 GT 端口名。
+
+---
+
+## 九、外部同步端口要求
+
+以下信号需要 Make External：
+
+```text
+eom_out
+soa_gate_out
+acq_trig_out
+acq_gate_out
+```
+
+如果已经存在外部端口：
+
+```text
+eom_out_0
+soa_gate_out_0
+acq_trig_out_0
+acq_gate_out_0
+```
+
+请保持或重命名为清晰名称，不要重复创建多个 external port。
+
+XDC 不要填写猜测管脚，只生成模板：
+
+```tcl
+# set_property PACKAGE_PIN <PIN> [get_ports eom_out_0]
+# set_property IOSTANDARD LVCMOS18 [get_ports eom_out_0]
+```
+
+同时提醒用户必须根据板卡原理图填写 `PACKAGE_PIN` 和 `IOSTANDARD`。
+
+---
+
+## 十、ILA 添加要求
+
+不要用一个 ILA 跨两个时钟域。请添加两个 ILA。
+
+### 1. AXI/配置侧 ILA
+
+名称：
+
+```text
+ila_laser_axi_cfg
+```
+
+时钟：
+
+```text
+ila_laser_axi_cfg/clk ← processing_system7_0/FCLK_CLK0
+```
+
+探针：
+
+```text
+probe0  gpio_ctrl[31:0]
+probe1  gpio_status[31:0]
+probe2  bram_en
+probe3  bram_addr[31:0]
+probe4  bram_dout[31:0]
+probe5  bram_rst
+```
+
+如果以下内部网可以 Mark Debug，也加入：
+
+```text
+cfg_update_toggle_axi
+cfg_valid_axi
+cfg_error_axi
+error_code_axi[7:0]
+```
+
+如果当前 RTL 没有这些顶层信号，不要为了它们修改核心逻辑。基础联调先观察前六项即可。
+
+### 2. 发送侧 ILA
+
+名称：
+
+```text
+ila_laser_tx
+```
+
+时钟：
+
+```text
+ila_laser_tx/clk ← laser_tx_core_0/txusrclk2
+```
+
+探针：
+
+```text
+probe0  txdata[63:0]
+probe1  valid_mask[63:0]
+probe2  eom_out
+probe3  soa_gate_out
+probe4  acq_trig_out
+probe5  acq_gate_out
+probe6  gpio_status[31:0]
+```
+
+如果 RTL 已经提供 debug 输出，优先加入：
+
+```text
+busy_tx
+done_tx
+phase_active_tx
+phase_start_pulse_tx
+phase_offset_tx[7:0]
+current_state_tx[7:0]
+pattern_len_tx[7:0]
+cfg_update_pulse_tx
+```
+
+如果没有这些顶层信号，可先通过 `gpio_status[31:0]` 解析：
+
+```text
+bit[0]     = cfg_valid
+bit[1]     = cfg_error
+bit[2]     = pattern_valid
+bit[3]     = busy
+bit[4]     = done
+bit[5]     = phase_active
+bit[6]     = sequence_active
+bit[15:8]  = phase_offset[7:0]
+bit[23:16] = current_state[7:0]
+bit[31:24] = error_code[7:0]
+```
+
+---
+
+## 十一、ILA 触发建议
+
+请在 `ila_signal_map.md` 中写明以下触发建议：
+
+1. 首次启动时，触发 `apply_toggle` 或 `cfg_update_pulse_tx`；
+2. 观察 phase 边界时，触发 `acq_trig_out` 或 `phase_start_pulse_tx`；
+3. 观察 gap 时，触发：
+
+   ```text
+   valid_mask != 64'hFFFF_FFFF_FFFF_FFFF
+   ```
+4. 如果想捕获纯 gap word，可设置：
+
+   ```text
+   gap_len_bits = 128
+   ```
+
+   这样至少会出现一个 `valid_mask = 64'h0` 的 word。
+
+---
+
+## 十二、Vitis bring-up 程序要求
+
+请生成最小 Vitis 裸机测试程序。
+
+不要写 UDP，不要写 AD9528，不要写 GTX rate plan。
+
+只做：
+
+1. 初始化 AXI GPIO；
+2. 向 BRAM 写入 8 个 32bit word；
+3. 设置 `gpio_ctrl` 模式位；
+4. 翻转 `apply_toggle`；
+5. 拉高 `enable`；
+6. 循环读取 `gpio_status`；
+7. 解析并打印状态。
+
+优先使用：
+
+```c
+#include "xparameters.h"
+#include "xgpio.h"
+#include "xil_io.h"
+#include "xil_printf.h"
+#include "sleep.h"
+#include "xstatus.h"
+```
+
+BRAM 写入可以使用 `Xil_Out32`，但必须封装在 `laser_bram.c` 中，不要在 `main.c` 中散写地址。
+
+AXI GPIO 使用 Xilinx 官方 `XGpio` 驱动。
+
+---
+
+## 十三、BRAM 参数格式
+
+每组配置占 32 字节：
+
+```text
+base = index * 32
+```
+
+写入格式：
+
+```text
+base + 0x00: seed[31:0]
+base + 0x04: repeat_cycles[31:0]
+base + 0x08: gap_cfg[31:0]
+             gap_cfg[7:0]  = gap_len_bits
+             gap_cfg[23:8] = insert_after
+base + 0x0C: mode_cfg[31:0]
+             mode_cfg[7:0] = prbs_order
+             mode_cfg[8]   = phase_shift_en
+             mode_cfg[9]   = loop_en
+base + 0x10: pattern_low[31:0]
+base + 0x14: pattern_mid[31:0]
+base + 0x18: pattern_high[31:0]
+base + 0x1C: pattern_top[31:0]
+```
+
+direct pattern 拼接方式：
+
+```text
+pattern_in[126:0] = {pattern_top[30:0], pattern_high, pattern_mid, pattern_low}
+```
+
+不要实现 128bit pattern。
+
+---
+
+## 十四、第一阶段 Vitis 测试用例
+
+### 测试 A：Direct 63bit
+
+参数：
+
+```text
+index = 0
+pattern_source_sel = 1
+direct_pattern_len_sel = 0
+seed = 0x3F
+prbs_order = 6
+repeat_cycles = 2
+insert_after = 0
+gap_len_bits = 0
+phase_shift_en = 0
+loop_en = 0
+pattern_low  = 0x55555555
+pattern_mid  = 0x2AAAAAAA
+pattern_high = 0x00000000
+pattern_top  = 0x00000000
+```
+
+流程：
+
+```text
+soft_reset
+write 8 BRAM words
+set gpio_ctrl mode bits
+toggle apply_toggle
+read status until cfg_valid=1 and cfg_error=0
+enable=1
+loop print status
+```
+
+### 测试 B：Direct 63bit + gap
+
+参数：
+
+```text
+repeat_cycles = 4
+insert_after = 2
+gap_len_bits = 128
+phase_shift_en = 0
+```
+
+预期：
+
+```text
+gap 时 txdata=0
+gap 时 valid_mask=0
+gap 纯 word 时 eom_out=0
+gap 期间 soa_gate_out 保持高
+gap 期间 acq_gate_out 保持高
+```
+
+### 测试 C：PRBS6
+
+参数：
+
+```text
+pattern_source_sel = 0
+seed = 0x3F
+prbs_order = 6
+repeat_cycles = 4
+insert_after = 2
+gap_len_bits = 5
+phase_shift_en = 1
+loop_en = 0
+```
+
+预期：
+
+```text
+phase_offset 从 0 到 62
+每个 phase 开始 acq_trig_out 单拍
+```
+
+### 测试 D：非法配置
+
+参数：
+
+```text
+repeat_cycles = 0
+```
+
+预期：
+
+```text
+cfg_error = 1
+cfg_valid = 0
+busy = 0
+error_code = 8'h01
+```
+
+---
+
+## 十五、状态解析要求
+
+`gpio_status[31:0]` 解析如下：
+
+```text
+bit[0]     = cfg_valid
+bit[1]     = cfg_error
+bit[2]     = pattern_valid
+bit[3]     = busy
+bit[4]     = done
+bit[5]     = phase_active
+bit[6]     = sequence_active
+bit[15:8]  = phase_offset
+bit[23:16] = current_state
+bit[31:24] = error_code
+```
+
+请在 `laser_status.c` 中实现：
+
+```c
+void laser_print_status(uint32_t status);
+```
+
+打印时不要只打印十六进制，要逐位解释。
+
+---
+
+## 十六、构建流程脚本
+
+请在 `run_build_bitstream.tcl` 中包含以下流程：
+
+```tcl
+validate_bd_design
+save_bd_design
+generate_target all [get_files system.bd]
+make_wrapper -files [get_files system.bd] -top
+add_files -norecurse ./laser_tx.gen/sources_1/bd/system/hdl/system_wrapper.v
+update_compile_order -fileset sources_1
+launch_runs synth_1 -jobs 8
+wait_on_run synth_1
+launch_runs impl_1 -to_step write_bitstream -jobs 8
+wait_on_run impl_1
+```
+
+如果 wrapper 已存在，请不要重复添加导致冲突，要检查后再添加。
+
+---
+
+## 十七、完成后请说明
+
+完成后请说明：
+
+1. 哪些 BD 连接被脚本修改；
+2. 是否使用了临时 `txusrclk2 = FCLK_CLK0`；
+3. 当前版本为什么还不能直接接激光器；
+4. 两个 ILA 分别观察什么；
+5. Vitis bring-up 如何运行；
+6. 如何判断 BRAM 写入成功；
+7. 如何判断 apply_toggle 被 PL 捕获；
+8. 如何判断 gap / EOM / SOA / ACQ 正确；
+9. 什么时候再接 GT Wizard；
+10. 接 GT Wizard 时需要改哪些连接。
+
+---
+
+## 十八、最终目标
+
+本阶段最终目标不是完成完整激光发送系统，而是先证明：
+
+```text
+PS 能写 BRAM
+PS 能通过 GPIO apply/enable
+PL 能正确读取配置
+pattern_source 能生成 pattern
+pattern_tx_engine 能输出 txdata/valid_mask
+EOM/SOA/ACQ 与 valid_mask/phase_active 对齐
+gpio_status 能被 PS 读回
+ILA 能看到关键内部波形
+```
+
+只有上述全部验证通过后，下一阶段才接：
+
+```text
+GT Wizard
+AD9528
+GTX_TXP/TXN
+外部激光驱动
+采集卡
+```

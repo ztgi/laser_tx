@@ -1,0 +1,15 @@
+connect
+
+targets
+targets -set -filter {name =~ "APU*"}
+
+source D:/FPGA_Learn/laser_tx/vitis_bringup/bringup/_ide/psinit/ps7_init.tcl
+ps7_init
+ps7_post_config
+
+targets -set -filter {name =~ "*Cortex-A9*#0"}
+rst -processor
+after 500
+
+dow D:/FPGA_Learn/laser_tx/vitis_bringup/bringup/Debug/bringup.elf
+con

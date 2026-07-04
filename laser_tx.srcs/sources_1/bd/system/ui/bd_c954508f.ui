@@ -1,0 +1,83 @@
+{
+   "ActiveEmotionalView":"Default View",
+   "Default View_ScaleFactor":"0.717936",
+   "Default View_TopLeft":"-145,-24",
+   "ExpandedHierarchyInLayout":"",
+   "guistr":"# # String gsaved with Nlview 7.0r6  2020-01-29 bk=1.5227 VDI=41 GEI=36 GUI=JA:10.0 non-TLS
+#  -string -flagsOSRD
+preplace port DDR -pg 1 -lvl 5 -x 1630 -y 60 -defaultsOSRD
+preplace port FIXED_IO -pg 1 -lvl 5 -x 1630 -y 80 -defaultsOSRD
+preplace port SPI_1_0 -pg 1 -lvl 5 -x 1630 -y 100 -defaultsOSRD
+preplace port port-id_acq_trig_out_0 -pg 1 -lvl 5 -x 1630 -y 620 -defaultsOSRD
+preplace port port-id_soa_gate_out_0 -pg 1 -lvl 5 -x 1630 -y 600 -defaultsOSRD
+preplace port port-id_acq_gate_out_0 -pg 1 -lvl 5 -x 1630 -y 660 -defaultsOSRD
+preplace port port-id_eom_out_0 -pg 1 -lvl 5 -x 1630 -y 580 -defaultsOSRD
+preplace port port-id_gt_ctrl_clk -pg 1 -lvl 5 -x 1630 -y 560 -defaultsOSRD
+preplace port port-id_txusrclk2 -pg 1 -lvl 0 -x -30 -y 730 -defaultsOSRD
+preplace port port-id_tx_rst -pg 1 -lvl 0 -x -30 -y 750 -defaultsOSRD
+preplace port port-id_gt_ready -pg 1 -lvl 0 -x -30 -y 770 -defaultsOSRD
+preplace portBus gt_ctrl_rst -pg 1 -lvl 5 -x 1630 -y 440 -defaultsOSRD
+preplace portBus txdata -pg 1 -lvl 5 -x 1630 -y 640 -defaultsOSRD
+preplace portBus valid_mask -pg 1 -lvl 5 -x 1630 -y 680 -defaultsOSRD
+preplace portBus gt_status_in -pg 1 -lvl 0 -x -30 -y 240 -defaultsOSRD
+preplace portBus gpio_ctrl_to_gt -pg 1 -lvl 5 -x 1630 -y 1170 -defaultsOSRD
+preplace portBus gpio_status_to_gt -pg 1 -lvl 5 -x 1630 -y 540 -defaultsOSRD
+preplace inst processing_system7_0 -pg 1 -lvl 1 -x 240 -y 120 -defaultsOSRD
+preplace inst axi_bram_ctrl_0 -pg 1 -lvl 3 -x 1120 -y 190 -defaultsOSRD
+preplace inst blk_mem_gen_0 -pg 1 -lvl 4 -x 1470 -y 510 -defaultsOSRD
+preplace inst axi_gpio_0 -pg 1 -lvl 3 -x 1120 -y 370 -defaultsOSRD
+preplace inst axi_smc -pg 1 -lvl 2 -x 800 -y 180 -defaultsOSRD
+preplace inst rst_ps7_0_50M -pg 1 -lvl 1 -x 240 -y 380 -defaultsOSRD
+preplace inst ila_laser_axi_cfg -pg 1 -lvl 4 -x 1470 -y 1050 -defaultsOSRD
+preplace inst ila_laser_tx -pg 1 -lvl 2 -x 800 -y 900 -defaultsOSRD
+preplace inst axi_gpio_gt_status -pg 1 -lvl 3 -x 1120 -y -20 -defaultsOSRD
+preplace inst laser_tx_core_0 -pg 1 -lvl 1 -x 240 -y 1000 -defaultsOSRD
+preplace netloc axi_gpio_0_gpio_io_o 1 0 5 30 1270 NJ 1270 NJ 1270 1280 1170 N
+preplace netloc gt_ready_1 1 0 1 -10J 770n
+preplace netloc gt_status_in_1 1 0 4 -10J -10 NJ -10 980J 70 1260
+preplace netloc laser_tx_core_0_acq_gate_out 1 1 4 510J 660 NJ 660 NJ 660 NJ
+preplace netloc laser_tx_core_0_acq_trig_out 1 1 4 500J 620 NJ 620 NJ 620 NJ
+preplace netloc laser_tx_core_0_dbg_bram_addr 1 1 3 510J 1110 NJ 1110 1290
+preplace netloc laser_tx_core_0_dbg_bram_dout 1 1 3 440J 1120 NJ 1120 1300
+preplace netloc laser_tx_core_0_dbg_bram_en 1 1 3 500J 1140 960J 1050 N
+preplace netloc laser_tx_core_0_dbg_bram_rst 1 1 3 480J 1130 NJ 1130 1310
+preplace netloc laser_tx_core_0_dbg_busy_tx 1 1 1 520 890n
+preplace netloc laser_tx_core_0_dbg_cfg_update_pulse_tx 1 1 1 570 1010n
+preplace netloc laser_tx_core_0_dbg_current_state_tx 1 1 1 460 990n
+preplace netloc laser_tx_core_0_dbg_done_tx 1 1 1 530 910n
+preplace netloc laser_tx_core_0_dbg_engine_start_tx 1 1 1 590 1050n
+preplace netloc laser_tx_core_0_dbg_pattern_valid_tx 1 1 1 580 1030n
+preplace netloc laser_tx_core_0_dbg_phase_active_tx 1 1 1 540 930n
+preplace netloc laser_tx_core_0_dbg_phase_offset_tx 1 1 1 560 970n
+preplace netloc laser_tx_core_0_dbg_phase_start_pulse_tx 1 1 1 550 950n
+preplace netloc laser_tx_core_0_eom_out 1 1 4 470J 460 NJ 460 1260J 440 1580J
+preplace netloc laser_tx_core_0_gpio_status 1 1 4 450 690 NJ 690 1270 580 1570
+preplace netloc laser_tx_core_0_soa_gate_out 1 1 4 490J 600 NJ 600 NJ 600 NJ
+preplace netloc laser_tx_core_0_txdata 1 1 4 480 640 NJ 640 NJ 640 N
+preplace netloc laser_tx_core_0_valid_mask 1 1 4 460 680 NJ 680 NJ 680 N
+preplace netloc processing_system7_0_FCLK_CLK0 1 0 5 20 0 470 10 960 280 1300 430 1590
+preplace netloc processing_system7_0_FCLK_RESET0_N 1 0 2 30 240 440
+preplace netloc rst_ps7_0_50M_peripheral_aresetn 1 0 3 30 480 450 90 970
+preplace netloc rst_ps7_0_50M_peripheral_reset 1 1 4 480 270 NJ 270 NJ 270 1600J
+preplace netloc tx_rst_1 1 0 1 0J 750n
+preplace netloc txusrclk2_1 1 0 2 10J 730 520
+preplace netloc axi_bram_ctrl_0_BRAM_PORTA 1 3 1 1310 190n
+preplace netloc axi_smc_M00_AXI 1 2 1 950 160n
+preplace netloc axi_smc_M01_AXI 1 2 1 950 180n
+preplace netloc axi_smc_M02_AXI 1 2 1 940 -40n
+preplace netloc laser_tx_core_0_BRAM_PORTB 1 1 3 440 520 NJ 520 NJ
+preplace netloc processing_system7_0_DDR 1 1 4 NJ 60 NJ 60 NJ 60 NJ
+preplace netloc processing_system7_0_FIXED_IO 1 1 4 NJ 80 NJ 80 NJ 80 NJ
+preplace netloc processing_system7_0_M_AXI_GP0 1 1 1 480 140n
+preplace netloc processing_system7_0_SPI_1 1 1 4 NJ 100 NJ 100 NJ 100 NJ
+levelinfo -pg 1 -30 240 800 1120 1470 1630
+pagesize -pg 1 -db -bbox -sgen -200 -100 1830 1280
+"
+}
+{
+   "da_axi4_cnt":"2",
+   "da_board_cnt":"2",
+   "da_bram_cntlr_cnt":"1",
+   "da_clkrst_cnt":"1",
+   "da_ps7_cnt":"1"
+}

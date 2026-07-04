@@ -1,0 +1,262 @@
+请基于当前工程修改 PL 数据流生成部分和必要的 PS 参数传递部分。工程中已有 Zynq PS、AXI GPIO、AXI BRAM、GTX 发送、GT 速率控制、AD9528 配置等模块。不要重写整个工程，优先在现有模块基础上改造。
+
+当前重点需求不是 AD9528 和 GTX 速率控制，而是重新设计数据流生成模块，使其支持“pattern 来源选择 + pattern 调度 + 同步信号输出”。
+
+一、总体目标
+
+当前系统由 PS 通过 UDP 命令接收上位机参数，然后通过 AXI BRAM / AXI GPIO 把参数传给 PL。PL 在 txusrclk2 时钟域内生成 64bit 并行数据 TXDATA[63:0]，送入 GTX TX 进行高速串行发送。
+
+现在需要把原来的 PRBS 生成逻辑升级为通用 pattern 调度逻辑。pattern 可以来自两种来源：
+
+seed 生成模式
+PS 传入 seed 和 PRBS 阶数，PL 根据 LFSR 生成标准 PRBS 基准序列。
+PRBS6：生成 63bit 基准序列。
+PRBS7：生成 127bit 基准序列。
+pattern 直传模式
+PS 直接通过 BRAM 写入完整序列，PL 不再用 LFSR 生成。
+支持 63bit pattern。
+支持 128bit pattern。
+128bit pattern 是自定义序列，不一定是标准 PRBS7。
+
+无论 pattern 来自 seed 还是 PS 直传，后面统一进入同一个 pattern_scheduler 调度模块。
+
+二、pattern 调度规则
+
+PL 内部统一维护：
+
+base_pattern[127:0]
+pattern_len，取值可为 63、127、128
+phase_offset
+bit_idx
+cycle_cnt
+in_gap
+gap_rem
+gap_used
+
+调度逻辑如下：
+
+以 base_pattern 为基准序列 S0。
+phase_offset 表示当前循环移位相位。
+phase 0：S0 原始序列。
+phase 1：S0 循环左移 1bit。
+phase 2：S0 循环左移 2bit。
+直到 phase_offset 回到原始相位。
+每个 phase 内重复发送 repeat_cycles 个完整 pattern 周期。
+在第 insert_after 个完整 pattern 周期结束后，插入 gap_len_bits 个 0。
+插零结束后继续发送当前 phase 的剩余 pattern 周期。
+当前 phase 完成后，phase_offset 加 1，进入下一个 phase。
+如果 loop_en=1，则 phase_offset 回到 0 后继续循环；如果 loop_en=0，则一轮完成后停止。
+
+例如 pattern_len=63，repeat_cycles=4，insert_after=2，gap_len_bits=5 时：
+
+phase 0:
+S0#1 S0#2 00000 S0#3 S0#4
+
+phase 1:
+S1#1 S1#2 00000 S1#3 S1#4
+
+phase 2:
+S2#1 S2#2 00000 S2#3 S2#4
+
+三、64bit 打包要求
+
+调度状态机运行在 txusrclk2 时钟域。每个 txusrclk2 周期生成一个 64bit word：
+
+TXDATA[63:0]
+VALID_MASK[63:0]
+
+VALID_MASK 原来可以叫 PRBS_MASK，但为了支持自定义 pattern，建议命名为 VALID_MASK。含义：
+
+当前 bit 来自有效 pattern：VALID_MASK 对应位 = 1。
+当前 bit 是插入的 0：VALID_MASK 对应位 = 0。
+
+TXDATA 和 VALID_MASK 必须在同一个 64bit 打包逻辑中同步生成，不能分开异步生成。
+
+伪逻辑：
+
+for i = 0..63:
+if in_gap:
+txdata_next[i] = 0
+valid_mask_next[i] = 0
+gap_rem--
+else:
+addr = phase_offset + bit_idx
+if addr >= pattern_len:
+addr -= pattern_len
+txdata_next[i] = base_pattern[addr]
+valid_mask_next[i] = 1
+bit_idx++
+if bit_idx reaches pattern_len-1:
+bit_idx = 0
+cycle_cnt++
+if cycle_cnt == insert_after:
+enter gap
+
+注意：这是组合逻辑推演 64 个串行 bit，不是状态机跑 64 个时钟。状态机每个 txusrclk2 周期更新一次。
+
+四、同步信号输出
+
+需要从同一个调度状态机派生外部同步信号：
+
+eom_out
+表示有效 pattern 段。
+有效 pattern bit：EOM 高。
+插零 gap bit：EOM 低。
+如果只走普通 PL GPIO，则可以先做 word/window 级：
+eom_out = |VALID_MASK[63:0]
+如果未来需要 bit 级精确 EOM，则需要把 VALID_MASK[63:0] 通过 OSERDES 或另一条高速通道串行化输出。
+
+soa_gate_out
+SOA 是光门控大窗口，不应该在每个重复周期之间拉低。
+在一个 phase 内，SOA 应覆盖整个 phase 发射窗口，包括 PRBS/pattern 段和插零 gap 段。
+可支持：
+
+soa_pre_delay：提前打开 SOA。
+soa_post_delay：延迟关闭 SOA。
+
+正确关系示例：
+TXDATA: S0#1 S0#2 00000 S0#3 S0#4
+EOM: 高 高 低 高 高
+SOA_GATE: 高━━━━━━━━━━━━━━━━━━━━高
+
+acq_trig_out
+采集卡触发脉冲。建议每个 phase 开始时打一拍。
+phase_start 指当前循环移位序列 S_k 的第一个有效 pattern 周期即将开始发送的时刻，不是每个 63bit 周期开始。
+acq_gate_out
+采集窗口信号。建议覆盖当前 phase 的有效采集窗口。
+可支持：
+acq_delay
+acq_width
+如果没有复杂采集窗口需求，可先让 acq_gate_out 在 phase_active 期间为高。
+
+这些信号必须和 TXDATA 来自同一个 txusrclk2 域状态机，避免漂移。
+
+五、外部 GPIO 引脚方式
+
+EOM、SOA、ACQ_TRIG、ACQ_GATE 都由 PL 状态机产生，所以不要使用 Zynq PS 的 GPIO MIO。
+
+应该做成 PL 顶层输出端口，例如：
+
+output wire eom_out;
+output wire soa_gate_out;
+output wire acq_trig_out;
+output wire acq_gate_out;
+
+然后在 XDC 中约束到板卡提供的 PL 引脚，例如 GPIO1、GPIO2、GPIO3、GPIO4 对应的 AG17、AB12、AC14、AD16 等。IOSTANDARD 要根据对应 Bank 的 VCCO 设置，例如 LVCMOS18 或 LVCMOS33。
+
+不要把这些精确定时信号通过 PS GPIO 软件控制输出。
+
+六、BRAM 参数表建议
+
+当前 BRAM 每组 16 字节参数不够支持 128bit pattern，建议扩展为 32 字节或更大。建议每组参数如下：
+
+offset 0x00: pattern_word0 / seed
+offset 0x04: pattern_word1
+offset 0x08: pattern_word2
+offset 0x0C: pattern_word3
+offset 0x10: repeat_cycles
+offset 0x14: gap_cfg
+offset 0x18: mode_cfg
+offset 0x1C: sync_cfg 或 reserved
+
+pattern_word0 = pattern[31:0]
+pattern_word1 = pattern[63:32]
+pattern_word2 = pattern[95:64]
+pattern_word3 = pattern[127:96]
+
+gap_cfg 建议：
+gap_cfg[7:0] = gap_len_bits
+gap_cfg[23:8] = insert_after
+gap_cfg[31:24] = reserved
+
+mode_cfg 建议：
+mode_cfg[1:0] = pattern_source
+0 = seed 生成模式
+1 = pattern 直传模式
+mode_cfg[9:2] = pattern_len
+63 / 127 / 128
+mode_cfg[17:10] = prbs_order
+seed 模式下使用，6 或 7
+mode_cfg[18] = phase_shift_en
+mode_cfg[19] = loop_en
+mode_cfg[31:20] = reserved
+
+sync_cfg 可选：
+sync_cfg[7:0] = soa_pre_delay
+sync_cfg[15:8] = soa_post_delay
+sync_cfg[23:16] = acq_delay
+sync_cfg[31:24] = acq_width 或 reserved
+
+七、需要修改的可能文件
+
+优先检查并修改这些文件：
+
+datastream_param_loader.v
+扩展 BRAM 参数读取格式，输出 pattern_word0~3、repeat_cycles、gap_cfg、mode_cfg、sync_cfg。
+datastream_configured_gen.v
+连接 param_loader 和新的 pattern 生成/调度模块。
+datastream_gen.v 或新建 pattern_scheduler.v
+实现 pattern 来源选择、base_pattern 生成、phase/repeat/gap 调度、64bit TXDATA 和 VALID_MASK 打包。
+prbs_32_gen.v
+当前是 32 阶 PRBS，不适合本需求。可保留但不要继续作为主要数据源。新增 PRBS6/PRBS7 pattern 生成逻辑。
+laser_tx_top_param_ctrl.v
+接出 eom_out、soa_gate_out、acq_trig_out、acq_gate_out。
+laser_tx_system_top.v
+增加顶层 PL 输出端口。
+XDC 约束文件
+把 eom_out、soa_gate_out、acq_trig_out、acq_gate_out 绑定到 PL GPIO 引脚，不要配置为 PS MIO。
+main.c 或 PS 端参数写入代码
+如果当前只支持 seed/prbs_len/zero_len/reserved，需要扩展 UDP 命令和 BRAM 写入格式，支持 pattern 直传、pattern_len、repeat_cycles、insert_after、gap_len_bits、pattern_source、loop_en 等字段。
+
+八、不要改动或谨慎改动的部分
+
+不要随意改 GTX rate_ctrl 的 DRP / reset 流程。
+不要随意改 AD9528 SPI 配置代码。
+AD9528 和 GTX 速率切换不是这次主要任务。
+保留已有 PS 通过 AXI GPIO 控制 enable/apply/index/status 的机制。
+切速逻辑和数据流调度逻辑要分开。
+
+九、验证要求
+
+请补充或更新 testbench，至少覆盖：
+
+pattern 直传 63bit：
+pattern_len=63，repeat_cycles=4，insert_after=2，gap_len_bits=5。
+检查输出为：
+S0#1 S0#2 00000 S0#3 S0#4，然后进入 S1。
+pattern 直传 128bit：
+pattern_len=128，检查两个 txusrclk2 word 正好发送完一个 pattern 周期。
+seed 生成 PRBS6：
+seed 生成 63bit base_pattern，然后按相同调度规则发送。
+VALID_MASK：
+pattern bit 对应 1，gap bit 对应 0。
+EOM：
+普通 GPIO 版本可先验证 eom_out = |VALID_MASK。
+SOA：
+同一个 phase 内 SOA 不应在重复周期之间拉低，gap 期间也保持高。
+ACQ_TRIG：
+每个 phase_start 输出一个 txusrclk2 周期脉冲。
+ACQ_GATE：
+phase_active 期间为高，或按 acq_delay/acq_width 生成。
+
+最终代码结构目标：
+
+PS 写 BRAM / GPIO 参数
+↓
+param_loader
+↓
+pattern_source_mux
+├── seed + prbs_order → PRBS6/PRBS7 base_pattern
+└── direct pattern[127:0] → base_pattern
+↓
+pattern_scheduler
+↓
+TXDATA[63:0] + VALID_MASK[63:0]
+↓
+GTX TX
+
+同时由 pattern_scheduler 派生：
+eom_out
+soa_gate_out
+acq_trig_out
+acq_gate_out
