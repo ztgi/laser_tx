@@ -352,7 +352,125 @@ ILA 重点观察：
 - `gt_ready`；
 - `txusrclk2_freq_counter_axi` 是否落入 1250M 初始窗口 19200..19850。
 
-## 17. 边界声明
+## 17. 1250M 回切 1000M 失败现象与原因分析
+
+本节记录第一次 1250M dynamic CPLL profile 上板后的失败定位证据。以下图片均为失败分析证据，不作为通过证据使用。
+
+### 17.1 UDP 日志现象
+
+![UDP：1250M 成功但 1000M 回切失败](../images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_done_1000_return_fail.png)
+
+图中可以看到，`rate list` 正常返回：
+
+```text
+OK RATE_LIST supported=500,1000,1250,2000 refclk=125MHz pll=CPLL ad9528_dynamic=0 qpll=0
+```
+
+`rate plan 1250` 也正确显示目标速率、TXOUT_DIV、TXUSRCLK/TXUSRCLK2 以及 dynamic 支持状态。随后 `rate set 1250` 成功返回：
+
+```text
+OK RATE_SET target=1250 current_rate=1250 state=DONE
+```
+
+但从 1250M 回切到 1000M 时，第一次 `rate set 1000` 失败在：
+
+```text
+TXUSRCLK2_FREQ_OUT_OF_WINDOW
+```
+
+再次尝试 `rate set 1000` 时，失败变为：
+
+```text
+GT_NOT_READY
+```
+
+这说明当前不是 UDP 命令解析失败，也不是 1250M profile 完全没有执行。更准确的阶段性结论是：1250M 切入路径已经初步跑通，但从 1250M 回切到原 500M/1000M/2000M CPLL 参数组的 restore 路径没有闭环。
+
+### 17.2 500M -> 1250M 切换过程 ILA 总览
+
+![ILA：500M 到 1250M 切换过程总览](../images/dynamic_rate/cpll_drp_profile/ila_cpll_drp_500_to_1250_overview_in_progress.png)
+
+该图是切换过程图，不是最终 DONE 稳态图。图中可见：
+
+```text
+target_rate_mbps = 1250
+current_rate_mbps = 500
+txusrclk2_freq_counter_axi = 7812
+```
+
+该现象表示状态机已经收到 1250M 请求，但尚未完成 `VERIFY_RATE`，因此 `current_rate` 仍保持 last good rate = 500，`txusrclk2_freq_counter_axi` 仍对应 500M。这个状态本身是正常的中间状态，反而说明 `current_rate` 没有在 request 或 DRP done 阶段提前更新，仍符合“VERIFY_RATE 成功后再更新”的设计原则。
+
+### 17.3 1250M 切入方向 CPLL/MMCM DRP 细节
+
+![ILA：1250M 切入时 CPLL divider 从 0x1002 变为 0x1003](../images/dynamic_rate/cpll_drp_profile/ila_cpll_drp_1250_entry_drp_detail_0x1002_to_0x1003.png)
+
+该图显示切入 1250M 时，GT DRP 确实访问了 `0x05E`，CPLL divider 相关值从 `0x1002` 变为 `0x1003`，随后进入 MMCM DRP 写入流程。
+
+因此，问题重点不是 UDP 没有触发，也不是 1250M profile 完全没有执行。现有证据更指向：切入 1250M 时 CPLL DRP 发生过，但从 1250M 回切到 1000M 时，尚未证明 CPLL divider 已从 `0x1003` 恢复为 `0x1002`。
+
+### 17.4 根因假设
+
+当前最可能的原因是：状态机只在目标 profile 为 1250M 时执行 CPLL DRP；而从 1250M 回切到 500M / 1000M / 2000M 时，没有把 CPLL divider 从 `0x1003` 恢复到 `0x1002`。
+
+参数关系如下：
+
+| Profile | CPLL M/N1/N2 | CPLL divider DRP value |
+|---|---|---:|
+| 500M | 1 / 4 / 4 | `0x1002` |
+| 1000M | 1 / 4 / 4 | `0x1002` |
+| 2000M | 1 / 4 / 4 | `0x1002` |
+| 1250M | 1 / 4 / 5 | `0x1003` |
+
+因此：
+
+```text
+1000M -> 1250M: 0x1002 -> 0x1003
+1250M -> 1000M: 0x1003 -> 0x1002
+1250M -> 500M : 0x1003 -> 0x1002
+1250M -> 2000M: 0x1003 -> 0x1002
+```
+
+如果回切时 CPLL 仍停留在 `0x1003`，则目标 1000M 的 TXOUT_DIV/MMCM/frequency verify 与实际 CPLL 输出不自洽，出现 `TXUSRCLK2_FREQ_OUT_OF_WINDOW` 是合理现象。随后 GT/MMCM 可能处于未完全恢复状态，再次尝试时报 `GT_NOT_READY` 也符合当前错误链路。
+
+### 17.5 修复方向
+
+后续 RTL 修复不应再用“目标 profile 是否为 1250M”来决定是否执行 CPLL DRP，而应比较 active CPLL 参数和 target CPLL 参数：
+
+```text
+if target_cpll_drp_value != active_cpll_drp_value:
+    execute CPLL DRP sequence
+else:
+    skip CPLL DRP sequence
+```
+
+推荐状态机保存：
+
+```text
+active_cpll_drp_value
+target_cpll_drp_value
+```
+
+其中 `active_cpll_drp_value` 只能在 `VERIFY_RATE` 成功后更新。如果切换失败，`current_rate` 和 `active_cpll_drp_value` 都必须保持 last good 状态，不能在 request 阶段、DRP done 阶段或 MMCM lock 阶段提前更新。
+
+### 17.6 修复后需要补充的验证图
+
+后续修复后建议补充以下两张证据图：
+
+```text
+docs/images/dynamic_rate/cpll_drp_profile/ila_cpll_drp_1250_to_1000_restore_0x1003_to_0x1002.png
+docs/images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_to_1000_return_pass.png
+```
+
+其中：
+
+- `ila_cpll_drp_1250_to_1000_restore_0x1003_to_0x1002.png` 用于证明 1250M -> 1000M 时，DRP `0x05E` 从 `0x1003` 恢复到 `0x1002`；
+- `udp_cpll_drp_1250_to_1000_return_pass.png` 用于证明 UDP 中 `rate set 1250` 和 `rate set 1000` 均返回 `DONE`。
+
+本节结论：
+
+当前测试说明 1250M 切入方向已经初步跑通，但 1250M 回切到 500M/1000M/2000M 原 CPLL 参数组的 restore 逻辑尚未闭环。下一步应修复 CPLL active/target 参数比较逻辑，并用 UDP + ILA 重新验证 1250M -> 1000M 回切路径。
+
+## 18. 边界声明
 
 本轮完成的是 125MHz REFCLK + CPLL 条件下新增一个 CPLL 参数变化 profile 的 RTL/Vitis/build 集成。
 
@@ -366,7 +484,7 @@ ILA 重点观察：
 
 如果后续上板 `rate set 1250` 失败，应优先根据 `rate_state/error_code`、CPLL lock、GT DRP readback、MMCM lock、TXUSRCLK2 frequency counter 定位；不要把 build 通过写成硬件通过。
 
-## 18. 修改文件列表
+## 19. 修改文件列表
 
 | File | Change |
 |---|---|
@@ -380,4 +498,3 @@ ILA 重点观察：
 | `vitis_bringup/bringup/src/laser_udp_server.c` | 新增 `rate set/plan 1250` 与 `rate list` 输出 |
 | `vitis_bringup/bringup/src/main.c` | 更新运行模式打印 |
 | `scripts/run_dynamic_cpll_profile_project_flow.tcl` | 新增可重复 project flow build/report/artifact 脚本 |
-
