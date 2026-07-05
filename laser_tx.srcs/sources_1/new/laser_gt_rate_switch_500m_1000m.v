@@ -2,7 +2,7 @@
 
 // Minimal TX-only dynamic rate switch controller for the already validated
 // 500M Profile0 <-> 1000M Profile1 <-> 2000M Profile2 set, plus the
-// first 125 MHz-refclk CPLL-parameter-changing 1250M profile.
+// first 125 MHz-refclk CPLL-parameter-changing 1250M/2500M profiles.
 //
 // This module intentionally supports only fixed, explicitly reviewed profiles.
 // It does not touch RXOUT_DIV, QPLL, AD9528 or any wide-range/refclk switching
@@ -11,7 +11,7 @@
 //
 // Level-3 profile-table refactor note:
 // The current implementation supports only the validated 500M/1000M/2000M
-// set and the first CPLL-parameter-changing 1250M candidate on the existing
+// set and the first CPLL-parameter-changing 1250M/2500M candidates on the existing
 // 125 MHz refclk.  The profile accessors below collect rate-specific
 // parameters in one place so the FSM acts as a common Rate Switch Executor.
 // Reserved profile fields such as refclk_id and flags remain constant; they
@@ -30,7 +30,9 @@ module laser_gt_rate_switch_500m_1000m #(
     parameter integer FREQ_1250M_MIN_COUNT   = 19200,
     parameter integer FREQ_1250M_MAX_COUNT   = 19850,
     parameter integer FREQ_2000M_MIN_COUNT   = 30800,
-    parameter integer FREQ_2000M_MAX_COUNT   = 31800
+    parameter integer FREQ_2000M_MAX_COUNT   = 31800,
+    parameter integer FREQ_2500M_MIN_COUNT   = 38400,
+    parameter integer FREQ_2500M_MAX_COUNT   = 39750
 )(
     input  wire        clk,
     input  wire        rst,
@@ -127,6 +129,7 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [3:0] RATE_ID_1000M = 4'd2;
     localparam [3:0] RATE_ID_2000M = 4'd3;
     localparam [3:0] RATE_ID_1250M = 4'd4;
+    localparam [3:0] RATE_ID_2500M = 4'd5;
 
     localparam [1:0] REFCLK_125M = 2'd0;
     localparam [1:0] PLL_TYPE_CPLL = 2'd0;
@@ -136,6 +139,7 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [3:0] MMCM_DRP_SEQ_PROFILE1_1000M = 4'd2;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE2_2000M = 4'd3;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE3_1250M = 4'd4;
+    localparam [3:0] MMCM_DRP_SEQ_PROFILE4_2500M = 4'd5;
     localparam [7:0] PROFILE_FLAG_NONE = 8'h00;
     localparam [7:0] PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED = 8'h01;
 
@@ -210,7 +214,8 @@ module laser_gt_rate_switch_500m_1000m #(
             profile_supported = (rate_id == RATE_ID_500M) ||
                                 (rate_id == RATE_ID_1000M) ||
                                 (rate_id == RATE_ID_2000M) ||
-                                (rate_id == RATE_ID_1250M);
+                                (rate_id == RATE_ID_1250M) ||
+                                (rate_id == RATE_ID_2500M);
         end
     endfunction
 
@@ -222,6 +227,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_1000M: profile_rate_mbps = 16'd1000;
             RATE_ID_2000M: profile_rate_mbps = 16'd2000;
             RATE_ID_1250M: profile_rate_mbps = 16'd1250;
+            RATE_ID_2500M: profile_rate_mbps = 16'd2500;
             default:       profile_rate_mbps = 16'd0;
             endcase
         end
@@ -263,6 +269,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_1000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE1_1000M;
             RATE_ID_2000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE2_2000M;
             RATE_ID_1250M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE3_1250M;
+            RATE_ID_2500M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE4_2500M;
             default:       profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE0_500M;
             endcase
         end
@@ -276,6 +283,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_1000M: profile_txout_div_enc = 3'b010;
             RATE_ID_2000M: profile_txout_div_enc = 3'b001;
             RATE_ID_1250M: profile_txout_div_enc = 3'b010;
+            RATE_ID_2500M: profile_txout_div_enc = 3'b001;
             default:       profile_txout_div_enc = 3'b011;
             endcase
         end
@@ -303,6 +311,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             // XVphy_DrpEncodeQpllMCpllMN2(N2=5) -> 7'h03.
             RATE_ID_1250M: profile_cpll_fbdiv_enc = 7'h03;
+            RATE_ID_2500M: profile_cpll_fbdiv_enc = 7'h03;
             // Current 500M/1000M/2000M profiles use N2=4 -> 7'h02.
             default:       profile_cpll_fbdiv_enc = 7'h02;
             endcase
@@ -328,6 +337,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_1000M: profile_expected_txusrclk2_hz = 32'd15625000;
             RATE_ID_2000M: profile_expected_txusrclk2_hz = 32'd31250000;
             RATE_ID_1250M: profile_expected_txusrclk2_hz = 32'd19531250;
+            RATE_ID_2500M: profile_expected_txusrclk2_hz = 32'd39062500;
             default:       profile_expected_txusrclk2_hz = 32'd7812500;
             endcase
         end
@@ -341,6 +351,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_1000M: profile_freq_min_count = FREQ_1000M_MIN_COUNT[15:0];
             RATE_ID_2000M: profile_freq_min_count = FREQ_2000M_MIN_COUNT[15:0];
             RATE_ID_1250M: profile_freq_min_count = FREQ_1250M_MIN_COUNT[15:0];
+            RATE_ID_2500M: profile_freq_min_count = FREQ_2500M_MIN_COUNT[15:0];
             default:       profile_freq_min_count = FREQ_500M_MIN_COUNT[15:0];
             endcase
         end
@@ -354,6 +365,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_1000M: profile_freq_max_count = FREQ_1000M_MAX_COUNT[15:0];
             RATE_ID_2000M: profile_freq_max_count = FREQ_2000M_MAX_COUNT[15:0];
             RATE_ID_1250M: profile_freq_max_count = FREQ_1250M_MAX_COUNT[15:0];
+            RATE_ID_2500M: profile_freq_max_count = FREQ_2500M_MAX_COUNT[15:0];
             default:       profile_freq_max_count = FREQ_500M_MAX_COUNT[15:0];
             endcase
         end
@@ -495,6 +507,29 @@ module laser_gt_rate_switch_500m_1000m #(
         end
     endfunction
 
+    function [15:0] mmcm_data_2500m;
+        input [4:0] index;
+        begin
+            case (index)
+            5'd0:  mmcm_data_2500m = 16'hffff;
+            5'd1:  mmcm_data_2500m = 16'h1104;
+            5'd2:  mmcm_data_2500m = 16'h0000;
+            5'd3:  mmcm_data_2500m = 16'h1041;
+            5'd4:  mmcm_data_2500m = 16'h1208;
+            5'd5:  mmcm_data_2500m = 16'h0000;
+            5'd6:  mmcm_data_2500m = 16'h1104;
+            5'd7:  mmcm_data_2500m = 16'h0000;
+            5'd8:  mmcm_data_2500m = 16'h1041;
+            5'd9:  mmcm_data_2500m = 16'h00c0;
+            5'd10: mmcm_data_2500m = 16'h01e8;
+            5'd11: mmcm_data_2500m = 16'h5801;
+            5'd12: mmcm_data_2500m = 16'h59e9;
+            5'd13: mmcm_data_2500m = 16'h0800;
+            default: mmcm_data_2500m = 16'h0900;
+            endcase
+        end
+    endfunction
+
     function [15:0] mmcm_data_for_seq;
         input [3:0] seq_id;
         input [4:0] index;
@@ -505,8 +540,10 @@ module laser_gt_rate_switch_500m_1000m #(
                 mmcm_data_for_seq = mmcm_data_1000m(index);
             end else if (seq_id == MMCM_DRP_SEQ_PROFILE2_2000M) begin
                 mmcm_data_for_seq = mmcm_data_2000m(index);
-            end else begin
+            end else if (seq_id == MMCM_DRP_SEQ_PROFILE3_1250M) begin
                 mmcm_data_for_seq = mmcm_data_1250m(index);
+            end else begin
+                mmcm_data_for_seq = mmcm_data_2500m(index);
             end
         end
     endfunction
