@@ -119,7 +119,7 @@ vivado -mode batch -source scripts\build_gt_profile2_2000m_static.tcl
 | write_debug_probes | 通过 |
 | timing | 通过 |
 | DRC | 0 Error，4 Warning |
-| hardware test | Hardware test was not run |
+| hardware test | 已完成 2G static 上板初测；尚未完成 txusrclk2 频率计数精确验证，尚未捕获 txdata/valid_mask 有效发送窗口 |
 
 Vivado implementation 状态：
 
@@ -193,48 +193,106 @@ DRC 结果为 0 Error / 4 Warning：
 
 `Project 1-840` 类 BD/IP OOC DCP warning 在 build log 中出现，当前没有证据表明它导致 implementation 失败；本阶段未继续处理该 DCP 生成警告。
 
-## 11. 尚未完成的上板验证项
+## 11. 2.000G static 上板初测记录
 
-以下项目尚未验证：
+本次 2.000G static bit/LTX 已执行上板初测，证据来自真实 UDP 返回和 Vivado ILA 截图。当前证据覆盖 GT/MMCM ready、APPLY/ENABLE 控制链路和配置校验链路；但本次 static ILA 没有 `txoutclk_alive_axi`、`txusrclk2_alive_axi`、`txusrclk2_freq_counter_axi`，因此不能声明已经精确验证 `TXUSRCLK2 = 31.25MHz`。
 
-- Program 2.000G static bit/LTX；
-- Hardware Manager debug hub / ILA 是否稳定；
-- `cplllock_sync`；
-- `tx_mmcm_locked_sync`；
-- `txresetdone_sync`；
-- `gt_ready`；
+### 11.1 UDP 配置 / APPLY / ENABLE 返回
+
+![UDP SOFT_RESET / WRITE_CONFIG / SELECT_CONFIG / APPLY / ENABLE 返回 OK](../images/dynamic_rate/third_rate_2g_static/udp_2g_static_config_apply_enable_ok.png)
+
+图中 UDP 命令 `SOFT_RESET`、`WRITE_CONFIG`、`SELECT_CONFIG`、`APPLY`、`ENABLE` 均返回 OK，说明 PS/lwIP/UDP 命令解析、Vitis 控制路径和基础控制命令返回链路可用。该图证明 UDP 控制链路进入了本次 2.000G static 测试流程，但不单独证明 PL 内部发送数据窗口已经被捕获。
+
+### 11.2 AXI/FCLK ILA 配置链路证据
+
+![AXI/FCLK ILA 显示 APPLY / ENABLE 后配置有效与启动事件已见](../images/dynamic_rate/third_rate_2g_static/ila_2g_static_axi_cfg_apply_enable_done.png)
+
+该 ILA 图显示：
+
+- `cfg_valid = 1`；
+- `cfg_error = 0`；
+- `cfg_update_seen = 1`；
+- `engine_start_seen = 1`；
+- `pattern_valid = 1`；
+- `done_tx = 1`。
+
+这说明 2.000G static 下，PS/UDP -> AXI GPIO/BRAM -> PL 配置加载 -> ENABLE 启动事件 -> done 状态回报链路已经出现预期活动。由于 `done_tx=1` 出现在当前观察窗口内，说明本次有限发送序列已经结束；仍需另一次 trigger 捕获发送窗口内的 `txdata/valid_mask`。
+
+### 11.3 GT/MMCM ready 与 TXUSRCLK2 域活动证据
+
+![GT/MMCM ready 与 txusrclk2 divided debug 周期性跳变](../images/dynamic_rate/third_rate_2g_static/ila_2g_static_gt_mmcm_ready_txusrclk2_divided_toggle.png)
+
+该 ILA 图显示：
+
+- `cplllock_sync = 1`；
+- `tx_mmcm_locked_sync = 1`；
+- `txresetdone_sync = 1`；
+- `gt_ready_tx = 1`；
+- `txusrclk2_divided_debug` 有周期性跳变。
+
+这说明 2.000G static 下 GT/CPLL、TX MMCM、TX reset done 和 GT ready 状态已恢复，且 TXUSRCLK2 域存在活动迹象。需要注意，本次截图只能证明 divided debug 在跳变，不能替代 `txusrclk2_freq_counter_axi` 或示波器的精确频率测量，因此不能写成已精确验证 `TXUSRCLK2 = 31.25MHz`。
+
+### 11.4 TX 域发送窗口未捕获说明
+
+![TX 域窗口未捕获到 txdata / valid_mask，有待重新 trigger](../images/dynamic_rate/third_rate_2g_static/ila_2g_static_tx_domain_idle_after_enable_need_retrigger.png)
+
+该图是可选辅助证据，用于说明当前 TX 域 ILA 光标/窗口可能落在有限短序列结束后，尚未捕获到有效 `txdata/valid_mask` 发送窗口。该图不能作为发送数据有效证据；后续应重新设置 trigger，在 `engine_start`、`busy` 或 `valid_mask != 0` 附近捕获。
+
+### 11.5 初测结论
+
+本轮 2.000G static 上板初测显示：
+
+- UDP 配置、APPLY、ENABLE 命令返回 OK；
+- AXI/FCLK ILA 中配置链路和启动事件可见；
+- GT/MMCM ready 已恢复；
+- `txusrclk2_divided_debug` 有周期性跳变，初步证明 TXUSRCLK2 域存在活动；
+- 尚未完成 `TXUSRCLK2 = 31.25MHz` 的精确频率计数验证；
+- 尚未捕获 `txdata[63:0] / valid_mask[63:0]` 的有效发送窗口。
+
+因此，当前证据支持继续 2.000G static 后续 bring-up；但在 2.000G 加入 dynamic profile table 之前，建议补充 `txusrclk2_freq_counter_axi` 或等价频率证明，并重新捕获 `txdata/valid_mask` 有效发送窗口。
+
+阶段性结论为：2G static build 已通过，2G static 上板初测显示 GT/MMCM ready 和配置链路可用；但尚未完成 txusrclk2 频率计数精确验证，也尚未捕获 txdata/valid_mask 有效发送窗口。当前证据支持继续后续 bring-up，但 2G 加入 dynamic profile table 前建议补充频率计数或等价证明。
+
+## 12. 尚未完成的上板验证项
+
+以下项目仍需补充：
+
 - `txoutclk_alive_axi`；
 - `txusrclk2_alive_axi`；
-- `txusrclk2_freq_counter_axi` 是否符合 31.25MHz；
+- `txusrclk2_freq_counter_axi` 或等价频率证明，确认 31.25MHz；
 - APPLY / ENABLE 后 `txdata/valid_mask` 是否有效；
 - 外部同步输出；
 - 示波器 / 误码率 / 外部光口闭环。
 
-## 12. 是否建议进入 2.000G 上板 bring-up
+## 13. 是否建议进入 2.000G 后续 bring-up
 
-建议进入 2.000G static 上板 bring-up。原因是：
+建议继续 2.000G static 后续 bring-up。原因是：
 
 - 2.000G GT 参数已从 isolated XCI / generated HDL / primitive 参数确认；
 - 2.000G user clocking 参数来自 GT Wizard example design；
 - static build 已完成 bit/LTX；
 - timing 已通过；
 - AXI/FCLK bring-up ILA 已保留；
+- 上板初测已显示 GT/MMCM ready 和配置链路可用；
 - 2.000G 尚未引入 dynamic controller，风险边界清晰。
 
-上板时必须使用同源 bit/LTX，并按 `22_static_2g_profile_bringup_plan.md` 逐层验证。
+下一步应优先补充 TXUSRCLK2 频率计数或等价证明，并重新触发 TX 域 ILA 捕获 `txdata/valid_mask` 有效发送窗口。
 
-## 13. 明确边界声明
+## 14. 明确边界声明
 
-本报告只证明：
+本报告当前证明：
 
 ```text
 2.000G static build 通过，bit/LTX 已生成，timing 满足当前约束。
+2.000G static 上板初测显示 GT/MMCM ready 和配置链路可用。
 ```
 
 本报告不证明：
 
 ```text
-2.000G 上板通过；
+2.000G 完整发送链路通过；
+TXUSRCLK2 已被精确验证为 31.25MHz；
+txdata/valid_mask 有效发送窗口已捕获；
 2.000G dynamic 切换通过；
 rate set 2000 已实现；
 AD9528/refclk 动态切换已实现；
