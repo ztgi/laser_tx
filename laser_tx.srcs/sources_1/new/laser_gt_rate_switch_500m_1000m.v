@@ -165,6 +165,8 @@ module laser_gt_rate_switch_500m_1000m #(
     reg [4:0] target_cpll_refclk_div_enc;
     reg       target_cpll_fbdiv_45_enc;
     reg [6:0] target_cpll_fbdiv_enc;
+    (* mark_debug = "true", keep = "true" *) reg [15:0] target_cpll_drp_value;
+    (* mark_debug = "true", keep = "true" *) reg [15:0] active_cpll_drp_value;
     reg [15:0] expected_min_count;
     reg [15:0] expected_max_count;
     reg [1:0] target_refclk_id;
@@ -184,6 +186,9 @@ module laser_gt_rate_switch_500m_1000m #(
     reg [15:0] gt_outdiv_readback;
     reg [15:0] gt_cpll_readback;
     reg request_pending;
+
+    (* mark_debug = "true", keep = "true" *) wire cpll_drp_required =
+        (target_cpll_drp_value != active_cpll_drp_value);
 
     wire request_event = gpio_ctrl[17] ^ rate_req_toggle_d;
     wire [3:0] requested_rate_id = gpio_ctrl[16:13];
@@ -246,10 +251,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [3:0] profile_gt_drp_seq_id;
         input [3:0] rate_id;
         begin
-            case (rate_id)
-            RATE_ID_1250M: profile_gt_drp_seq_id = GT_DRP_SEQ_CPLL_TXOUT_DIV;
-            default:       profile_gt_drp_seq_id = GT_DRP_SEQ_TXOUT_DIV;
-            endcase
+            profile_gt_drp_seq_id = GT_DRP_SEQ_TXOUT_DIV;
         end
     endfunction
 
@@ -519,9 +521,12 @@ module laser_gt_rate_switch_500m_1000m #(
             rate_error_code <= code;
             apply_enable_blocked <= 1'b0;
             tx_quiesce_req <= 1'b0;
+            rate_gt_tx_reset <= 1'b0;
+            rate_txuserrdy_block <= 1'b0;
+            rate_mmcm_reset <= 1'b0;
+            rate_cpll_reset <= 1'b0;
             gt_drp_busy <= 1'b0;
             mmcm_drp_busy <= 1'b0;
-            rate_cpll_reset <= 1'b0;
         end
     endtask
 
@@ -534,6 +539,8 @@ module laser_gt_rate_switch_500m_1000m #(
             target_cpll_refclk_div_enc <= 5'h10;
             target_cpll_fbdiv_45_enc <= 1'b0;
             target_cpll_fbdiv_enc   <= 7'h02;
+            target_cpll_drp_value   <= 16'h1002;
+            active_cpll_drp_value   <= 16'h1002;
             expected_min_count      <= FREQ_500M_MIN_COUNT[15:0];
             expected_max_count      <= FREQ_500M_MAX_COUNT[15:0];
             target_refclk_id        <= REFCLK_125M;
@@ -604,12 +611,23 @@ module laser_gt_rate_switch_500m_1000m #(
                 target_cpll_refclk_div_enc <= profile_cpll_refclk_div_enc(requested_rate_id);
                 target_cpll_fbdiv_45_enc <= profile_cpll_fbdiv_45_enc(requested_rate_id);
                 target_cpll_fbdiv_enc <= profile_cpll_fbdiv_enc(requested_rate_id);
+                target_cpll_drp_value <= cpll_div_drp_value(
+                    profile_cpll_refclk_div_enc(requested_rate_id),
+                    profile_cpll_fbdiv_45_enc(requested_rate_id),
+                    profile_cpll_fbdiv_enc(requested_rate_id));
                 expected_min_count <= profile_freq_min_count(requested_rate_id);
                 expected_max_count <= profile_freq_max_count(requested_rate_id);
                 target_refclk_id <= profile_refclk_id(requested_rate_id);
                 target_refclk_freq_hz <= profile_refclk_freq_hz(requested_rate_id);
                 target_pll_type <= profile_pll_type(requested_rate_id);
-                target_gt_drp_seq_id <= profile_gt_drp_seq_id(requested_rate_id);
+                if (cpll_div_drp_value(profile_cpll_refclk_div_enc(requested_rate_id),
+                                       profile_cpll_fbdiv_45_enc(requested_rate_id),
+                                       profile_cpll_fbdiv_enc(requested_rate_id)) !=
+                    active_cpll_drp_value) begin
+                    target_gt_drp_seq_id <= GT_DRP_SEQ_CPLL_TXOUT_DIV;
+                end else begin
+                    target_gt_drp_seq_id <= profile_gt_drp_seq_id(requested_rate_id);
+                end
                 target_mmcm_drp_seq_id <= profile_mmcm_drp_seq_id(requested_rate_id);
                 target_expected_txusrclk2_hz <= profile_expected_txusrclk2_hz(requested_rate_id);
                 target_lock_timeout <= profile_lock_timeout(requested_rate_id);
@@ -679,6 +697,10 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_busy <= 1'b0;
                 apply_enable_blocked <= 1'b0;
                 tx_quiesce_req <= 1'b0;
+                rate_gt_tx_reset <= 1'b0;
+                rate_txuserrdy_block <= 1'b0;
+                rate_mmcm_reset <= 1'b0;
+                rate_cpll_reset <= 1'b0;
                 gt_drp_busy <= 1'b0;
                 mmcm_drp_busy <= 1'b0;
                 if (request_pending) begin
@@ -1040,6 +1062,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 end else begin
                     current_rate_id <= target_rate_id;
                     current_rate_mbps <= target_rate_mbps;
+                    active_cpll_drp_value <= target_cpll_drp_value;
                     rate_state <= RATE_DONE;
                     rate_busy <= 1'b0;
                     rate_done <= 1'b1;

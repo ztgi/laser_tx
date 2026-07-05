@@ -470,7 +470,175 @@ docs/images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_to_1000_return_pass.
 
 当前测试说明 1250M 切入方向已经初步跑通，但 1250M 回切到 500M/1000M/2000M 原 CPLL 参数组的 restore 逻辑尚未闭环。下一步应修复 CPLL active/target 参数比较逻辑，并用 UDP + ILA 重新验证 1250M -> 1000M 回切路径。
 
-## 18. 边界声明
+## 18. 1250M 回切 1000M 失败与修复
+
+### 18.1 初次上板失败回顾
+
+初次 1250M dynamic CPLL profile 上板测试中，`rate list`、`rate plan 1250` 和 `rate set 1250` 均正常，`rate set 1250` 返回：
+
+```text
+OK RATE_SET target=1250 current_rate=1250 state=DONE
+```
+
+随后从 1250M 回切到 1000M 失败：
+
+```text
+ERROR RATE_SET_FAILED target=1000 state=RATE_ERROR error_code=TXUSRCLK2_FREQ_OUT_OF_WINDOW current_rate=1250 raw=0x0a80f843
+```
+
+再次执行 `rate set 1000` 时，失败提前到 precheck：
+
+```text
+ERROR RATE_SET_FAILED target=1000 state=PRECHECK error_code=GT_NOT_READY current_rate=1250
+```
+
+该现象说明 1250M 切入路径已经能够执行，但 1250M 回切到原 500M/1000M/2000M CPLL 参数组时，硬件状态没有恢复到目标 1000M 所需的时钟关系。
+
+### 18.2 根因
+
+修复前逻辑用“目标 profile 是否为 1250M”决定是否执行 CPLL DRP：
+
+```text
+target_rate == 1250M -> 执行 CPLL DRP
+target_rate != 1250M -> 只执行 TXOUT_DIV DRP
+```
+
+这个逻辑在 500M/1000M/2000M 三档之间成立，因为三者共用：
+
+```text
+CPLL M/N1/N2 = 1/4/4
+CPLL divider DRP value = 0x1002
+```
+
+但加入 1250M 后，1250M 使用：
+
+```text
+CPLL M/N1/N2 = 1/4/5
+CPLL divider DRP value = 0x1003
+```
+
+因此 1000M -> 1250M 需要 `0x1002 -> 0x1003`，而 1250M -> 1000M 同样必须执行 `0x1003 -> 0x1002`。修复前回切 1000M 时没有恢复 CPLL divider，导致 CPLL 仍可能停留在 1250M 的 `0x1003`，从而使 1000M 的 MMCM/frequency verify 失配，表现为 `TXUSRCLK2_FREQ_OUT_OF_WINDOW`。
+
+### 18.3 修复内容
+
+本轮修复为基于 active/target CPLL 参数比较决定是否执行 CPLL DRP：
+
+```text
+if target_cpll_drp_value != active_cpll_drp_value:
+    execute CPLL DRP sequence
+else:
+    skip CPLL DRP sequence
+```
+
+新增并保留的状态：
+
+```text
+target_cpll_drp_value
+active_cpll_drp_value
+cpll_drp_required
+```
+
+其中：
+
+- `target_cpll_drp_value` 由目标 profile 的 CPLL M/N1/N2 编码得到；
+- `active_cpll_drp_value` 表示 last good profile 对应的 CPLL divider；
+- `cpll_drp_required` 表示二者不同，需要执行 CPLL DRP；
+- `active_cpll_drp_value` 只在 `VERIFY_RATE` 成功后更新；
+- 如果切换失败，`current_rate` 和 `active_cpll_drp_value` 都保持 last good 状态，不在 request、DRP done 或 MMCM lock 阶段提前更新。
+
+修复后的预期路径：
+
+| Path | CPLL action |
+|---|---|
+| 500M -> 1000M | skip CPLL DRP，仍为 `0x1002` |
+| 1000M -> 2000M | skip CPLL DRP，仍为 `0x1002` |
+| 1000M -> 1250M | write CPLL `0x1002 -> 0x1003` |
+| 1250M -> 1000M | write CPLL `0x1003 -> 0x1002` |
+| 1250M -> 500M | write CPLL `0x1003 -> 0x1002` |
+| 1250M -> 2000M | write CPLL `0x1003 -> 0x1002` |
+
+### 18.4 RATE_ERROR 后 reset 释放
+
+本轮同时修正错误态的 reset 释放策略。进入 `RATE_ERROR` 或调用 `set_error()` 时，rate controller 不再保持以下控制信号为有效：
+
+```text
+rate_gt_tx_reset
+rate_txuserrdy_block
+rate_mmcm_reset
+rate_cpll_reset
+```
+
+这避免错误态永久按住 GT/MMCM/CPLL reset。若硬件已经处于 not ready 状态，后续 `rate set` precheck 返回 `GT_NOT_READY` 仍然是合理现象；此时应优先执行 soft reset、重新 program 或重新运行完整 bring-up 流程恢复硬件状态。
+
+### 18.5 构建结果
+
+修复后已重新运行 Vivado project flow：
+
+```text
+synth_1_STATUS = synth_design Complete!
+impl_1_STATUS  = write_bitstream Complete!
+bitstream      = generated
+ltx            = generated
+```
+
+Timing summary：
+
+| Metric | Result |
+|---|---:|
+| Setup WNS | 7.029 ns |
+| Setup TNS | 0.000 ns |
+| Hold WHS | 0.043 ns |
+| Hold THS | 0.000 ns |
+
+Vivado 报告：
+
+```text
+All user specified timing constraints are met.
+```
+
+重新生成的本地 bit/LTX：
+
+```text
+D:\FPGA_Learn\laser_tx\reports\dynamic_rate_cpll_drp_profile\artifacts\laser_tx_board_top_dynamic_cpll_drp_profile.bit
+D:\FPGA_Learn\laser_tx\reports\dynamic_rate_cpll_drp_profile\artifacts\laser_tx_board_top_dynamic_cpll_drp_profile.ltx
+```
+
+Vitis clean build 已重新运行并通过：
+
+```text
+ELF: D:\FPGA_Learn\laser_tx\vitis_bringup\bringup\Debug\bringup.elf
+text=147503, data=3432, bss=3201088
+```
+
+### 18.6 待上板验证
+
+本轮修复已完成 RTL/build 收口，但尚未重新上板验证。因此当前不能写成 1250M 回切 1000M 已通过。
+
+下一次上板必须重点验证：
+
+```text
+rate set 1250
+rate status
+rate set 1000
+rate status
+```
+
+预期 UDP 结果：
+
+```text
+OK RATE_SET target=1000 current_rate=1000 state=DONE
+```
+
+必须补充的 ILA 证据：
+
+```text
+docs/images/dynamic_rate/cpll_drp_profile/ila_cpll_drp_1250_to_1000_restore_0x1003_to_0x1002.png
+docs/images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_to_1000_return_pass.png
+```
+
+第一张用于证明 1250M -> 1000M 时 DRP `0x05E` 从 `0x1003` 恢复到 `0x1002`；第二张用于证明 UDP 中 `rate set 1250` 和 `rate set 1000` 均返回 `DONE`。
+
+## 19. 边界声明
 
 本轮完成的是 125MHz REFCLK + CPLL 条件下新增一个 CPLL 参数变化 profile 的 RTL/Vitis/build 集成。
 
@@ -484,11 +652,11 @@ docs/images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_to_1000_return_pass.
 
 如果后续上板 `rate set 1250` 失败，应优先根据 `rate_state/error_code`、CPLL lock、GT DRP readback、MMCM lock、TXUSRCLK2 frequency counter 定位；不要把 build 通过写成硬件通过。
 
-## 19. 修改文件列表
+## 20. 修改文件列表
 
 | File | Change |
 |---|---|
-| `laser_tx.srcs/sources_1/new/laser_gt_rate_switch_500m_1000m.v` | 新增 1250M profile、CPLL DRP sequence、CPLL reset/relock、4-bit rate_id decode |
+| `laser_tx.srcs/sources_1/new/laser_gt_rate_switch_500m_1000m.v` | 新增 1250M profile、CPLL DRP sequence、CPLL reset/relock、4-bit rate_id decode；本轮补充 active/target CPLL DRP value 比较，修复 1250M 回切 500M/1000M/2000M 的 CPLL restore 路径 |
 | `laser_tx.srcs/sources_1/new/laser_gt_tx_profile0.v` | 接入 `rate_cpll_reset`，更新 4-bit `current_rate_id` status |
 | `laser_tx.srcs/sources_1/new/laser_tx_core/laser_tx_core.v` | 更新 AXI/FCLK debug mirror 的 rate_id/toggle 映射与 1250M 显示 |
 | `vitis_bringup/bringup/src/laser_gpio.h` | 更新内部 GPIO rate_id/toggle bitfield，新增 1250M ID |
