@@ -107,7 +107,7 @@ module laser_tx_core #(
     (* mark_debug = "true" *) wire        dbg_axi_apply_toggle   = gpio_ctrl[8];
     (* mark_debug = "true" *) wire        dbg_axi_enable         = gpio_ctrl[9];
     (* mark_debug = "true" *) wire        dbg_axi_soft_reset     = gpio_ctrl[10];
-    (* mark_debug = "true" *) wire        dbg_axi_rate_req_toggle = gpio_ctrl[15];
+    (* mark_debug = "true" *) wire        dbg_axi_rate_req_toggle = gpio_ctrl[17];
     (* mark_debug = "true" *) wire        dbg_axi_cfg_valid      = cfg_valid_axi;
     (* mark_debug = "true" *) wire        dbg_axi_cfg_error      = cfg_error_axi;
     (* mark_debug = "true" *) reg         dbg_axi_cfg_update_seen;
@@ -317,15 +317,17 @@ module laser_tx_core #(
     localparam [7:0] RATE_ERR_TX_QUIESCE_TO    = 8'h02;
     localparam [7:0] RATE_ERR_GT_NOT_READY     = 8'h03;
 
-    localparam [1:0] RATE_ID_NONE              = 2'd0;
-    localparam [1:0] RATE_ID_500M              = 2'd1;
-    localparam [1:0] RATE_ID_1000M             = 2'd2;
+    localparam [3:0] RATE_ID_NONE              = 4'd0;
+    localparam [3:0] RATE_ID_500M              = 4'd1;
+    localparam [3:0] RATE_ID_1000M             = 4'd2;
+    localparam [3:0] RATE_ID_2000M             = 4'd3;
+    localparam [3:0] RATE_ID_1250M             = 4'd4;
 
     localparam [15:0] CURRENT_STATIC_RATE_MHZ =
         (CURRENT_STATIC_RATE_MBPS == 500) ? 16'd500 : 16'd1000;
 
     (* mark_debug = "true" *) reg [7:0]  dbg_axi_rate_state;
-    (* mark_debug = "true" *) reg [1:0]  dbg_axi_target_rate_id;
+    (* mark_debug = "true" *) reg [3:0]  dbg_axi_target_rate_id;
     (* mark_debug = "true" *) reg [15:0] dbg_axi_target_rate_mbps;
     (* mark_debug = "true" *) reg [15:0] dbg_axi_current_rate_mbps;
     (* mark_debug = "true" *) reg        dbg_axi_dry_run_active;
@@ -340,7 +342,7 @@ module laser_tx_core #(
     reg rate_req_toggle_d_axi;
     reg [15:0] rate_quiesce_timeout_axi;
     wire rate_request_event_axi = dbg_axi_rate_req_toggle ^ rate_req_toggle_d_axi;
-    wire [1:0] requested_rate_id_axi = gpio_ctrl[14:13];
+    wire [3:0] requested_rate_id_axi = gpio_ctrl[16:13];
     wire tx_idle_axi = !dbg_axi_busy_tx || dbg_axi_done_tx;
 
     always @(posedge axi_clk) begin
@@ -373,6 +375,8 @@ module laser_tx_core #(
                 case (requested_rate_id_axi)
                     RATE_ID_500M:  dbg_axi_target_rate_mbps <= 16'd500;
                     RATE_ID_1000M: dbg_axi_target_rate_mbps <= 16'd1000;
+                    RATE_ID_2000M: dbg_axi_target_rate_mbps <= 16'd2000;
+                    RATE_ID_1250M: dbg_axi_target_rate_mbps <= 16'd1250;
                     default:       dbg_axi_target_rate_mbps <= 16'd0;
                 endcase
             end else begin
@@ -388,7 +392,9 @@ module laser_tx_core #(
 
                     RATE_VALIDATE: begin
                         if (dbg_axi_target_rate_id == RATE_ID_500M ||
-                            dbg_axi_target_rate_id == RATE_ID_1000M) begin
+                            dbg_axi_target_rate_id == RATE_ID_1000M ||
+                            dbg_axi_target_rate_id == RATE_ID_2000M ||
+                            dbg_axi_target_rate_id == RATE_ID_1250M) begin
                             dbg_axi_rate_state <= RATE_QUIESCE_TX;
                         end else begin
                             dbg_axi_rate_state      <= RATE_ERROR;

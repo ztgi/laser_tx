@@ -128,12 +128,13 @@ module laser_gt_tx_profile0 (
     wire mmcm_drprdy;
     wire rate_gt_tx_reset;
     wire rate_txuserrdy_block;
+    (* mark_debug = "true" *) wire rate_cpll_reset;
     wire apply_enable_blocked;
 
     (* mark_debug = "true" *) wire [7:0] rate_state;
     (* mark_debug = "true" *) wire [15:0] target_rate_mbps;
     (* mark_debug = "true" *) wire [15:0] current_rate_mbps;
-    (* mark_debug = "true" *) wire [1:0] current_rate_id;
+    (* mark_debug = "true" *) wire [3:0] current_rate_id;
     (* mark_debug = "true" *) wire rate_busy;
     (* mark_debug = "true" *) wire rate_done;
     (* mark_debug = "true" *) wire rate_error;
@@ -285,6 +286,7 @@ module laser_gt_tx_profile0 (
         .rate_gt_tx_reset            (rate_gt_tx_reset),
         .rate_txuserrdy_block        (rate_txuserrdy_block),
         .rate_mmcm_reset             (tx_mmcm_reset_rate),
+        .rate_cpll_reset             (rate_cpll_reset),
         .apply_enable_blocked        (apply_enable_blocked),
         .gt_drp_addr                 (gt_drpaddr),
         .gt_drp_di                   (gt_drpdi),
@@ -446,7 +448,7 @@ module laser_gt_tx_profile0 (
         .gt0_cplllock_out             (cplllock),
         .gt0_cplllockdetclk_in        (ctrl_clk),
         .gt0_cpllpd_in                (1'b0),
-        .gt0_cpllreset_in             (ctrl_rst),
+        .gt0_cpllreset_in             (ctrl_rst | rate_cpll_reset),
         .gt0_gtrefclk0_in             (gtrefclk125),
         .gt0_gtrefclk1_in             (1'b0),
         .gt0_drpaddr_in               (gt_drpaddr),
@@ -507,10 +509,8 @@ module laser_gt_tx_profile0 (
         rate_busy,
         rate_done,
         already_current_rate,
-        1'b0,
         current_rate_id,
         ctrl_rst,
-        ~gt_ready_tx,
         gt_ready_tx,
         txresetdone_sync,
         cplllock_sync

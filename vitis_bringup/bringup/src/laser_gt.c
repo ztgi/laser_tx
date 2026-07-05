@@ -40,6 +40,8 @@ uint32_t laser_gt_rate_id_to_mbps(uint32_t rate_id)
         return 1000U;
     case 3U:
         return 2000U;
+    case 4U:
+        return 1250U;
     default:
         return 0U;
     }
@@ -70,6 +72,8 @@ const char *laser_gt_rate_state_name(uint32_t state)
         return "RATE_VERIFY_RATE";
     case LASER_RATE_STATE_DONE:
         return "RATE_DONE";
+    case LASER_RATE_STATE_WAIT_MMCM_RESET_RELEASE:
+        return "RATE_WAIT_MMCM_RESET_RELEASE";
     case LASER_RATE_STATE_ERROR:
         return "RATE_ERROR";
     default:
@@ -102,6 +106,8 @@ const char *laser_gt_rate_error_name(uint32_t error_code)
         return "TXUSRCLK2_NOT_ALIVE";
     case LASER_RATE_ERR_TXUSRCLK2_FREQ_OUT_OF_WINDOW:
         return "TXUSRCLK2_FREQ_OUT_OF_WINDOW";
+    case LASER_RATE_ERR_CPLL_LOCK_TIMEOUT:
+        return "CPLL_LOCK_TIMEOUT";
     default:
         return "UNKNOWN";
     }
