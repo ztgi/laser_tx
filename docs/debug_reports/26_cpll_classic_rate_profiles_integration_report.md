@@ -81,6 +81,7 @@ TXOUT_DIV=8 / 4 / 2
 |---|---|
 | `docs/design_notes/cpll_classic_rate_profile_matrix_125m.md` | 125MHz REFCLK 下经典 CPLL 候选速率矩阵、筛选结论和后续路线 |
 | `docs/debug_reports/26_cpll_classic_rate_profiles_integration_report.md` | 本轮筛选报告和工程边界说明 |
+| `docs/design_notes/cpll_drp_dynamic_switch_without_static_plan.md` | 不新建 static board 工程、直接推进 CPLL DRP 动态切换能力的后续路线 |
 
 未修改 RTL、Vitis、BD、XDC、GT Wizard、ILA probe 或 build 脚本。
 
@@ -119,7 +120,9 @@ No new bit/LTX was generated.
 
 ## 8. 下一步建议
 
-建议下一阶段不要直接“大包围”加入所有速率，而是单独推进：
+建议下一阶段不要直接“大包围”加入所有速率，也不再为 125MHz CPLL 新速率建立独立 static board 工程。当前 500M / 1000M / 2000M 已经证明了现有 dynamic executor 的基本链路：UDP rate request、GT DRP、MMCM DRP、reset / lock / ready、VERIFY_RATE 和 status 回读均可工作。下一阶段真正缺的是 CPLL 参数动态 DRP 能力，而不是再复制一套固定 static top。
+
+后续工作改为单独推进：
 
 ```text
 125MHz CPLL parameter DRP confirmation
@@ -127,16 +130,14 @@ No new bit/LTX was generated.
 
 推荐顺序：
 
-1. 选择一档需要 CPLL 参数变化、风险较低的速率，例如 1.25G 或 2.5G；
-2. 生成独立 static GT Wizard profile；
-3. 提取 XCI/generated HDL/example design 参数；
-4. 确认 CPLL DRP address/bitfield/readback；
-5. 做 static build / timing / ILA；
-6. 做 CPLL DRP 单元级验证；
-7. 再加入 dynamic profile table；
-8. 最后做路径验证。
+1. 只做 CPLL DRP 参数确认，重点确认 `CPLL_REFCLK_DIV`、`CPLL_FBDIV_45`、`CPLL_FBDIV` 的 DRP address / bitfield / readback；
+2. 确认 CPLL reset / relock sequence、`CPLLLOCK` 观察路径、`GTTXRESET` / `TXUSERRDY` / `txresetdone` / `gt_ready` 恢复路径；
+3. 确认 CPLL DRP 与 MMCM DRP 的先后关系；
+4. 若 CPLL DRP 参数可追溯确认，则选择 1.25G 或 2.5G 作为第一个 CPLL 参数变化代表 profile，直接进入 dynamic profile 集成；
+5. 上板通过 UDP + AXI/FCLK ILA 验证新的 dynamic path；
+6. 若 CPLL DRP address / bitfield / readback 不能确认，则停止，不硬写 magic number。
 
-这样可以保持当前 500M / 1000M / 2000M 成功基线不被污染，同时让新增速率失败时有明确归因。
+这样可以保持当前 500M / 1000M / 2000M 成功基线不被污染，同时把后续风险集中在 CPLL DRP 动态切换能力本身。如果 CPLL DRP 确认失败，结论应保持为：当前不具备安全加入新增 CPLL 参数 profile 的依据，supported profile 仍只保留 500M / 1000M / 2000M。
 
 ## 9. 边界声明
 
