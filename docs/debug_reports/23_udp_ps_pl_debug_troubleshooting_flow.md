@@ -30,12 +30,12 @@
 
 ```text
 PC 网络配置
--> 板端 PS/lwIP 是否运行
--> UDP 命令 parser 是否收到
--> Vitis 是否正确访问 AXI/PL register
+-> UART 确认 PS ELF/main/lwIP 是否运行
+-> UDP PING
+-> UDP command parser 是否收到
+-> Vitis AXI 写 PL 是否执行
 -> PL rate controller 是否进入状态机
--> GT/MMCM DRP 是否完成
--> reset / lock / ready 是否恢复
+-> GT/MMCM DRP/reset/lock/ready 是否恢复
 -> current_rate / error_code 是否正确回报
 ```
 
@@ -44,7 +44,8 @@ PC 网络配置
 | 层级 | 通过标志 | 未通过时不要急着查 |
 | --- | --- | --- |
 | PC 网络 | PC IP、板端 IP、端口明确，网线/PHY 正常 | PL RTL |
-| PS/lwIP | 串口启动打印正常，UDP server ready | rate controller |
+| UART / PS/lwIP | 串口启动打印正常，确认 ELF/main/lwIP/UDP server ready | rate controller |
+| UDP PING | 工程 UDP `PING` 有回包 | GT/MMCM |
 | UDP parser | UDP `PING` / `rate status` 有响应 | GT/MMCM |
 | Vitis/AXI | ILA 能看到 AXI GPIO/BRAM/status 写入 | GT DRP |
 | PL rate controller | `rate_state/target_rate/error_code` 有变化 | 外部光口 |
@@ -87,6 +88,15 @@ ILA 关键波形或截图
 
 | 现象 | 优先怀疑 | 建议动作 |
 |---|---|---|
+| 串口完全无打印 | ELF 未下载、CPU 未运行、串口终端参数错误 | `rst -processor`，重新 download/run ELF，检查串口波特率 |
+| 串口打印停在 main start 后 | platform/init 或外设初始化卡住 | 在 `init_platform`、网口初始化、lwIP 初始化前后加打印 |
+| 串口打印 IP 地址正常，但 UDP PING 无回包 | UDP bind、端口、回包路径或 PC 网络配置问题 | 打印 UDP bind 结果、端口号、收到包长度 |
+| 串口能打印收到 PING，但 PC 无回复 | UDP send/reply 路径问题 | 打印 `sendto` 返回值，检查远端 IP/port |
+| 串口能打印收到 rate set，但 ILA 中 target_rate 不变 | Vitis 到 PL 的 AXI 写失败或地址错误 | 在 AXI 写寄存器前后打印地址、数据、返回值 |
+| 串口显示 rate set 已写入，但 PL 没动作 | request toggle / enable / AXI register map 问题 | 查 AXI GPIO/BRAM、ILA 中 request/target/profile_id |
+| 串口显示 rate set 后一直等待 | PS 轮询硬件 done 卡住 | 打印轮询 timeout、rate_state、error_code |
+| 串口显示 rate_state=ERROR | PL rate controller 已执行但失败 | 结合 ILA 查 DRP、reset、lock、ready |
+| program bit 后 UDP 不通，但 rst processor 后恢复 | PS/PL 状态未重新同步 | 固定流程：program bit/LTX -> rst -processor -> run ELF -> 看 UART |
 | Vivado 能连 ILA，但 UDP PING 无回包 | PS ELF 未运行 / lwIP 未启动 | `rst -processor`，重新 run ELF，查看串口 |
 | Windows ping 不通，但 UDP 正常 | ICMP 未启用或被防火墙拦截 | 以 UDP `PING` / `rate status` 为主 |
 | UDP PING 无回包，串口也无启动打印 | PS 程序未下载或未运行 | 重新下载 ELF，`con` 运行，检查启动日志 |
@@ -137,7 +147,34 @@ ILA 关键波形或截图
 
 注意：Windows `ping` 是 ICMP，工程 UDP `PING` 是应用层 UDP 命令。ICMP 不通不一定代表 UDP 不通；UDP 通也不代表 ICMP 必须通。
 
-### 5.2 PS 软件层问题
+### 5.2 UART / 串口打印层问题
+
+UART / `xil_printf` 是 PS 侧调试手段，不是 PL Verilog 调试手段。它能证明 PS 软件执行到哪里、UDP/lwIP 是否初始化、命令是否被 Vitis 收到和解析，但不能直接证明 PL 内部状态机、GT DRP 或 MMCM lock 一定正确。
+
+UART 的主要作用是把问题先限定在 PS 软件链路内：
+
+- 判断 ELF 是否运行；
+- 判断 `main()` 是否进入；
+- 判断 `init_platform` 是否完成；
+- 判断 lwIP / netif / UDP server 是否初始化；
+- 判断 UDP packet receive callback 是否被触发；
+- 判断 UDP 命令是否收到；
+- 判断 `rate set` / `rate status` 是否进入命令解析；
+- 判断 AXI 写 PL 前后是否执行；
+- 判断 `rate_state` / `error_code` / `current_rate` 回读结果。
+
+因此，UART 的定位价值在于：
+
+```text
+如果 UART 没有 main/lwIP/UDP server 打印，
+问题大概率还在 PS 软件或启动阶段；
+
+如果 UART 显示 UDP 命令已收到，
+但 ILA 中 PL 状态不变，
+问题才进入 Vitis/AXI/PL 接口排查范围。
+```
+
+### 5.3 PS 软件层问题
 
 PS 软件层决定 UDP server 是否存在。典型检查项：
 
@@ -151,7 +188,7 @@ PS 软件层决定 UDP server 是否存在。典型检查项：
 
 如果串口没有任何启动打印，应优先怀疑 ELF 没有运行，而不是 PL RTL。
 
-### 5.3 Vitis/AXI 控制层问题
+### 5.4 Vitis/AXI 控制层问题
 
 Vitis/AXI 控制层负责把 UDP 命令转成 AXI GPIO/BRAM/status 访问。典型检查项：
 
@@ -165,7 +202,7 @@ Vitis/AXI 控制层负责把 UDP 命令转成 AXI GPIO/BRAM/status 访问。典�
 
 如果 UDP `PING` 正常但 `rate set` 无响应，应优先查命令 parser 与 AXI 写入路径。
 
-### 5.4 PL rate controller 层问题
+### 5.5 PL rate controller 层问题
 
 PL rate controller 层负责把请求速率转换为 profile，执行 DRP/reset/lock/ready 流程。典型检查项：
 
@@ -179,7 +216,7 @@ PL rate controller 层负责把请求速率转换为 profile，执行 DRP/reset/
 
 如果 `rate_state` 没变化，问题通常在 Vitis/AXI 到 PL request 之间；如果 `rate_state` 变化但进入 ERROR，才进入 DRP/reset/lock/ready 定位。
 
-### 5.5 GT/MMCM 层问题
+### 5.6 GT/MMCM 层问题
 
 GT/MMCM 层是动态切换最容易失败的位置。典型检查项：
 
@@ -209,7 +246,7 @@ DRP 是否完成
 -> txusrclk2 frequency 是否落入 profile window
 ```
 
-### 5.6 Debug 工具层问题
+### 5.7 Debug 工具层问题
 
 Debug 工具层问题容易伪装成硬件失败。典型检查项：
 
@@ -223,7 +260,51 @@ Debug 工具层问题容易伪装成硬件失败。典型检查项：
 
 Vivado 能看到 ILA，只说明 JTAG/debug hub 路径可用，不代表 UDP server 正常；UDP 正常，也不代表 ILA 一定匹配当前 bit/LTX。
 
-## 6. 面对质疑时的回答模板
+## 6. 推荐 UART 打印点
+
+UART 打印应该覆盖 bring-up 关键边界，而不是在高速循环里刷屏。推荐打印点如下：
+
+| 打印位置 | 目的 |
+| --- | --- |
+| `main()` 入口 | 证明 ELF 已运行，CPU 已进入应用程序 |
+| `init_platform` 前后 | 判断 platform 初始化是否卡住 |
+| lwIP / netif 初始化前后 | 判断网口和协议栈是否初始化 |
+| IP 地址设置后 | 确认板端 IP、netmask、gateway |
+| UDP server bind 后 | 确认 UDP 端口监听成功 |
+| UDP packet receive callback | 确认 PC packet 进入 PS 软件 |
+| command parser 入口 | 确认命令字符串被解析 |
+| `PING` 处理 | 区分 UDP 基础链路与 rate 控制链路 |
+| `rate status` 处理 | 确认状态读取路径有效 |
+| `rate set` 处理 | 确认切换命令进入软件分支 |
+| AXI 写 PL 前后 | 确认写地址、写数据、返回值 |
+| 轮询 `rate_state/error_code/current_rate` 时 | 定位是否卡在 PL done/error 等待 |
+| 返回 UDP response 前 | 确认软件准备发送什么响应 |
+
+建议打印内容保持短而结构化，例如：
+
+```text
+MAIN start
+lwIP init done
+UDP server ready port=5005
+UDP RX len=...
+CMD rate set target=1000
+AXI write addr=... data=...
+RATE poll state=... error=... current=...
+UDP TX response=...
+```
+
+## 7. UART 使用注意事项
+
+- UART 适合 bring-up 和故障定位，不适合替代 ILA 或示波器。
+- UART / `xil_printf` 是 PS 侧调试手段，不是 PL Verilog 调试手段。
+- 不要在高速数据路径或高频循环里大量打印，否则会严重改变软件时序。
+- UDP callback 中只打印命令摘要、长度、关键错误码和必要状态。
+- 长时间循环测试时应降低打印频率，例如每 N 次循环打印一次摘要。
+- 如果需要排查超时，可以打印 timeout counter 的阶段性值，但不要每轮都打印。
+- UART 正常不等于 PL 功能正确，仍需 UDP status、AXI readback 和 ILA 证据。
+- UART 无打印时，优先排查 ELF 是否运行、串口波特率、processor reset、Vitis run 配置。
+
+## 8. 面对质疑时的回答模板
 
 ### 问题 1：“ping 不通是不是 PL RTL 改坏了？”
 
@@ -271,7 +352,24 @@ Program bit/LTX
 - 外部光口质量通过；
 - 长期稳定性或误码率验证完成。
 
-## 7. 与本项目当前阶段的关系
+### 问题 6：“为什么你说不是 PL RTL 问题？”
+
+如果串口没有 `main/lwIP/UDP server` 打印，或者 UDP `PING` 根本没有进入命令解析，说明问题发生在 PS 软件或网络层，rate controller 尚未参与。只有当 UART 显示 UDP 命令已收到并且 Vitis 已执行 AXI 写 PL 后，才进入 PL rate controller / GT / MMCM 的排查范围。
+
+换句话说，UART 可以帮助确认问题有没有越过 PS 软件边界：
+
+```text
+没有 UART 启动打印
+=> 先查 ELF/CPU/UART/lwIP；
+
+UART 收到 UDP 命令，但 PL ILA 不动
+=> 查 Vitis AXI 写 PL；
+
+UART 写 PL 后，ILA 中 rate_state 进入 ERROR
+=> 查 PL rate controller / GT / MMCM。
+```
+
+## 9. 与本项目当前阶段的关系
 
 本项目中曾出现 program 新 bit 后 UDP/PING 不通的情况，后续通过 `rst -processor` 和重新运行 ELF 恢复。恢复后，profile table 重构后的 500M/1000M UDP 回归通过。
 
@@ -284,7 +382,7 @@ Program bit/LTX
 
 尤其在 2G static 阶段，build/timing 通过只说明 bit/LTX 可以生成。上板时仍应先按本文流程确认 PS/lwIP/UDP，再进入 GT/MMCM/ILA。
 
-## 8. 当前边界
+## 10. 当前边界
 
 本文是调试流程文档，不是功能验证报告。
 
