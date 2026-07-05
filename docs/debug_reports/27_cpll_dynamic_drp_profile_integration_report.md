@@ -638,7 +638,122 @@ docs/images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_to_1000_return_pass.
 
 第一张用于证明 1250M -> 1000M 时 DRP `0x05E` 从 `0x1003` 恢复到 `0x1002`；第二张用于证明 UDP 中 `rate set 1250` 和 `rate set 1000` 均返回 `DONE`。
 
-## 19. 边界声明
+## 19. 1250M 回切失败修复后验证
+
+### 19.1 前一轮问题
+
+前一轮上板测试中，`rate set 1250` 可以成功，但 1250M -> 1000M 回切失败。第一次失败为：
+
+```text
+TXUSRCLK2_FREQ_OUT_OF_WINDOW
+```
+
+随后再次尝试 `rate set 1000` 时，precheck 报：
+
+```text
+GT_NOT_READY
+```
+
+根因是修复前仅在目标 profile 为 1250M 时执行 CPLL DRP，而从 1250M 回切到 500M / 1000M / 2000M 时没有恢复 CPLL divider。
+
+### 19.2 修复逻辑
+
+修复后不再根据“目标 profile 是否为 1250M”决定是否写 CPLL DRP，而是比较：
+
+```text
+active_cpll_drp_value
+target_cpll_drp_value
+```
+
+当二者不一致时执行 CPLL DRP：
+
+```text
+if target_cpll_drp_value != active_cpll_drp_value:
+    execute CPLL DRP sequence
+else:
+    skip CPLL DRP sequence
+```
+
+因此：
+
+```text
+1000M -> 1250M: 0x1002 -> 0x1003
+1250M -> 1000M: 0x1003 -> 0x1002
+1250M -> 500M : 0x1003 -> 0x1002
+1250M -> 2000M: 0x1003 -> 0x1002
+```
+
+`active_cpll_drp_value` 仍只在 `VERIFY_RATE` 成功后更新，失败时保持 last good CPLL value。
+
+### 19.3 ILA 修复后证据
+
+![1250M 修复后 DONE / lock / ready / freq ILA](../images/dynamic_rate/cpll_drp_profile/ila_cpll_drp_1250_done_lock_ready_freq_after_fix.png)
+
+该 ILA 图显示修复后 1250M profile 可以进入 DONE 状态。关键现象如下：
+
+- `rate_state = RATE_DONE`；
+- `target_rate_mbps = 1250`；
+- `current_rate_mbps = 1250`；
+- `error_code = 0`；
+- `gt_drp_write_attempted = 1`；
+- `gt_drp_done = 1`；
+- `mmcm_drp_write_attempted = 1`；
+- `mmcm_drp_done = 1`；
+- `tx_mmcm_locked_raw = 1`，`tx_mmcm_locked_sync = 1`；
+- `txresetdone_sync = 1`；
+- `gt_ready = 1`；
+- `txusrclk2_freq_counter_axi` 约为 19532，落入 1250M 预期窗口 19200..19850。
+
+因此，该图证明 1250M profile 的 GT DRP、MMCM DRP、MMCM lock、GT ready 和 TXUSRCLK2 frequency verify 链路在修复后可以收敛到 DONE。
+
+### 19.4 UDP 修复后循环证据
+
+![UDP：1250M / 1000M / 500M 循环切换通过](../images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_500_1000_loop_pass_after_fix.png)
+
+该 UDP 日志图显示修复后多次动态切换均返回 OK，包括：
+
+- `rate set 1250 -> DONE`；
+- `rate set 1000 -> DONE`；
+- `rate set 500 -> DONE`；
+- `rate set 1250 -> DONE`；
+- `rate set 500 -> DONE`。
+
+每次返回中 `current_rate` 与目标一致，且 `gt_drp_written=1`、`mmcm_drp_written=1`。这说明原先 1250M 回切旧 CPLL 参数组时的 restore 问题已经得到修复，至少在当前测试序列中 500M / 1000M / 1250M 之间的动态切换能够回到 DONE。
+
+### 19.5 freq counter 解释
+
+`txusrclk2_freq_counter_axi` 使用约 1ms 统计窗口，因此不同速率下的典型计数约为：
+
+| Rate | TXUSRCLK2 | 约 1ms counter |
+|---:|---:|---:|
+| 500M | 7.8125MHz | 7812 |
+| 1000M | 15.625MHz | 15625 |
+| 1250M | 19.53125MHz | 19531 |
+| 2000M | 31.25MHz | 31250 |
+
+因此图中 1250M 下约 19532 属于正常结果，符合 1250M 的 `TXUSRCLK2 = 19.53125MHz` 预期。
+
+### 19.6 修复后阶段性结论
+
+新增 1250M 这一档 125MHz REFCLK + CPLL 参数变化 profile 的动态切换已完成初步上板验证。当前证据覆盖：
+
+- 1250M profile 可进入 `RATE_DONE`；
+- `current_rate=1250`；
+- `error_code=0`；
+- MMCM lock / txresetdone / gt_ready 正常；
+- `txusrclk2_freq_counter_axi` 落入 1250M 预期窗口；
+- UDP 侧 500M / 1000M / 1250M 多次切换返回 DONE。
+
+但该结论不能扩大为：
+
+- 所有 CPLL 经典速率均已支持；
+- 任意速率动态调速完成；
+- QPLL 支持完成；
+- 156.25MHz REFCLK 支持完成；
+- AD9528 动态输出完成；
+- 外部光口质量 / BER / 长期稳定性通过。
+
+## 20. 边界声明
 
 本轮完成的是 125MHz REFCLK + CPLL 条件下新增一个 CPLL 参数变化 profile 的 RTL/Vitis/build 集成。
 
@@ -652,7 +767,7 @@ docs/images/dynamic_rate/cpll_drp_profile/udp_cpll_drp_1250_to_1000_return_pass.
 
 如果后续上板 `rate set 1250` 失败，应优先根据 `rate_state/error_code`、CPLL lock、GT DRP readback、MMCM lock、TXUSRCLK2 frequency counter 定位；不要把 build 通过写成硬件通过。
 
-## 20. 修改文件列表
+## 21. 修改文件列表
 
 | File | Change |
 |---|---|
