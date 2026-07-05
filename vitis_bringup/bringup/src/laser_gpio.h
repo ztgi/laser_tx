@@ -17,6 +17,7 @@
 #define LASER_RATE_ID_NONE          0U
 #define LASER_RATE_ID_500M          1U
 #define LASER_RATE_ID_1000M         2U
+#define LASER_RATE_ID_2000M         3U
 
 typedef struct {
     XGpio instance;

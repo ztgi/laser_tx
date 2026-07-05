@@ -1,16 +1,16 @@
 `timescale 1ns/1ps
 
 // Minimal TX-only dynamic rate switch controller for the already validated
-// 500M Profile0 <-> 1000M Profile1 pair.
+// 500M Profile0 <-> 1000M Profile1 <-> 2000M Profile2 set.
 //
-// This module intentionally supports only two rates.  It does not touch
+// This module intentionally supports only the statically validated rates.  It does not touch
 // CPLL_FBDIV/CPLL_REFCLK_DIV, RXOUT_DIV, QPLL, AD9528 or any wide-range rate
 // planning fields.  The GTXE2 and MMCME2 DRP tables are taken from
 // docs/debug_reports/06_drp_parameter_confirmation_for_500m_1000m.md.
 //
 // Level-3 profile-table refactor note:
-// The current implementation still supports only the validated 500M/1000M
-// pair on the existing 125 MHz refclk.  The profile accessors below collect
+// The current implementation supports only the validated 500M/1000M/2000M
+// set on the existing 125 MHz refclk.  The profile accessors below collect
 // rate-specific parameters in one place so the FSM acts as a common Rate
 // Switch Executor.  Reserved profile fields such as refclk_id and flags are
 // intentionally constant for both profiles; they document that AD9528/refclk
@@ -24,7 +24,9 @@ module laser_gt_rate_switch_500m_1000m #(
     parameter integer FREQ_500M_MIN_COUNT    = 7700,
     parameter integer FREQ_500M_MAX_COUNT    = 7950,
     parameter integer FREQ_1000M_MIN_COUNT   = 15400,
-    parameter integer FREQ_1000M_MAX_COUNT   = 15900
+    parameter integer FREQ_1000M_MAX_COUNT   = 15900,
+    parameter integer FREQ_2000M_MIN_COUNT   = 30800,
+    parameter integer FREQ_2000M_MAX_COUNT   = 31800
 )(
     input  wire        clk,
     input  wire        rst,
@@ -117,12 +119,14 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [1:0] RATE_ID_NONE  = 2'd0;
     localparam [1:0] RATE_ID_500M  = 2'd1;
     localparam [1:0] RATE_ID_1000M = 2'd2;
+    localparam [1:0] RATE_ID_2000M = 2'd3;
 
     localparam [1:0] REFCLK_125M = 2'd0;
     localparam [1:0] PLL_TYPE_CPLL = 2'd0;
     localparam [3:0] GT_DRP_SEQ_TXOUT_DIV = 4'd1;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE0_500M = 4'd1;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE1_1000M = 4'd2;
+    localparam [3:0] MMCM_DRP_SEQ_PROFILE2_2000M = 4'd3;
     localparam [7:0] PROFILE_FLAG_NONE = 8'h00;
     localparam [7:0] PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED = 8'h01;
 
@@ -178,7 +182,8 @@ module laser_gt_rate_switch_500m_1000m #(
         input [1:0] rate_id;
         begin
             profile_supported = (rate_id == RATE_ID_500M) ||
-                                (rate_id == RATE_ID_1000M);
+                                (rate_id == RATE_ID_1000M) ||
+                                (rate_id == RATE_ID_2000M);
         end
     endfunction
 
@@ -188,6 +193,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             RATE_ID_500M:  profile_rate_mbps = 16'd500;
             RATE_ID_1000M: profile_rate_mbps = 16'd1000;
+            RATE_ID_2000M: profile_rate_mbps = 16'd2000;
             default:       profile_rate_mbps = 16'd0;
             endcase
         end
@@ -227,6 +233,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             RATE_ID_500M:  profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE0_500M;
             RATE_ID_1000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE1_1000M;
+            RATE_ID_2000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE2_2000M;
             default:       profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE0_500M;
             endcase
         end
@@ -238,6 +245,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             RATE_ID_500M:  profile_txout_div_enc = 3'b011;
             RATE_ID_1000M: profile_txout_div_enc = 3'b010;
+            RATE_ID_2000M: profile_txout_div_enc = 3'b001;
             default:       profile_txout_div_enc = 3'b011;
             endcase
         end
@@ -249,6 +257,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             RATE_ID_500M:  profile_expected_txusrclk2_hz = 32'd7812500;
             RATE_ID_1000M: profile_expected_txusrclk2_hz = 32'd15625000;
+            RATE_ID_2000M: profile_expected_txusrclk2_hz = 32'd31250000;
             default:       profile_expected_txusrclk2_hz = 32'd7812500;
             endcase
         end
@@ -260,6 +269,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             RATE_ID_500M:  profile_freq_min_count = FREQ_500M_MIN_COUNT[15:0];
             RATE_ID_1000M: profile_freq_min_count = FREQ_1000M_MIN_COUNT[15:0];
+            RATE_ID_2000M: profile_freq_min_count = FREQ_2000M_MIN_COUNT[15:0];
             default:       profile_freq_min_count = FREQ_500M_MIN_COUNT[15:0];
             endcase
         end
@@ -271,6 +281,7 @@ module laser_gt_rate_switch_500m_1000m #(
             case (rate_id)
             RATE_ID_500M:  profile_freq_max_count = FREQ_500M_MAX_COUNT[15:0];
             RATE_ID_1000M: profile_freq_max_count = FREQ_1000M_MAX_COUNT[15:0];
+            RATE_ID_2000M: profile_freq_max_count = FREQ_2000M_MAX_COUNT[15:0];
             default:       profile_freq_max_count = FREQ_500M_MAX_COUNT[15:0];
             endcase
         end
@@ -366,14 +377,39 @@ module laser_gt_rate_switch_500m_1000m #(
         end
     endfunction
 
+    function [15:0] mmcm_data_2000m;
+        input [4:0] index;
+        begin
+            case (index)
+            5'd0:  mmcm_data_2000m = 16'hffff;
+            5'd1:  mmcm_data_2000m = 16'h1145;
+            5'd2:  mmcm_data_2000m = 16'h0000;
+            5'd3:  mmcm_data_2000m = 16'h1041;
+            5'd4:  mmcm_data_2000m = 16'h128a;
+            5'd5:  mmcm_data_2000m = 16'h0000;
+            5'd6:  mmcm_data_2000m = 16'h1145;
+            5'd7:  mmcm_data_2000m = 16'h0000;
+            5'd8:  mmcm_data_2000m = 16'h1041;
+            5'd9:  mmcm_data_2000m = 16'h00c0;
+            5'd10: mmcm_data_2000m = 16'h01e8;
+            5'd11: mmcm_data_2000m = 16'h7001;
+            5'd12: mmcm_data_2000m = 16'h71e9;
+            5'd13: mmcm_data_2000m = 16'h0800;
+            default: mmcm_data_2000m = 16'h1100;
+            endcase
+        end
+    endfunction
+
     function [15:0] mmcm_data_for_seq;
         input [3:0] seq_id;
         input [4:0] index;
         begin
             if (seq_id == MMCM_DRP_SEQ_PROFILE0_500M) begin
                 mmcm_data_for_seq = mmcm_data_500m(index);
-            end else begin
+            end else if (seq_id == MMCM_DRP_SEQ_PROFILE1_1000M) begin
                 mmcm_data_for_seq = mmcm_data_1000m(index);
+            end else begin
+                mmcm_data_for_seq = mmcm_data_2000m(index);
             end
         end
     endfunction
