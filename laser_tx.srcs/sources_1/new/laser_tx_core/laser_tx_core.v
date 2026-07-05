@@ -322,6 +322,8 @@ module laser_tx_core #(
     localparam [3:0] RATE_ID_1000M             = 4'd2;
     localparam [3:0] RATE_ID_2000M             = 4'd3;
     localparam [3:0] RATE_ID_1250M             = 4'd4;
+    localparam [3:0] RATE_ID_2500M             = 4'd5;
+    localparam [3:0] RATE_ID_5000M             = 4'd6;
 
     localparam [15:0] CURRENT_STATIC_RATE_MHZ =
         (CURRENT_STATIC_RATE_MBPS == 500) ? 16'd500 : 16'd1000;
@@ -377,6 +379,8 @@ module laser_tx_core #(
                     RATE_ID_1000M: dbg_axi_target_rate_mbps <= 16'd1000;
                     RATE_ID_2000M: dbg_axi_target_rate_mbps <= 16'd2000;
                     RATE_ID_1250M: dbg_axi_target_rate_mbps <= 16'd1250;
+                    RATE_ID_2500M: dbg_axi_target_rate_mbps <= 16'd2500;
+                    RATE_ID_5000M: dbg_axi_target_rate_mbps <= 16'd5000;
                     default:       dbg_axi_target_rate_mbps <= 16'd0;
                 endcase
             end else begin
@@ -394,7 +398,9 @@ module laser_tx_core #(
                         if (dbg_axi_target_rate_id == RATE_ID_500M ||
                             dbg_axi_target_rate_id == RATE_ID_1000M ||
                             dbg_axi_target_rate_id == RATE_ID_2000M ||
-                            dbg_axi_target_rate_id == RATE_ID_1250M) begin
+                            dbg_axi_target_rate_id == RATE_ID_1250M ||
+                            dbg_axi_target_rate_id == RATE_ID_2500M ||
+                            dbg_axi_target_rate_id == RATE_ID_5000M) begin
                             dbg_axi_rate_state <= RATE_QUIESCE_TX;
                         end else begin
                             dbg_axi_rate_state      <= RATE_ERROR;
