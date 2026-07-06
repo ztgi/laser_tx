@@ -65,6 +65,18 @@ static const GtRatePlan gt_rate_plan_table[] = {
         "profile4_cpll_param_dynamic_candidate"
     },
     {
+        3125U, 3125000U, 0,
+        GT_RATE_REF_LOCAL_125, GT_RATE_PLL_CPLL,
+        125000000U, 3125000U, 97656250U, 97656250U, 48828125U,
+        2U, 5U,
+        1U, 5U, 5U,
+        0U, 0U,
+        8000U, 1U, 8U, 16U,
+        48000000U, 49700000U,
+        0U, 0U,
+        "profile6_cpll_n1_n2_dynamic_candidate"
+    },
+    {
         5000U, 5000000U, 0,
         GT_RATE_REF_LOCAL_125, GT_RATE_PLL_CPLL,
         125000000U, 5000000U, 156250000U, 156250000U, 78125000U,
@@ -75,6 +87,18 @@ static const GtRatePlan gt_rate_plan_table[] = {
         76800000U, 79500000U,
         0U, 0U,
         "profile5_cpll_param_dynamic_candidate"
+    },
+    {
+        6250U, 6250000U, 0,
+        GT_RATE_REF_LOCAL_125, GT_RATE_PLL_CPLL,
+        125000000U, 6250000U, 195312500U, 195312500U, 97656250U,
+        1U, 5U,
+        1U, 5U, 5U,
+        0U, 0U,
+        4000U, 1U, 4U, 8U,
+        96000000U, 99500000U,
+        0U, 0U,
+        "profile7_cpll_n1_n2_dynamic_candidate"
     }
 };
 

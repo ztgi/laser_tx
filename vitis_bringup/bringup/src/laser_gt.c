@@ -46,6 +46,10 @@ uint32_t laser_gt_rate_id_to_mbps(uint32_t rate_id)
         return 2500U;
     case 6U:
         return 5000U;
+    case 7U:
+        return 3125U;
+    case 8U:
+        return 6250U;
     default:
         return 0U;
     }
