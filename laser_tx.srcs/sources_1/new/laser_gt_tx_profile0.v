@@ -8,7 +8,10 @@
 // narrow runtime switch path is added only for the already statically checked
 // 500M <-> 1000M pair by changing TXOUT_DIV and the TX user-clock MMCM through
 // DRP.  It does not implement wide-range rate planning, AD9528 control,
-// QPLL/CPLL generalization or RX rate switching.
+// 10G/QPLL support is intentionally not enabled in the rate table yet.  The
+// wrapper now instantiates a QPLL-capable GTXE2_COMMON so the real QPLL clock,
+// lock and reset path exist for the next-stage 10G architecture work, while
+// the active validated CPLL profiles continue to select the CPLL path.
 // The gtx_rate_channel instance is generated
 // by the 7-series Transceiver Wizard XCI imported by
 // scripts/add_gt_wizard_profile0.tcl.
@@ -78,6 +81,17 @@ module laser_gt_tx_profile0 (
     localparam integer TXUSRCLK2_FREQ_WIDTH = 32;
     localparam integer TXUSRCLK2_MEASURE_CYCLES = 50000;
     localparam integer TXOUTCLK_ALIVE_TIMEOUT_WIDTH = 8;
+    localparam integer QPLL_FBDIV_TOP = 64;
+    localparam [9:0] QPLL_FBDIV_IN =
+        (QPLL_FBDIV_TOP == 16)  ? 10'b0000100000 :
+        (QPLL_FBDIV_TOP == 20)  ? 10'b0000110000 :
+        (QPLL_FBDIV_TOP == 32)  ? 10'b0001100000 :
+        (QPLL_FBDIV_TOP == 40)  ? 10'b0010000000 :
+        (QPLL_FBDIV_TOP == 64)  ? 10'b0011100000 :
+        (QPLL_FBDIV_TOP == 66)  ? 10'b0101000000 :
+        (QPLL_FBDIV_TOP == 80)  ? 10'b0100100000 :
+        (QPLL_FBDIV_TOP == 100) ? 10'b0101110000 : 10'b0000000000;
+    localparam QPLL_FBDIV_RATIO = (QPLL_FBDIV_TOP == 66) ? 1'b0 : 1'b1;
 
     function [TXUSRCLK2_FREQ_WIDTH-1:0] gray_to_bin;
         input [TXUSRCLK2_FREQ_WIDTH-1:0] gray;
@@ -92,6 +106,8 @@ module laser_gt_tx_profile0 (
 
     wire gtrefclk125;
     wire gtrefclk125_div2_unused;
+    wire tied_to_ground = 1'b0;
+    wire tied_to_vcc = 1'b1;
     wire txoutclk;
     wire txoutclk_dbg;
     wire txusrclk;
@@ -102,6 +118,17 @@ module laser_gt_tx_profile0 (
     wire tx_mmcm_locked;
     wire txresetdone;
     wire cplllock;
+    (* mark_debug = "true", keep = "true" *) wire qplllock;
+    (* mark_debug = "true", keep = "true" *) wire qpllrefclklost;
+    (* mark_debug = "true", keep = "true" *) wire qplloutclk;
+    (* mark_debug = "true", keep = "true" *) wire qplloutrefclk;
+    (* mark_debug = "true", keep = "true" *) wire qpllreset_ctrl;
+    (* mark_debug = "true", keep = "true" *) wire qpllpd_ctrl;
+    (* mark_debug = "true", keep = "true" *) wire [1:0] gt0_txsysclksel_effective;
+    (* mark_debug = "true", keep = "true" *) wire qpll_selected;
+    wire [15:0] qpll_drpdo_unused;
+    wire qpll_drprdy_unused;
+    wire qpllfbclklost_unused;
     wire txresetdone_native;
     wire tx_fsm_reset_done;
     wire [63:0] rxdata_unused;
@@ -154,6 +181,10 @@ module laser_gt_tx_profile0 (
 
     (* ASYNC_REG = "TRUE" *) reg cplllock_meta;
     (* ASYNC_REG = "TRUE" *) reg cplllock_sync;
+    (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg qplllock_meta;
+    (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg qplllock_sync;
+    (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg qpllrefclklost_meta;
+    (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg qpllrefclklost_sync;
     (* ASYNC_REG = "TRUE" *) reg tx_mmcm_locked_meta;
     (* ASYNC_REG = "TRUE" *) reg tx_mmcm_locked_sync;
     (* ASYNC_REG = "TRUE" *) reg txresetdone_meta;
@@ -193,6 +224,76 @@ module laser_gt_tx_profile0 (
         .CEB(1'b0),
         .O(gtrefclk125),
         .ODIV2(gtrefclk125_div2_unused)
+    );
+
+    // QPLL architecture preparation.
+    //
+    // The current supported runtime profiles remain CPLL-only.  qpll_selected
+    // is deliberately held low until a later 10G/QPLL profile stage adds a
+    // validated PLL-aware executor.  Keeping the COMMON in the design now
+    // makes QPLLCLK/QPLLREFCLK/QPLLLOCK/QPLLRESET real, routable signals
+    // rather than constants, without changing the CPLL data path.
+    assign qpll_selected = 1'b0;
+    assign qpllreset_ctrl = ctrl_rst;
+    assign qpllpd_ctrl = 1'b0;
+    assign gt0_txsysclksel_effective = qpll_selected ? 2'b11 : 2'b00;
+
+    GTXE2_COMMON #(
+        .SIM_RESET_SPEEDUP        ("FALSE"),
+        .SIM_QPLLREFCLK_SEL       (3'b001),
+        .SIM_VERSION              ("4.0"),
+        .BIAS_CFG                 (64'h0000040000001000),
+        .COMMON_CFG               (32'h00000000),
+        .QPLL_CFG                 (27'h0680181),
+        .QPLL_CLKOUT_CFG          (4'b0000),
+        .QPLL_COARSE_FREQ_OVRD    (6'b010000),
+        .QPLL_COARSE_FREQ_OVRD_EN (1'b0),
+        .QPLL_CP                  (10'b0000011111),
+        .QPLL_CP_MONITOR_EN       (1'b0),
+        .QPLL_DMONITOR_SEL        (1'b0),
+        .QPLL_FBDIV               (QPLL_FBDIV_IN),
+        .QPLL_FBDIV_MONITOR_EN    (1'b0),
+        .QPLL_FBDIV_RATIO         (QPLL_FBDIV_RATIO),
+        .QPLL_INIT_CFG            (24'h000006),
+        .QPLL_LOCK_CFG            (16'h21E8),
+        .QPLL_LPF                 (4'b1111),
+        .QPLL_REFCLK_DIV          (1)
+    ) u_gtxe2_common_qpll (
+        .DRPADDR                  (8'd0),
+        .DRPCLK                   (ctrl_clk),
+        .DRPDI                    (16'd0),
+        .DRPDO                    (qpll_drpdo_unused),
+        .DRPEN                    (1'b0),
+        .DRPRDY                   (qpll_drprdy_unused),
+        .DRPWE                    (1'b0),
+        .GTGREFCLK                (tied_to_ground),
+        .GTNORTHREFCLK0           (tied_to_ground),
+        .GTNORTHREFCLK1           (tied_to_ground),
+        .GTREFCLK0                (gtrefclk125),
+        .GTREFCLK1                (tied_to_ground),
+        .GTSOUTHREFCLK0           (tied_to_ground),
+        .GTSOUTHREFCLK1           (tied_to_ground),
+        .QPLLDMONITOR             (),
+        .QPLLOUTCLK               (qplloutclk),
+        .QPLLOUTREFCLK            (qplloutrefclk),
+        .REFCLKOUTMONITOR         (),
+        .QPLLFBCLKLOST            (qpllfbclklost_unused),
+        .QPLLLOCK                 (qplllock),
+        .QPLLLOCKDETCLK           (ctrl_clk),
+        .QPLLLOCKEN               (tied_to_vcc),
+        .QPLLOUTRESET             (tied_to_ground),
+        .QPLLPD                   (qpllpd_ctrl),
+        .QPLLREFCLKLOST           (qpllrefclklost),
+        .QPLLREFCLKSEL            (3'b001),
+        .QPLLRESET                (qpllreset_ctrl),
+        .QPLLRSVD1                (16'b0000000000000000),
+        .QPLLRSVD2                (5'b11111),
+        .BGBYPASSB                (tied_to_vcc),
+        .BGMONITORENB             (tied_to_vcc),
+        .BGPDB                    (tied_to_vcc),
+        .BGRCALOVRD               (5'b11111),
+        .PMARSVD                  (8'b00000000),
+        .RCALENB                  (tied_to_vcc)
     );
 
 
@@ -327,6 +428,10 @@ module laser_gt_tx_profile0 (
         if (ctrl_rst) begin
             cplllock_meta   <= 1'b0;
             cplllock_sync   <= 1'b0;
+            qplllock_meta   <= 1'b0;
+            qplllock_sync   <= 1'b0;
+            qpllrefclklost_meta <= 1'b0;
+            qpllrefclklost_sync <= 1'b0;
             tx_mmcm_locked_meta <= 1'b0;
             tx_mmcm_locked_sync <= 1'b0;
             txresetdone_meta <= 1'b0;
@@ -352,6 +457,10 @@ module laser_gt_tx_profile0 (
         end else begin
             cplllock_meta    <= cplllock;
             cplllock_sync    <= cplllock_meta;
+            qplllock_meta    <= qplllock;
+            qplllock_sync    <= qplllock_meta;
+            qpllrefclklost_meta <= qpllrefclklost;
+            qpllrefclklost_sync <= qpllrefclklost_meta;
             tx_mmcm_locked_meta <= tx_mmcm_locked;
             tx_mmcm_locked_sync <= tx_mmcm_locked_meta;
             txresetdone_meta <= txresetdone;
@@ -458,7 +567,7 @@ module laser_gt_tx_profile0 (
         .gt0_drpen_in                 (gt_drpen),
         .gt0_drprdy_out               (gt_drprdy),
         .gt0_drpwe_in                 (gt_drpwe),
-        .gt0_txsysclksel_in           (2'b00),
+        .gt0_txsysclksel_in           (gt0_txsysclksel_effective),
         .gt0_dmonitorout_out          (dmonitor_unused),
         .gt0_eyescanreset_in          (1'b0),
         .gt0_rxuserrdy_in             (1'b0),
@@ -490,8 +599,8 @@ module laser_gt_tx_profile0 (
         .gt0_txoutclkpcs_out          (),
         .gt0_txratedone_out           (txratedone_unused),
         .gt0_txresetdone_out          (txresetdone_native),
-        .gt0_qplloutclk_in            (1'b0),
-        .gt0_qplloutrefclk_in         (1'b0)
+        .gt0_qplloutclk_in            (qplloutclk),
+        .gt0_qplloutrefclk_in         (qplloutrefclk)
     );
 
     assign txresetdone = txresetdone_native & tx_fsm_reset_done;
