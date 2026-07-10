@@ -81,7 +81,10 @@ module laser_gt_tx_profile0 (
     localparam integer TXUSRCLK2_FREQ_WIDTH = 32;
     localparam integer TXUSRCLK2_MEASURE_CYCLES = 50000;
     localparam integer TXOUTCLK_ALIVE_TIMEOUT_WIDTH = 8;
-    localparam integer QPLL_FBDIV_TOP = 64;
+    // Static QPLL architecture-prep configuration for future 10.000G support:
+    // 125 MHz REFCLK, QPLL_N/FBDIV=80, TXOUT_DIV=1.  qpll_selected remains
+    // held at 0 in this stage, so existing supported profiles still use CPLL.
+    localparam integer QPLL_FBDIV_TOP = 80;
     localparam [9:0] QPLL_FBDIV_IN =
         (QPLL_FBDIV_TOP == 16)  ? 10'b0000100000 :
         (QPLL_FBDIV_TOP == 20)  ? 10'b0000110000 :
