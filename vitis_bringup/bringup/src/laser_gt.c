@@ -1,4 +1,5 @@
 #include "laser_gt.h"
+#include "gt_rate_plan.h"
 #include "laser_hw.h"
 #include "xgpio.h"
 #include "xil_printf.h"
@@ -33,28 +34,7 @@ int laser_gt_is_ready(uint32_t status)
 
 uint32_t laser_gt_rate_id_to_mbps(uint32_t rate_id)
 {
-    switch (rate_id) {
-    case 1U:
-        return 500U;
-    case 2U:
-        return 1000U;
-    case 3U:
-        return 2000U;
-    case 4U:
-        return 1250U;
-    case 5U:
-        return 2500U;
-    case 6U:
-        return 5000U;
-    case 7U:
-        return 3125U;
-    case 8U:
-        return 6250U;
-    case 9U:
-        return 10000U;
-    default:
-        return 0U;
-    }
+    return gt_rate_profile_rate_mbps_from_id(rate_id);
 }
 
 const char *laser_gt_rate_state_name(uint32_t state)

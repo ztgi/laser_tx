@@ -1,11 +1,18 @@
 #ifndef GT_RATE_PLAN_H
 #define GT_RATE_PLAN_H
 
+#include <stddef.h>
 #include <stdint.h>
 
-#define GT_RATE_PLAN_OK           0
-#define GT_RATE_PLAN_UNSUPPORTED -1
-#define GT_RATE_PLAN_BAD_ARG     -2
+#define GT_RATE_PLAN_OK                 0
+#define GT_RATE_PLAN_STATUS_UNSUPPORTED -1
+#define GT_RATE_PLAN_STATUS_BAD_ARG     -2
+
+typedef enum {
+    GT_RATE_PLAN_EXACT = 0,
+    GT_RATE_PLAN_NEAREST,
+    GT_RATE_PLAN_UNSUPPORTED
+} GtRatePlanResult;
 
 typedef enum {
     GT_RATE_REF_LOCAL_125 = 0,
@@ -18,47 +25,50 @@ typedef enum {
     GT_RATE_PLL_QPLL = 1
 } GtRatePllSource;
 
+/* A verified fixed profile.  This table is planning metadata only: it never
+ * exposes GT/MMCM DRP address or data writes to UDP. */
 typedef struct {
-    uint32_t target_mbps;
-    uint32_t actual_kbps;
-    int32_t error_kbps;
-
-    GtRateRefSource ref_source;
+    uint32_t rate_mbps;
+    uint32_t rate_id;
     GtRatePllSource pll_source;
-
     uint32_t refclk_hz;
-    uint32_t line_rate_kbps;
-    uint32_t txoutclk_hz;
-    uint32_t txusrclk_hz;
-    uint32_t txusrclk2_hz;
+    uint32_t expected_txusrclk2_hz;
+    uint32_t freq_counter_min;
+    uint32_t freq_counter_max;
+    uint16_t cpll_drp_value;
+    uint8_t txout_div;
+    uint8_t mmcm_profile_id;
+    uint8_t qpll_n;
+    uint8_t qpll_required;
+    uint8_t ad9528_dynamic_required;
+    uint8_t board_verified;
+} GtRateProfile;
 
-    uint32_t txout_div;
-    uint32_t tx_clk25_div;
-
-    uint32_t cpll_m;
-    uint32_t cpll_n1;
-    uint32_t cpll_n2;
-
-    uint32_t qpll_m;
-    uint32_t qpll_n;
-
-    uint32_t mmcm_clkfbout_mult_x1000;
-    uint32_t mmcm_divclk_divide;
-    uint32_t mmcm_clkout1_divide;
-    uint32_t mmcm_clkout0_divide;
-
-    uint32_t expected_txusrclk2_freq_min;
-    uint32_t expected_txusrclk2_freq_max;
-
-    uint32_t requires_ad9528;
-    uint32_t ad9528_out_hz;
-
-    const char *note;
+typedef struct {
+    GtRatePlanResult result;
+    uint32_t requested_rate_mbps;
+    uint32_t selected_rate_mbps;
+    uint32_t selected_rate_id;
+    uint32_t nearest_lower_mbps;
+    uint32_t nearest_upper_mbps;
+    uint32_t absolute_error_mbps;
+    const GtRateProfile *profile;
+    const char *reason;
 } GtRatePlan;
 
-int gt_rate_plan(uint32_t target_mbps, GtRatePlan *plan);
-void gt_rate_plan_print(const GtRatePlan *plan);
+int gt_rate_plan_exact(uint32_t requested_rate_mbps, GtRatePlan *plan);
+int gt_rate_plan_nearest(uint32_t requested_rate_mbps, GtRatePlan *plan);
+
+/* Compatibility name for exact-only callers. */
+int gt_rate_plan(uint32_t requested_rate_mbps, GtRatePlan *plan);
+
+size_t gt_rate_profile_count(void);
+const GtRateProfile *gt_rate_profile_at(size_t index);
+const GtRateProfile *gt_rate_profile_from_rate_id(uint32_t rate_id);
+uint32_t gt_rate_profile_rate_mbps_from_id(uint32_t rate_id);
+const char *gt_rate_plan_result_name(GtRatePlanResult result);
 const char *gt_rate_ref_source_name(GtRateRefSource ref_source);
 const char *gt_rate_pll_source_name(GtRatePllSource pll_source);
+void gt_rate_plan_print(const GtRatePlan *plan);
 
 #endif
