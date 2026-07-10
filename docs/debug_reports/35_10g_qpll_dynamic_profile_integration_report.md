@@ -213,7 +213,7 @@ DRP 序列复用当前工程已有的 Xilinx VPHY MMCME2 encoding 方法，没�
 | `qplllock_sync` | 1 | `gt_ctrl_clk` 同步后 | `probe49[17]` | 同步后的 QPLLLOCK，用于证明 QPLL lock 已建立。 |
 | `qpllrefclklost_sync` | 1 | `gt_ctrl_clk` 同步后 | `probe49[18]` | 同步后的 QPLL reference clock lost，10G DONE 稳态预期为 0。 |
 | `gt0_txsysclksel_effective[1:0]` | 2 | `gt_ctrl_clk` 组合稳定选择 | `probe49[20:19]` | 实际送入 GTXE2_CHANNEL 的 `TXSYSCLKSEL`。当前 encoding：CPLL=`2'b00`，QPLL=`2'b11`。 |
-| `active_pll_type_dbg[1:0]` | 2 | `gt_ctrl_clk` | `probe49[22:21]` | 最后一次通过 VERIFY_RATE 后正式接受的 PLL 类型。当前 encoding：CPLL=0，QPLL=1。 |
+| `active_pll_type_dbg[1:0]` | 2 | `gt_ctrl_clk` | `probe49[22:21]` | 最后一次通过 VERIFY_RATE 后正式接受的 PLL 类型。当前 RTL encoding：CPLL=`2'd0`，QPLL=`2'd1`。 |
 | `programmed_pll_type_dbg[1:0]` | 2 | `gt_ctrl_clk` | `probe49[24:23]` | 最近一次实际完成 PLL source 选择 / lock 流程后的 PLL 类型。 |
 
 同时在同一 probe 中加入推荐辅助项：
@@ -227,7 +227,7 @@ DRP 序列复用当前工程已有的 Xilinx VPHY MMCME2 encoding 方法，没�
 
 `active_pll_type_dbg` 与 `programmed_pll_type_dbg` 的区别是本阶段 10G/QPLL 恢复语义的关键：`programmed_pll_type_dbg` 表示硬件 source 最近实际切换到哪一类 PLL；`active_pll_type_dbg` 只有在 VERIFY_RATE 成功后才更新，代表当前 rate controller 认可的 last-good PLL 类型。因此，当 source 已切换但 VERIFY 尚未成功时，两者允许短暂不同。
 
-本轮只是增加 ILA 可观测性，不修改动态切换功能逻辑。更新后的 hardware capture 尚未执行；后续上板应重点保存：
+本轮只是增加 ILA 可观测性，不修改动态切换功能逻辑。后续上板应重点保存：
 
 ```text
 docs/images/dynamic_rate/qpll_10g_profile/ila_cpll_to_qpll_10g_pll_select_lock_sequence.png
@@ -235,12 +235,7 @@ docs/images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_done_pll_state_freq.png
 docs/images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_to_cpll_pll_restore_sequence.png
 ```
 
-当前证据边界：
-
-```text
-ILA probes were added and implementation passed.
-Updated hardware capture has not yet been run.
-```
+当前 RTL 的 PLL type 编码以 `laser_gt_rate_switch_500m_1000m.v` 中的 localparam 为准：CPLL=`2'd0`，QPLL=`2'd1`。本报告后续引用的五张实际 ILA 截图中，PLL type 调试字段显示的 QPLL 数值为 `2`；这与当前源码定义不一致。报告将该数值视为截图所对应已下载 bitstream 的历史调试编码，不把它改写为当前源码的 `QPLL=1`，也不据此声称截图与当前提交可逐位复现。PLL source 的硬件证据以同图中的 `qpll_selected` 和 `gt0_txsysclksel_effective` 为主；后续若需对当前提交做严格复现，应使用当前 bit/LTX 重新抓取 ILA。
 
 ## 16. Vitis / UDP 修改
 
@@ -331,42 +326,85 @@ ELF strings 已确认包含 `10000`、`QPLL`、`OK RATE_LIST`、`OK RATE_PLAN`�
 500,1000,1250,2000,2500,3125,5000,6250
 ```
 
-Hardware CPLL regression was not run.
+本轮截图的硬件回归实际覆盖 1000M、1250M、5000M 和 6250M 与 10G 的指定路径，详见第 23 节；500M、2000M、2500M、3125M 等未出现在本轮 UDP 截图中的 CPLL profile 不计为本轮已上板回归。
 
-## 20. 10G UDP / ILA 结果
+## 20. 10G QPLL 上板验证结果
 
-Hardware bring-up was not run. 当前不能声明 `rate set 10000` 已上板通过。
+五张真实 Hardware Manager / UDP 截图表明，固定 10.000Gbps QPLL profile 已完成初步上板验证。10G 稳态可观察到 QPLL lock 有效、QPLL refclk-lost 为 0、GT/MMCM/txresetdone/ready 恢复，且 `txusrclk2_freq_counter_axi` 为约 `156250`，符合约 1ms 统计窗口下 156.25MHz TXUSRCLK2 的预期。
 
-## 21. 回切结果
+需要区分当前 RTL 源码与截图对应 bitstream 的 PLL-type 数值编码：当前 RTL 为 CPLL=`2'd0`、QPLL=`2'd1`；截图中的 QPLL type 数值显示为 `2`。因此，以下 ILA 分析以 `qpll_selected` 和 `TXSYSCLKSEL` 的真实 source 选择为主要硬件证据，而不把截图中的 `2` 解释成当前源码编码。
 
-10G -> CPLL 回切尚未上板验证。后续必须覆盖：
+## 21. CPLL -> QPLL 动态切换过程分析
 
-```text
-10000 -> 6250 -> 10000
-10000 -> 5000 -> 10000
-10000 -> 1000 -> 10000
-10000 -> 500
-```
+### 21.1 1000M CPLL 到 10G QPLL 的 PLL source 选择
 
-重点验证 QPLL->CPLL、CPLL->QPLL、0x1002/0x1003 CPLL 参数组 restore、current_rate 只在 VERIFY_RATE 成功后更新。
+![1000M CPLL切换到10G QPLL的PLL source过程](../images/dynamic_rate/qpll_10g_profile/ila_cpll_1000m_to_qpll_10g_pll_select_sequence.png)
 
-## 22. 示波器与 BER 边界
+图中初始状态为 1000M 的 `RATE_DONE`：`target_rate_mbps=current_rate_mbps=1000`，`qpll_selected=0`，`gt0_txsysclksel_effective=2'b00`，同时 `qplllock_sync=1`、`qpllrefclklost_sync=0`。这说明固定 10G QPLL COMMON 可以在 TX 尚使用 CPLL 时预先保持 lock；QPLL lock 本身并不表示 TX channel 已经选择 QPLL。
+
+10G 请求到达后，`target_rate_mbps` 先变为 10000，状态机离开 `RATE_DONE` 进入 `RATE_ASSERT_RESET`；`qpllreset_ctrl` 出现受控动作，随后 `qpll_selected` 由 0 变为 1，`gt0_txsysclksel_effective` 由 `2'b00` 变为 `2'b11`，而 `qpllrefclklost_sync` 保持 0。截图窗口内 `current_rate_mbps`、`active_pll_type` 和 `programmed_pll_type` 仍保留 last-good CPLL 状态，符合“target 先变、active/current 仅在 VERIFY_RATE 成功后更新”的设计语义。截图中 PLL-type 字段的 QPLL 显示值为 2，属于前述历史 bitstream 编码差异，不能替代当前 RTL 中 QPLL=`2'd1` 的定义。
+
+这证明 CPLL 到 QPLL 不是仅改变软件状态，而是在 GT reset 保护期间实际把 TXSYSCLKSEL 从 CPLL encoding 切到 QPLL encoding。
+
+### 21.2 1000M CPLL 到 10G QPLL 的 reset / MMCM 过程
+
+![1000M切换到10G时的GT和MMCM控制过程](../images/dynamic_rate/qpll_10g_profile/ila_cpll_1000m_to_qpll_10g_reset_mmcm_sequence.png)
+
+该图记录同一次切换的 reset/clocking 视角：10000M 目标到达后进入 `RATE_ASSERT_RESET`，`tx_mmcm_reset`、GT TX reset 和 TXUSERRDY block 均进入受控状态；随后出现 GT DRP、MMCM DRP attempted/done 以及 MMCM reset release/wait 过程，`txusrclk2_alive` 在重配置窗口内发生相应变化。
+
+图末端停在 WAIT 类状态是过程捕获的正常结果，不是失败证据。该图与上一图共同说明 PLL source 选择和 GT/MMCM reset/DRP 操作在同一受控切换流程中完成。最终 10G DONE 由 UDP 成功记录、10G 稳态以及下一节回切图的初始状态交叉证明。
+
+## 22. QPLL -> CPLL 动态回切过程分析
+
+### 22.1 10G QPLL 回切 6250M CPLL 的 reset / MMCM 过程
+
+![10G QPLL回切6250M CPLL的GT和MMCM过程](../images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_to_cpll_6250m_reset_mmcm_sequence.png)
+
+切换前为 10G 稳态：`current_rate_mbps=target_rate_mbps=10000`，`gt_ready=1`、`txresetdone_sync=1`、`tx_mmcm_locked_sync=1`、`txoutclk_alive_axi=1`、`txusrclk2_alive_axi=1`，且 `txusrclk2_freq_counter_axi` 约为 156250。该计数与 10G profile 的 156.25MHz TXUSRCLK2 预期一致，是 frequency verify 的实际硬件证据。
+
+6250M 请求到达后，`target_rate_mbps` 变为 6250，但 `current_rate_mbps` 保持 10000；状态机进入 `RATE_ASSERT_RESET`，GT reset、TXUSERRDY block 和 MMCM reset 均出现受控动作。只有后续 VERIFY_RATE 成功，current_rate 才允许更新为 6250。
+
+### 22.2 10G QPLL 回切 6250M CPLL 的 PLL source 恢复
+
+![10G QPLL回切6250M CPLL的PLL source恢复过程](../images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_to_cpll_6250m_pll_select_restore_sequence.png)
+
+图中初始 10G 状态满足 `qpll_selected=1`、`gt0_txsysclksel_effective=2'b11`、`qplllock_sync=1`、`qpllrefclklost_sync=0`。6250M 请求后，`qpll_selected` 从 1 恢复为 0，`gt0_txsysclksel_effective` 从 `2'b11` 恢复为 `2'b00`，同时 `cplllock_sync` 保持有效。
+
+截图窗口中 current/active/programmed PLL-type 调试字段仍保持 QPLL，说明它们没有在请求到达时提前更新：target 表示请求目标；programmed 表示完成硬件 source/lock 流程后的实际状态；active/current 仅表示最后一次经 VERIFY_RATE 接受的 last-good 状态。该图中 QPLL 的 type 数值显示为 2，仍按本报告已声明的历史截图编码差异处理。`qpll_selected` 和 TXSYSCLKSEL 的 1→0、11→00 变化则直接证明了 QPLL 到 CPLL 的真实 source 恢复。
+
+## 23. UDP 多档循环回归
+
+![10G QPLL与多个CPLL速率循环切换通过](../images/dynamic_rate/qpll_10g_profile/udp_qpll_10g_cpll_multi_rate_loop_pass.png)
+
+实际 UDP 记录覆盖：1000 -> 10000 -> 1000 -> 10000 -> 1250 -> 10000 -> 5000 -> 10000 -> 6250 Mbps。每次 `rate set` 均返回 `state=DONE`，并且 target/current rate 一致、`gt_drp_written=1`、`mmcm_drp_written=1`。
+
+因此，本轮已实际覆盖 1000M、1250M、5000M 与 10G 的双向切换，以及 10G 回切 6250M 的路径。该证据覆盖 UDP 命令、GPIO request、PL 状态机、PLL source select、GT/MMCM DRP、VERIFY_RATE 与状态回读；未在截图中出现的其他速率或路径不计为本轮已测试。
+
+## 24. 当前结论
+
+10.000Gbps QPLL 固定 profile 已完成初步上板验证。ILA 显示 1000M CPLL 切入 10G QPLL 时，target 先切换，GT 在 reset 保护期间将 `qpll_selected` 从 0 切到 1，并将 `TXSYSCLKSEL` 从 CPLL encoding `2'b00` 切到 QPLL encoding `2'b11`；10G 稳态下 QPLL lock 有效、QPLL refclk-lost 为 0，TXUSRCLK2 频率计数约 156250。
+
+ILA 同时显示 10G QPLL 回切 6250M CPLL 时，`qpll_selected` 从 1 恢复到 0，`TXSYSCLKSEL` 从 `2'b11` 恢复到 `2'b00`，而 current_rate 和 active PLL 类型在 VERIFY_RATE 前维持 last-good 语义。UDP 日志显示 10G 与 1000M、1250M、5000M、6250M 的实际测试路径均返回 DONE。因此，所测试的 CPLL/QPLL 双向动态切换控制链路已初步上板通过。
+
+该结论不消除“截图中的 PLL-type 数值=2 与当前 RTL QPLL=`2'd1` 不一致”的可追溯性风险；若以当前提交建立可复现基线，仍应使用当前生成 bit/LTX 再抓取一组 ILA。
+
+## 25. 示波器与 BER 边界
 
 Oscilloscope validation was not run.
 
 10G eye / BER / external optical-link validation was not run.
 
-## 23. 当前未验证边界
+## 26. 当前未验证边界
 
-本报告只证明 10G QPLL dynamic profile 的代码集成、Vivado build/timing 和 Vitis build 已通过。
+本报告证明固定 10G QPLL profile 与上述已列出的 CPLL 路径完成了初步 UDP/ILA 上板验证；不将该范围扩大为所有 CPLL/QPLL 组合、任意速率或连续调速。
 
-当前不能声明：
+当前仍不能声明：
 
-- 10G dynamic switching 已上板通过；
 - 10G 高速串行眼图通过；
 - BER 通过；
 - SFP+ 或外部光口链路通过；
 - 长期稳定性通过；
 - 示波器低速观测通过；
-- 任意速率动态调速完成；
-- 所有 QPLL profile 均已支持。
+- 所有可能的 CPLL/QPLL 回切路径均已验证；
+- 任意速率或宽范围连续调速已完成；
+- 支持多个 QPLL profile。
