@@ -232,11 +232,10 @@ module laser_gt_tx_profile0 (
 
     // QPLL architecture preparation.
     //
-    // The current supported runtime profiles still remain CPLL-only until a
-    // later stage adds RATE_ID_10000M.  The rate controller now owns the
-    // qpll_selected/qpllreset control points so the PLL-source state semantics
-    // are no longer hard-wired constants; with all existing profiles returning
-    // PLL_TYPE_CPLL, qpll_selected remains 0 in normal operation.
+    // The rate controller owns the qpll_selected/qpllreset control points so
+    // the PLL-source state semantics are no longer hard-wired constants.
+    // Existing CPLL profiles still return PLL_TYPE_CPLL; RATE_ID_10000M is the
+    // only profile that selects the QPLL path.
     assign qpllreset_ctrl = ctrl_rst | rate_qpll_reset;
     assign qpllpd_ctrl = 1'b0;
     assign gt0_txsysclksel_effective = qpll_selected ? 2'b11 : 2'b00;
@@ -635,7 +634,7 @@ module laser_gt_tx_profile0 (
         ctrl_rst,
         gt_ready_tx,
         txresetdone_sync,
-        cplllock_sync
+        selected_pll_lock_sync
     };
 endmodule
 

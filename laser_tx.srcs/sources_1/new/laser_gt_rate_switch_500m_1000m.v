@@ -6,9 +6,8 @@
 //
 // This module intentionally supports only fixed, explicitly reviewed profiles.
 // It does not touch RXOUT_DIV, AD9528 or any wide-range/refclk switching
-// fields.  QPLL control/status semantics are prepared for a later fixed
-// 10.000G profile, but no QPLL profile is exposed until RATE_ID_10000M is
-// explicitly added.  The GTXE2 and MMCME2 DRP tables are taken from
+// fields.  QPLL control/status semantics are used only by the fixed
+// RATE_ID_10000M profile.  The GTXE2 and MMCME2 DRP tables are taken from
 // docs/debug_reports/06_drp_parameter_confirmation_for_500m_1000m.md.
 //
 // Level-3 profile-table refactor note:
@@ -40,7 +39,9 @@ module laser_gt_rate_switch_500m_1000m #(
     parameter integer FREQ_5000M_MIN_COUNT   = 76800,
     parameter integer FREQ_5000M_MAX_COUNT   = 79500,
     parameter integer FREQ_6250M_MIN_COUNT   = 96000,
-    parameter integer FREQ_6250M_MAX_COUNT   = 99500
+    parameter integer FREQ_6250M_MAX_COUNT   = 99500,
+    parameter integer FREQ_10000M_MIN_COUNT  = 153000,
+    parameter integer FREQ_10000M_MAX_COUNT  = 159500
 )(
     input  wire        clk,
     input  wire        rst,
@@ -150,6 +151,7 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [3:0] RATE_ID_5000M = 4'd6;
     localparam [3:0] RATE_ID_3125M = 4'd7;
     localparam [3:0] RATE_ID_6250M = 4'd8;
+    localparam [3:0] RATE_ID_10000M = 4'd9;
 
     localparam [1:0] REFCLK_125M = 2'd0;
     localparam [1:0] PLL_TYPE_CPLL = 2'd0;
@@ -252,7 +254,8 @@ module laser_gt_rate_switch_500m_1000m #(
                                 (rate_id == RATE_ID_2500M) ||
                                 (rate_id == RATE_ID_5000M) ||
                                 (rate_id == RATE_ID_3125M) ||
-                                (rate_id == RATE_ID_6250M);
+                                (rate_id == RATE_ID_6250M) ||
+                                (rate_id == RATE_ID_10000M);
         end
     endfunction
 
@@ -268,6 +271,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_5000M: profile_rate_mbps = 16'd5000;
             RATE_ID_3125M: profile_rate_mbps = 16'd3125;
             RATE_ID_6250M: profile_rate_mbps = 16'd6250;
+            RATE_ID_10000M: profile_rate_mbps = 16'd10000;
             default:       profile_rate_mbps = 16'd0;
             endcase
         end
@@ -290,7 +294,11 @@ module laser_gt_rate_switch_500m_1000m #(
     function [1:0] profile_pll_type;
         input [3:0] rate_id;
         begin
-            profile_pll_type = PLL_TYPE_CPLL;
+            if (rate_id == RATE_ID_10000M) begin
+                profile_pll_type = PLL_TYPE_QPLL;
+            end else begin
+                profile_pll_type = PLL_TYPE_CPLL;
+            end
         end
     endfunction
 
@@ -313,6 +321,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_5000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE5_5000M;
             RATE_ID_3125M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE6_3125M;
             RATE_ID_6250M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE7_6250M;
+            RATE_ID_10000M: profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE8_10000M;
             default:       profile_mmcm_drp_seq_id = MMCM_DRP_SEQ_PROFILE0_500M;
             endcase
         end
@@ -330,6 +339,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_5000M: profile_txout_div_enc = 3'b000;
             RATE_ID_3125M: profile_txout_div_enc = 3'b001;
             RATE_ID_6250M: profile_txout_div_enc = 3'b000;
+            RATE_ID_10000M: profile_txout_div_enc = 3'b000;
             default:       profile_txout_div_enc = 3'b011;
             endcase
         end
@@ -395,6 +405,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_5000M: profile_expected_txusrclk2_hz = 32'd78125000;
             RATE_ID_3125M: profile_expected_txusrclk2_hz = 32'd48828125;
             RATE_ID_6250M: profile_expected_txusrclk2_hz = 32'd97656250;
+            RATE_ID_10000M: profile_expected_txusrclk2_hz = 32'd156250000;
             default:       profile_expected_txusrclk2_hz = 32'd7812500;
             endcase
         end
@@ -412,6 +423,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_5000M: profile_freq_min_count = FREQ_5000M_MIN_COUNT[23:0];
             RATE_ID_3125M: profile_freq_min_count = FREQ_3125M_MIN_COUNT[23:0];
             RATE_ID_6250M: profile_freq_min_count = FREQ_6250M_MIN_COUNT[23:0];
+            RATE_ID_10000M: profile_freq_min_count = FREQ_10000M_MIN_COUNT[23:0];
             default:       profile_freq_min_count = FREQ_500M_MIN_COUNT[23:0];
             endcase
         end
@@ -429,6 +441,7 @@ module laser_gt_rate_switch_500m_1000m #(
             RATE_ID_5000M: profile_freq_max_count = FREQ_5000M_MAX_COUNT[23:0];
             RATE_ID_3125M: profile_freq_max_count = FREQ_3125M_MAX_COUNT[23:0];
             RATE_ID_6250M: profile_freq_max_count = FREQ_6250M_MAX_COUNT[23:0];
+            RATE_ID_10000M: profile_freq_max_count = FREQ_10000M_MAX_COUNT[23:0];
             default:       profile_freq_max_count = FREQ_500M_MAX_COUNT[23:0];
             endcase
         end
@@ -847,10 +860,12 @@ module laser_gt_rate_switch_500m_1000m #(
                 target_refclk_freq_hz <= profile_refclk_freq_hz(requested_rate_id);
                 target_pll_type <= profile_pll_type(requested_rate_id);
                 target_pll_type_dbg <= profile_pll_type(requested_rate_id);
-                if (cpll_div_drp_value(profile_cpll_refclk_div_enc(requested_rate_id),
-                                       profile_cpll_fbdiv_45_enc(requested_rate_id),
-                                       profile_cpll_fbdiv_enc(requested_rate_id)) !=
-                    programmed_cpll_drp_value || !programmed_cpll_drp_valid) begin
+                if (profile_pll_type(requested_rate_id) == PLL_TYPE_QPLL) begin
+                    target_gt_drp_seq_id <= profile_gt_drp_seq_id(requested_rate_id);
+                end else if (cpll_div_drp_value(profile_cpll_refclk_div_enc(requested_rate_id),
+                                                profile_cpll_fbdiv_45_enc(requested_rate_id),
+                                                profile_cpll_fbdiv_enc(requested_rate_id)) !=
+                             programmed_cpll_drp_value || !programmed_cpll_drp_valid) begin
                     target_gt_drp_seq_id <= GT_DRP_SEQ_CPLL_TXOUT_DIV;
                 end else begin
                     target_gt_drp_seq_id <= profile_gt_drp_seq_id(requested_rate_id);
