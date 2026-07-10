@@ -152,6 +152,7 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [3:0] MMCM_DRP_SEQ_PROFILE5_5000M = 4'd6;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE6_3125M = 4'd7;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE7_6250M = 4'd8;
+    localparam [3:0] MMCM_DRP_SEQ_PROFILE8_10000M = 4'd9;
     localparam [7:0] PROFILE_FLAG_NONE = 8'h00;
     localparam [7:0] PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED = 8'h01;
 
@@ -653,6 +654,37 @@ module laser_gt_rate_switch_500m_1000m #(
         end
     endfunction
 
+    function [15:0] mmcm_data_10000m;
+        input [4:0] index;
+        begin
+            // 10.000G QPLL parameter package, not yet exposed as a supported
+            // runtime profile in this stage.
+            // TXOUTCLK=312.5MHz, VCO=625MHz:
+            // CLKFBOUT_MULT=2, DIVCLK_DIVIDE=1,
+            // CLKOUT1_DIVIDE=2 -> TXUSRCLK=312.5MHz,
+            // CLKOUT0_DIVIDE=4 -> TXUSRCLK2=156.25MHz.
+            // Encoded by the same Xilinx VPHY MMCME2 method used for the
+            // existing CPLL profiles.
+            case (index)
+            5'd0:  mmcm_data_10000m = 16'hffff;
+            5'd1:  mmcm_data_10000m = 16'h1041;
+            5'd2:  mmcm_data_10000m = 16'h0000;
+            5'd3:  mmcm_data_10000m = 16'h1041;
+            5'd4:  mmcm_data_10000m = 16'h1082;
+            5'd5:  mmcm_data_10000m = 16'h0000;
+            5'd6:  mmcm_data_10000m = 16'h1041;
+            5'd7:  mmcm_data_10000m = 16'h0000;
+            5'd8:  mmcm_data_10000m = 16'h1041;
+            5'd9:  mmcm_data_10000m = 16'h00c0;
+            5'd10: mmcm_data_10000m = 16'h01e8;
+            5'd11: mmcm_data_10000m = 16'h1801;
+            5'd12: mmcm_data_10000m = 16'h19e9;
+            5'd13: mmcm_data_10000m = 16'h0800;
+            default: mmcm_data_10000m = 16'h9900;
+            endcase
+        end
+    endfunction
+
     function [15:0] mmcm_data_for_seq;
         input [3:0] seq_id;
         input [4:0] index;
@@ -673,6 +705,8 @@ module laser_gt_rate_switch_500m_1000m #(
                 mmcm_data_for_seq = mmcm_data_3125m(index);
             end else if (seq_id == MMCM_DRP_SEQ_PROFILE7_6250M) begin
                 mmcm_data_for_seq = mmcm_data_6250m(index);
+            end else if (seq_id == MMCM_DRP_SEQ_PROFILE8_10000M) begin
+                mmcm_data_for_seq = mmcm_data_10000m(index);
             end else begin
                 mmcm_data_for_seq = mmcm_data_500m(index);
             end
