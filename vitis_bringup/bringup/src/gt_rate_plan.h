@@ -57,6 +57,9 @@ typedef struct {
 } GtRatePlan;
 
 int gt_rate_plan_exact(uint32_t requested_rate_mbps, GtRatePlan *plan);
+/* Lookup includes candidate entries. It is informational unless the caller
+ * explicitly implements an engineering-only candidate bring-up path. */
+int gt_rate_plan_lookup(uint32_t requested_rate_mbps, GtRatePlan *plan);
 int gt_rate_plan_nearest(uint32_t requested_rate_mbps, GtRatePlan *plan);
 
 /* Compatibility name for exact-only callers. */

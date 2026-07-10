@@ -66,7 +66,7 @@ static int laser_init_control_hw(LaserGpio *gpio)
     xil_printf("GPIO ctrl/status : 0x%08lx\r\n", (unsigned long)LASER_GPIO_BASEADDR);
     xil_printf("BRAM             : 0x%08lx\r\n", (unsigned long)LASER_BRAM_BASEADDR);
     xil_printf("GT status GPIO   : 0x%08lx\r\n", (unsigned long)LASER_GT_STATUS_GPIO_BASEADDR);
-    xil_printf("Runtime rate set : CPLL/QPLL_DYNAMIC_500M_1000M_1250M_2000M_2500M_3125M_5000M_6250M_10000M in UDP mode; no AD9528/refclk/wide-range rate change\r\n");
+    xil_printf("Runtime rate set : verified 125MHz CPLL/QPLL profiles in UDP mode; candidate profiles require explicit engineering bring-up; no AD9528/refclk/wide-range rate change\r\n");
 
     status = laser_gpio_init(gpio);
     if (status != XST_SUCCESS) {

@@ -24,6 +24,10 @@
 #define LASER_RATE_ID_3125M         7U
 #define LASER_RATE_ID_6250M         8U
 #define LASER_RATE_ID_10000M        9U
+/* Candidate-only IDs: ordinary `rate set` must not use these until board
+ * validation promotes their matching planner entries to board_verified=1. */
+#define LASER_RATE_ID_625M          10U
+#define LASER_RATE_ID_4000M         11U
 
 typedef struct {
     XGpio instance;
