@@ -86,6 +86,9 @@ static uint32_t laser_rate_id_from_mbps(uint32_t target_mbps)
     if (target_mbps == 6250U) {
         return LASER_RATE_ID_6250M;
     }
+    if (target_mbps == 10000U) {
+        return LASER_RATE_ID_10000M;
+    }
     if (target_mbps == 2000U) {
         return LASER_RATE_ID_2000M;
     }
@@ -144,7 +147,7 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     xil_printf("GPIO ctrl/status : 0x%08lx\r\n", (unsigned long)LASER_GPIO_BASEADDR);
     xil_printf("BRAM             : 0x%08lx\r\n", (unsigned long)LASER_BRAM_BASEADDR);
     xil_printf("GT status GPIO   : 0x%08lx\r\n", (unsigned long)LASER_GT_STATUS_GPIO_BASEADDR);
-    xil_printf("Runtime rate set : CPLL_DYNAMIC_500M_1000M_1250M_2000M_2500M_3125M_5000M_6250M, no AD9528/QPLL/wide-range rate change\r\n");
+    xil_printf("Runtime rate set : CPLL/QPLL_DYNAMIC_500M_1000M_1250M_2000M_2500M_3125M_5000M_6250M_10000M, no AD9528/refclk/wide-range rate change\r\n");
 
     status = laser_gpio_init(gpio);
     if (status != XST_SUCCESS) {
@@ -304,7 +307,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
         error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
         (void)snprintf(response, response_size,
-                       "OK RATE_STATUS mode=dynamic_500m_1000m_1250m_2000m_2500m_3125m_5000m_6250m current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx",
+                       "OK RATE_STATUS mode=dynamic_500m_1000m_1250m_2000m_2500m_3125m_5000m_6250m_10000m_qpll current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx",
                        (unsigned long)current_rate_mbps,
                        (unsigned long)current_rate_id,
                        laser_gt_rate_state_name(rate_state),
@@ -324,7 +327,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
             return;
         }
         (void)snprintf(response, response_size,
-                       "OK RATE_LIST supported=500,1000,1250,2000,2500,3125,5000,6250 refclk=125MHz pll=CPLL ad9528_dynamic=0 qpll=0");
+                       "OK RATE_LIST supported=500,1000,1250,2000,2500,3125,5000,6250,10000 refclk=125MHz pll=CPLL/QPLL ad9528_dynamic=0 qpll=1");
         return;
     }
 
@@ -338,8 +341,10 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         plan_status = gt_rate_plan(target_mbps, &plan);
         if (plan_status == GT_RATE_PLAN_OK) {
             (void)snprintf(response, response_size,
-                           "OK RATE_PLAN target_rate=%lu TXOUT_DIV=%lu TXOUTCLK=%luHz TXUSRCLK=%luHz TXUSRCLK2=%luHz requires_gt_drp=1 requires_mmcm_drp=1 supported_dynamic=1",
+                           "OK RATE_PLAN target_rate=%lu refclk=125MHz pll=%s QPLL_N=%lu TXOUT_DIV=%lu TXOUTCLK=%luHz TXUSRCLK=%luHz TXUSRCLK2=%luHz requires_gt_drp=1 requires_mmcm_drp=1 ad9528_dynamic=0 supported_dynamic=1",
                            (unsigned long)plan.target_mbps,
+                           gt_rate_pll_source_name(plan.pll_source),
+                           (unsigned long)plan.qpll_n,
                            (unsigned long)plan.txout_div,
                            (unsigned long)plan.txoutclk_hz,
                            (unsigned long)plan.txusrclk_hz,
@@ -693,7 +698,7 @@ int laser_udp_server_run(void)
     uint32_t input_nonzero_count = 0U;
     uint32_t loop_count = 0U;
 
-    xil_printf("\r\n=== laser_tx UDP_SERVER / 500M/1000M/1250M/2000M/2500M/3125M/5000M/6250M dynamic rate switch ===\r\n");
+    xil_printf("\r\n=== laser_tx UDP_SERVER / 500M/1000M/1250M/2000M/2500M/3125M/5000M/6250M/10000M dynamic rate switch ===\r\n");
     xil_printf("UDP purpose      : control layer + real GTX TXOUT_DIV/CPLL/MMCM DRP switch for fixed 125MHz CPLL profiles only\r\n");
     xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
@@ -738,7 +743,7 @@ int laser_udp_server_run(void)
     }
 
     udp_recv(pcb, laser_udp_recv, &gpio);
-    xil_printf("UDP server ready. Dynamic rate switch supports fixed 500M, 1000M, 1250M, 2000M, 2500M, 3125M, 5000M and 6250M profiles.\r\n");
+    xil_printf("UDP server ready. Dynamic rate switch supports fixed 500M, 1000M, 1250M, 2000M, 2500M, 3125M, 5000M, 6250M and 10000M profiles.\r\n");
 
     while (1) {
         int input_ret;
@@ -769,7 +774,7 @@ int laser_udp_server_run(void)
     xil_printf("ERROR: current BSP does not provide lwIP headers/libraries.\r\n");
     xil_printf("Searched by compile-time __has_include for lwip/init.h, lwip/udp.h and netif/xadapter.h.\r\n");
     xil_printf("Enable lwIP in the Vitis BSP/platform, then rebuild this app.\r\n");
-    xil_printf("This build needs lwIP for the UDP-controlled 500M/1000M/1250M/2000M/2500M/3125M/5000M/6250M dynamic rate switch.\r\n");
+    xil_printf("This build needs lwIP for the UDP-controlled 500M/1000M/1250M/2000M/2500M/3125M/5000M/6250M/10000M dynamic rate switch.\r\n");
     return XST_FAILURE;
 }
 #endif

@@ -50,6 +50,8 @@ uint32_t laser_gt_rate_id_to_mbps(uint32_t rate_id)
         return 3125U;
     case 8U:
         return 6250U;
+    case 9U:
+        return 10000U;
     default:
         return 0U;
     }
@@ -116,6 +118,10 @@ const char *laser_gt_rate_error_name(uint32_t error_code)
         return "TXUSRCLK2_FREQ_OUT_OF_WINDOW";
     case LASER_RATE_ERR_CPLL_LOCK_TIMEOUT:
         return "CPLL_LOCK_TIMEOUT";
+    case LASER_RATE_ERR_QPLL_LOCK_TIMEOUT:
+        return "QPLL_LOCK_TIMEOUT";
+    case LASER_RATE_ERR_QPLL_REFCLK_LOST:
+        return "QPLL_REFCLK_LOST";
     default:
         return "UNKNOWN";
     }
@@ -128,7 +134,7 @@ void laser_gt_print_status(uint32_t status)
     uint32_t error_code = LASER_GT_STATUS_RATE_ERROR_CODE(status);
 
     xil_printf("GT status       : 0x%08lx\r\n", (unsigned long)status);
-    xil_printf("  cpll_lock     : %lu\r\n", (unsigned long)((status & LASER_GT_STATUS_CPLL_LOCK) != 0U));
+    xil_printf("  pll_lock      : %lu\r\n", (unsigned long)((status & LASER_GT_STATUS_PLL_LOCK) != 0U));
     xil_printf("  tx_reset_done : %lu\r\n", (unsigned long)((status & LASER_GT_STATUS_TX_RESET_DONE) != 0U));
     xil_printf("  gt_ready      : %lu\r\n", (unsigned long)laser_gt_is_ready(status));
     xil_printf("  ctrl_reset    : %lu\r\n", (unsigned long)((status & LASER_GT_STATUS_CTRL_RESET) != 0U));

@@ -3,7 +3,8 @@
 
 #include <stdint.h>
 
-#define LASER_GT_STATUS_CPLL_LOCK     0x00000001U
+#define LASER_GT_STATUS_PLL_LOCK      0x00000001U
+#define LASER_GT_STATUS_CPLL_LOCK     LASER_GT_STATUS_PLL_LOCK
 #define LASER_GT_STATUS_TX_RESET_DONE 0x00000002U
 #define LASER_GT_STATUS_READY         0x00000004U
 #define LASER_GT_STATUS_CTRL_RESET    0x00000008U
@@ -46,6 +47,8 @@
 #define LASER_RATE_ERR_TXUSRCLK2_NOT_ALIVE          0x09U
 #define LASER_RATE_ERR_TXUSRCLK2_FREQ_OUT_OF_WINDOW 0x0aU
 #define LASER_RATE_ERR_CPLL_LOCK_TIMEOUT            0x0bU
+#define LASER_RATE_ERR_QPLL_LOCK_TIMEOUT            0x0cU
+#define LASER_RATE_ERR_QPLL_REFCLK_LOST             0x0dU
 
 int laser_gt_init(void);
 uint32_t laser_gt_read_status(void);

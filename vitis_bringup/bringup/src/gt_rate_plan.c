@@ -99,6 +99,18 @@ static const GtRatePlan gt_rate_plan_table[] = {
         96000000U, 99500000U,
         0U, 0U,
         "profile7_cpll_n1_n2_dynamic_candidate"
+    },
+    {
+        10000U, 10000000U, 0,
+        GT_RATE_REF_LOCAL_125, GT_RATE_PLL_QPLL,
+        125000000U, 10000000U, 312500000U, 312500000U, 156250000U,
+        1U, 5U,
+        0U, 0U, 0U,
+        1U, 80U,
+        2000U, 1U, 2U, 4U,
+        153000000U, 159500000U,
+        0U, 0U,
+        "profile8_qpll_10g_125m_dynamic_candidate"
     }
 };
 
