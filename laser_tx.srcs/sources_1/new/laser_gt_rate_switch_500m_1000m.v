@@ -206,6 +206,10 @@ module laser_gt_rate_switch_500m_1000m #(
     (* mark_debug = "true", keep = "true" *) wire cpll_drp_required =
         (target_cpll_drp_value != active_cpll_drp_value);
 
+    wire can_accept_rate_request =
+        (rate_state == RATE_IDLE) ||
+        (rate_state == RATE_DONE) ||
+        (rate_state == RATE_ERROR);
     wire request_event = gpio_ctrl[17] ^ rate_req_toggle_d;
     wire [3:0] requested_rate_id = gpio_ctrl[16:13];
     wire laser_busy = gpio_status[3];
@@ -764,7 +768,7 @@ module laser_gt_rate_switch_500m_1000m #(
             mmcm_drp_we <= 1'b0;
             rate_req_toggle_d <= gpio_ctrl[17];
 
-            if (request_event) begin
+            if (request_event && can_accept_rate_request) begin
                 request_pending <= 1'b1;
                 target_rate_id <= requested_rate_id;
                 target_rate_mbps <= profile_rate_mbps(requested_rate_id);
