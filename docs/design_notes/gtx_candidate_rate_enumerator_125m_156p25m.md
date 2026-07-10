@@ -48,10 +48,12 @@ QPLL line rate = QPLL VCO / TXOUT_DIV
 | XC7Z100-2 CPLL line range | D=1: 3.2–6.6G；D=2: 1.6–3.3G；D=4: 0.8–1.65G；D=8: 0.5–0.825G |
 | QPLL divider | `M={1,2,3,4}`、`N={16,20,32,40,64,66,80,100}`、`D={1,2,4,8,16}` |
 | QPLL VCO bands | lower 5.93–8.0GHz；upper 9.8–10.3125GHz（`XC7Z100-2`） |
-| GTX absolute range | 0.500–10.3125Gbps |
+| GTX silicon line-rate coverage | 0.500–8.000Gbps，以及 9.800–10.3125Gbps；严格位于 8.000–9.800Gbps 的速率不可用 |
 
-QPLL upper band 的 10.3125GHz 上限是 `XC7Z100-2` 的上限；不能把
-`-3` speed grade 的 12.5GHz 能力带入本工程。
+`0.500–10.3125Gbps` 只表示绝对端点，不能视为连续区间。QPLL upper band
+的 10.3125GHz 上限是 `XC7Z100-2` 的上限；严格位于 8.000–9.800Gbps 的
+速率会由枚举器标记为 `GTX_LINE_RATE_IN_UNAVAILABLE_8000_TO_9800MBPS_GAP`。
+不能把 `-3` speed grade 的 12.5GHz 能力带入本工程。
 
 ## 3. 状态定义
 

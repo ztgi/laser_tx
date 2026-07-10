@@ -31,9 +31,12 @@ SUPPORTED_RATES_MBPS = {
     500, 1000, 1250, 2000, 2500, 3125, 5000, 6250, 10000,
 }
 
-# XC7Z100 -2 GTX (DS191): 0.500 to 10.3125 Gb/s overall.
+# XC7Z100 -2 GTX (DS191): these are absolute endpoints, not a continuous
+# range. Silicon coverage is 0.500..8.000 Gb/s plus 9.800..10.3125 Gb/s.
 MIN_LINE_RATE_MHZ = Fraction(500)
 MAX_LINE_RATE_MHZ = Fraction(20625, 2)  # 10.3125 Gb/s
+GTX_LOW_BAND_MAX_LINE_RATE_MHZ = Fraction(8000)
+GTX_HIGH_BAND_MIN_LINE_RATE_MHZ = Fraction(9800)
 MAX_CURRENT_PROJECT_TXUSRCLK2_MHZ = Fraction(625, 4)  # 156.25 MHz at 10G
 
 # UG476 divider domains.
@@ -62,6 +65,15 @@ def rate_status(line_rate_mhz: Fraction) -> str:
 def qpll_fbdiv_ratio(n: int) -> str:
     """Return the UG476 QPLL_FBDIV_RATIO encoding for a QPLL feedback divider."""
     return "0" if n == 66 else "1"
+
+
+def gtx_line_rate_coverage_reason(line_mhz: Fraction) -> Optional[str]:
+    """Return the XC7Z100-2 silicon coverage rejection reason, if any."""
+    if line_mhz < MIN_LINE_RATE_MHZ or line_mhz > MAX_LINE_RATE_MHZ:
+        return "GTX_LINE_RATE_OUTSIDE_XC7Z100_2_500_TO_10312P5MBPS"
+    if GTX_LOW_BAND_MAX_LINE_RATE_MHZ < line_mhz < GTX_HIGH_BAND_MIN_LINE_RATE_MHZ:
+        return "GTX_LINE_RATE_IN_UNAVAILABLE_8000_TO_9800MBPS_GAP"
+    return None
 
 
 def project_gate(refclk_mhz: Fraction, txusrclk2_mhz: Fraction) -> str:
@@ -169,10 +181,10 @@ def enumerate_cpll(refclk: Fraction) -> tuple[list[Row], list[Row]]:
                         blocked.append(row_for(
                             refclk, "CPLL", m, n1, n2, divider, vco, line,
                             "BLOCKED", "CPLL_VCO_OUTSIDE_XC7Z100_2_RANGE_1600_TO_3300MHZ"))
-                    elif not MIN_LINE_RATE_MHZ <= line <= MAX_LINE_RATE_MHZ:
+                    elif gtx_line_rate_coverage_reason(line) is not None:
                         blocked.append(row_for(
                             refclk, "CPLL", m, n1, n2, divider, vco, line,
-                            "BLOCKED", "GTX_LINE_RATE_OUTSIDE_XC7Z100_2_500_TO_10312P5MBPS"))
+                            "BLOCKED", gtx_line_rate_coverage_reason(line)))
                     elif not cpll_line_range_ok(line, divider):
                         blocked.append(row_for(
                             refclk, "CPLL", m, n1, n2, divider, vco, line,
@@ -195,14 +207,15 @@ def enumerate_qpll(refclk: Fraction) -> tuple[list[Row], list[Row]]:
                 # UG476 QPLL relation: VCO / TXOUT_DIV.  The internal /2 and
                 # DDR serializer factors cancel in the line-rate equation.
                 line = vco / divider
-                if band is None:
+                coverage_reason = gtx_line_rate_coverage_reason(line)
+                if coverage_reason is not None:
+                    blocked.append(row_for(
+                        refclk, "QPLL", m, None, n, divider, vco, line,
+                        "BLOCKED", coverage_reason))
+                elif band is None:
                     blocked.append(row_for(
                         refclk, "QPLL", m, None, n, divider, vco, line,
                         "BLOCKED", "QPLL_VCO_NOT_IN_XC7Z100_2_LOWER_OR_UPPER_BAND"))
-                elif not MIN_LINE_RATE_MHZ <= line <= MAX_LINE_RATE_MHZ:
-                    blocked.append(row_for(
-                        refclk, "QPLL", m, None, n, divider, vco, line,
-                        "BLOCKED", "GTX_LINE_RATE_OUTSIDE_XC7Z100_2_500_TO_10312P5MBPS"))
                 elif not qpll_line_range_ok(line, divider, band):
                     blocked.append(row_for(
                         refclk, "QPLL", m, None, n, divider, vco, line,

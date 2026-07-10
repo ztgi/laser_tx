@@ -38,6 +38,12 @@ class CandidateEnumeratorTest(unittest.TestCase):
         self.assertEqual(row.reason_or_gate,
                          "QPLL_TXOUT_DIV_LINE_RATE_RANGE_VIOLATION")
 
+    def test_gtx_8000_to_9800_gap_is_not_continuous_coverage(self) -> None:
+        self.assertIsNone(enumerator.gtx_line_rate_coverage_reason(Fraction(8000)))
+        self.assertEqual(enumerator.gtx_line_rate_coverage_reason(Fraction(9000)),
+                         "GTX_LINE_RATE_IN_UNAVAILABLE_8000_TO_9800MBPS_GAP")
+        self.assertIsNone(enumerator.gtx_line_rate_coverage_reason(Fraction(9800)))
+
     def test_cpll_vco_below_minimum_is_blocked(self) -> None:
         _, blocked = enumerator.enumerate_cpll(Fraction(125))
         row = next(row for row in blocked
