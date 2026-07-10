@@ -61,3 +61,45 @@ Hardware rate-switch regression was not run。本阶段仅完成 Vitis build；�
 `GT_RATE_PROFILE_COUNT` 改为 `sizeof(gt_rate_profile_table) / sizeof(gt_rate_profile_table[0])` 推导；`gt_rate_pll_source_name()` 对非法 enum 返回 `UNKNOWN_PLL`。当前 ARM GCC Vitis build 支持 designated initializer，profile 表已采用字段名初始化以减少字段错位风险。
 
 `GT_RATE_PLAN_HOST_TEST` 为脱离 Xilinx BSP 的 host 编译保留 RATE_ID 宏副本；本轮未大规模移动公共头文件。`scripts/check_rate_profile_consistency.py` 会比较该正式软件 RATE_ID 与 RTL localparam，但 host 宏副本仍是需维护的低风险测试辅助结构。
+
+## 9. 上板 rate set 安全集成回归
+
+本轮使用 UDP 直接执行 planner 与 executor 回归。初始 `rate status` 为 `current_rate=500`、`current_rate_id=1`、`rate_state=RATE_IDLE`、`error_code=NONE`、`gt_ready=1`，raw=`0x00000017`。
+
+### 9.1 不支持速率拒绝
+
+`rate set 3000` 返回：
+
+```text
+ERROR RATE_SET_UNSUPPORTED requested=3000 nearest_lower=2500 nearest_upper=3125
+reason=NO_LEGAL_VERIFIED_125M_CPLL_PROFILE
+```
+
+紧随其后的 `rate status` 与请求前完全相同：`current_rate=500`、`RATE_IDLE`、`error_code=NONE`、raw=`0x00000017`；`gt_drp_written/mmcm_drp_written/gt_drp_done/mmcm_drp_done` 均为 0。`rate plan 3000 nearest` 仅返回 `selected=3125`、`suggestion_only=1`，未执行切换。
+
+现有 software status ABI 不导出 target_rate 或 rate_request_toggle。对“不写 GPIO”的证明来自 `rate set` 的控制流：UNSUPPORTED 在 `laser_gpio_rate_request()` 前返回；本轮没有保存同窗口 ILA，因此 target_rate 未变、toggle 未翻转和 DRP 未启动的直接 ILA 证据仍待补充。
+
+### 9.2 已验证 profile 回归
+
+按以下实际顺序执行：
+
+```text
+500 -> 1000 -> 2000 -> 1250 -> 2500 -> 5000 -> 3125 -> 6250 -> 10000 -> 1000
+```
+
+每条 `rate set` 都返回 `OK RATE_SET target=<rate> current_rate=<rate> state=DONE`，并显示 `gt_drp_written=1`、`mmcm_drp_written=1`。每档后的 `rate status` 均为 `RATE_DONE`、`error_code=NONE`、`gt_ready=1`，对应 current_rate_id 为 1、2、3、4、5、6、7、8、9、2。
+
+随后重复 `rate set 1000` 返回 `already_current_rate=1`，未触发不必要的动态切换。
+
+### 9.3 输入边界
+
+| 命令 | 结果 |
+|---|---|
+| `rate set` | `ERR RATE_SET_ARGS` |
+| `rate set abc` | `ERR RATE_SET_ARGS` |
+| `rate set -1` | `ERR RATE_SET_ARGS` |
+| `rate set 0` | `RATE_SET_UNSUPPORTED` |
+| `rate set 10001` | `RATE_SET_UNSUPPORTED` |
+| `rate set 4294967296` | `ERR RATE_SET_ARGS` |
+
+因此空参数、非数字、负数和 uint32 溢出均未进入硬件切换路径。
