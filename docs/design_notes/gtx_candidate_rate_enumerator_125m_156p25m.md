@@ -22,9 +22,12 @@
 profile 已证明当前 clocking 关系为：
 
 ```text
-TXOUTCLK = TXUSRCLK = line_rate / 32
+TXUSRCLK  = line_rate / 32
 TXUSRCLK2 = line_rate / 64
 ```
+
+枚举器不再输出 `TXOUTCLK`。其频率还取决于 `TXOUTCLKSEL` 和 GT Wizard
+生成的 user-clock 网络，不能仅由 PLL 分频候选作通用推导。
 
 枚举器使用：
 
@@ -54,7 +57,7 @@ QPLL upper band 的 10.3125GHz 上限是 `XC7Z100-2` 的上限；不能把
 
 | 状态 | 含义 |
 |---|---|
-| `ALREADY_SUPPORTED` | line rate 已在当前九档正式 profile 中；表中其它 PLL/参数解不代表该替代解已经验证。 |
+| `RATE_VALUE_ALREADY_PRESENT` | line rate 数值已在当前九档正式 profile 中；表中其它 PLL/参数解不代表该替代解已经验证。 |
 | `LEGAL_CANDIDATE` | 文档约束下存在合法参数元组，但未进入 supported list。 |
 | `BLOCKED` | 该参数元组违反 VCO、divider 分档 line-rate 或当前器件速率限制；CSV 为每一项给出原因。 |
 
@@ -121,7 +124,7 @@ PLL    = CPLL
 M/N1/N2 = 1/4/5
 TXOUT_DIV = 8
 line rate = 625Mbps
-TXOUTCLK = TXUSRCLK = 19.53125MHz
+TXUSRCLK = 19.53125MHz
 TXUSRCLK2 = 9.765625MHz
 ```
 

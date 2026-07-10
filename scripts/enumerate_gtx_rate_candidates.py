@@ -13,6 +13,8 @@ Sources encoded here:
 
 The current project has 64-bit TXDATA, 32-bit internal width, and no 8b/10b.
 For that interface TXUSRCLK = line_rate / 32 and TXUSRCLK2 = line_rate / 64.
+TXOUTCLK is intentionally not derived: it depends on TXOUTCLKSEL and the
+generated GT user-clock network.
 """
 
 from __future__ import annotations
@@ -51,10 +53,15 @@ def fmt(value: Fraction, places: int = 6) -> str:
 
 
 def rate_status(line_rate_mhz: Fraction) -> str:
-    """Classify only the line-rate, never an ungenerated hardware profile."""
+    """Classify only a rate value, never an ungenerated hardware tuple."""
     if line_rate_mhz.denominator == 1 and int(line_rate_mhz) in SUPPORTED_RATES_MBPS:
-        return "ALREADY_SUPPORTED"
+        return "RATE_VALUE_ALREADY_PRESENT"
     return "LEGAL_CANDIDATE"
+
+
+def qpll_fbdiv_ratio(n: int) -> str:
+    """Return the UG476 QPLL_FBDIV_RATIO encoding for a QPLL feedback divider."""
+    return "0" if n == 66 else "1"
 
 
 def project_gate(refclk_mhz: Fraction, txusrclk2_mhz: Fraction) -> str:
@@ -73,10 +80,10 @@ class Row:
     m: str
     n1: str
     n2_or_n: str
+    qpll_fbdiv_ratio: str
     txout_div: str
     pll_vco_mhz: str
     line_rate_mbps: str
-    txoutclk_mhz: str
     txusrclk_mhz: str
     txusrclk2_mhz: str
     status: str
@@ -116,7 +123,7 @@ def qpll_line_range_ok(line_mhz: Fraction, divider: int, band: str) -> bool:
         "UPPER": {
             1: (Fraction(9800), Fraction(20625, 2)),
             2: (Fraction(4900), Fraction(103125, 20)),
-            4: (Fraction(2450), Fraction(4125, 2)),
+            4: (Fraction(2450), Fraction(103125, 40)),
             8: (Fraction(1225), Fraction(103125, 80)),
             16: (Fraction(1225, 2), Fraction(103125, 160)),
         },
@@ -138,10 +145,10 @@ def row_for(refclk: Fraction, pll: str, m: int, n1: Optional[int], n2_or_n: int,
         m=str(m),
         n1="-" if n1 is None else str(n1),
         n2_or_n=str(n2_or_n),
+        qpll_fbdiv_ratio="-" if pll == "CPLL" else qpll_fbdiv_ratio(n2_or_n),
         txout_div=str(divider),
         pll_vco_mhz=fmt(vco),
         line_rate_mbps=fmt(line),
-        txoutclk_mhz=fmt(txusrclk),
         txusrclk_mhz=fmt(txusrclk),
         txusrclk2_mhz=fmt(txusrclk2),
         status=status,
@@ -217,11 +224,12 @@ def write_csv(rows: Iterable[Row], path: Path) -> None:
 
 def compact_table(rows: Iterable[Row], title: str) -> str:
     rows = list(rows)
-    lines = [f"## {title}", "", "| M | N1 | N2/N | D | VCO MHz | line Mbps | TXUSRCLK2 MHz | status |", "|---:|---:|---:|---:|---:|---:|---:|---|"]
+    lines = [f"## {title}", "", "| M | N1 | N2/N | QPLL_FBDIV_RATIO | D | VCO MHz | line Mbps | TXUSRCLK MHz | TXUSRCLK2 MHz | status |", "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for row in rows:
         lines.append(
-            f"| {row.m} | {row.n1} | {row.n2_or_n} | {row.txout_div} | "
-            f"{row.pll_vco_mhz} | {row.line_rate_mbps} | {row.txusrclk2_mhz} | {row.status} |")
+            f"| {row.m} | {row.n1} | {row.n2_or_n} | {row.qpll_fbdiv_ratio} | {row.txout_div} | "
+            f"{row.pll_vco_mhz} | {row.line_rate_mbps} | {row.txusrclk_mhz} | "
+            f"{row.txusrclk2_mhz} | {row.status} |")
     return "\n".join(lines)
 
 
@@ -236,6 +244,8 @@ def write_markdown(legal_rows: list[Row], blocked_rows: list[Row], path: Path) -
         "- CPLL: `line = 2 × REFCLK × N1 × N2 / (M × D)`.",
         "- QPLL: `line = REFCLK × N / (M × D)`.",
         "- Current no-8b/10b 64-bit interface: `TXUSRCLK2 = line / 64`.",
+        "- TXOUTCLK is not derived because it depends on TXOUTCLKSEL and the generated GT user-clock network.",
+        "- `RATE_VALUE_ALREADY_PRESENT` only says the numeric rate exists in the current supported list; it does not validate this row's tuple.",
         "- `LEGAL_CANDIDATE` means published silicon constraints pass; it still needs GT Wizard, MMCM DRP, timing, and board validation.",
         "",
     ]
