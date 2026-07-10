@@ -159,6 +159,7 @@ module laser_gt_tx_profile0 (
     wire rate_gt_tx_reset;
     wire rate_txuserrdy_block;
     (* mark_debug = "true" *) wire rate_cpll_reset;
+    (* mark_debug = "true" *) wire rate_qpll_reset;
     wire apply_enable_blocked;
 
     (* mark_debug = "true" *) wire [7:0] rate_state;
@@ -231,13 +232,12 @@ module laser_gt_tx_profile0 (
 
     // QPLL architecture preparation.
     //
-    // The current supported runtime profiles remain CPLL-only.  qpll_selected
-    // is deliberately held low until a later 10G/QPLL profile stage adds a
-    // validated PLL-aware executor.  Keeping the COMMON in the design now
-    // makes QPLLCLK/QPLLREFCLK/QPLLLOCK/QPLLRESET real, routable signals
-    // rather than constants, without changing the CPLL data path.
-    assign qpll_selected = 1'b0;
-    assign qpllreset_ctrl = ctrl_rst;
+    // The current supported runtime profiles still remain CPLL-only until a
+    // later stage adds RATE_ID_10000M.  The rate controller now owns the
+    // qpll_selected/qpllreset control points so the PLL-source state semantics
+    // are no longer hard-wired constants; with all existing profiles returning
+    // PLL_TYPE_CPLL, qpll_selected remains 0 in normal operation.
+    assign qpllreset_ctrl = ctrl_rst | rate_qpll_reset;
     assign qpllpd_ctrl = 1'b0;
     assign gt0_txsysclksel_effective = qpll_selected ? 2'b11 : 2'b00;
 
@@ -326,9 +326,12 @@ module laser_gt_tx_profile0 (
     assign txusrclk2_out = txusrclk2;
     assign tx_mmcm_reset = tx_mmcm_reset_wizard | tx_mmcm_reset_rate;
     wire gt_ready_effective_ctrl = gt_ready_ctrl & ~rate_busy & ~rate_error;
-    wire gt0_gttxreset_effective = ctrl_rst | rate_gt_tx_reset | ~cplllock_sync;
+    wire selected_pll_lock_sync = qpll_selected ?
+                                  (qplllock_sync & ~qpllrefclklost_sync) :
+                                  cplllock_sync;
+    wire gt0_gttxreset_effective = ctrl_rst | rate_gt_tx_reset | ~selected_pll_lock_sync;
     wire gt0_txuserrdy_effective = ~ctrl_rst & ~rate_txuserrdy_block &
-                                    cplllock_sync & tx_mmcm_locked_sync;
+                                    selected_pll_lock_sync & tx_mmcm_locked_sync;
 
     // Debug-only AXI/FCLK-domain mirrors for the BD AXI ILA. These outputs do
     // not feed back into the rate controller or GT datapath.
@@ -382,6 +385,8 @@ module laser_gt_tx_profile0 (
         .gpio_ctrl                   (gpio_ctrl_axi),
         .gpio_status                 (gpio_status_axi),
         .cplllock_sync               (cplllock_sync),
+        .qplllock_sync               (qplllock_sync),
+        .qpllrefclklost_sync         (qpllrefclklost_sync),
         .txresetdone_sync            (txresetdone_sync),
         .tx_mmcm_locked_sync         (tx_mmcm_locked_sync),
         .gt_ready_ctrl               (gt_ready_ctrl),
@@ -391,6 +396,8 @@ module laser_gt_tx_profile0 (
         .rate_txuserrdy_block        (rate_txuserrdy_block),
         .rate_mmcm_reset             (tx_mmcm_reset_rate),
         .rate_cpll_reset             (rate_cpll_reset),
+        .rate_qpll_reset             (rate_qpll_reset),
+        .qpll_selected               (qpll_selected),
         .apply_enable_blocked        (apply_enable_blocked),
         .gt_drp_addr                 (gt_drpaddr),
         .gt_drp_di                   (gt_drpdi),
@@ -408,6 +415,9 @@ module laser_gt_tx_profile0 (
         .target_rate_mbps            (target_rate_mbps),
         .current_rate_mbps           (current_rate_mbps),
         .current_rate_id             (current_rate_id),
+        .target_pll_type_dbg         (),
+        .active_pll_type_dbg         (),
+        .programmed_pll_type_dbg     (),
         .rate_busy                   (rate_busy),
         .rate_done                   (rate_done),
         .rate_error                  (rate_error),
@@ -501,7 +511,7 @@ module laser_gt_tx_profile0 (
             end else begin
                 txusrclk2_measure_count_axi <= txusrclk2_measure_count_axi + 1'b1;
             end
-            if (!cplllock_sync || !tx_mmcm_locked_sync || !txresetdone_sync) begin
+            if (!selected_pll_lock_sync || !tx_mmcm_locked_sync || !txresetdone_sync) begin
                 ready_count   <= {READY_COUNT_WIDTH{1'b0}};
                 gt_ready_ctrl <= 1'b0;
             end else if (ready_count < READY_STABLE_CYCLES) begin

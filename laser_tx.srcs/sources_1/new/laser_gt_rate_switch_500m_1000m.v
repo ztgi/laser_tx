@@ -5,8 +5,10 @@
 // first 125 MHz-refclk CPLL-parameter-changing 1250M/2500M/3125M/5000M/6250M profiles.
 //
 // This module intentionally supports only fixed, explicitly reviewed profiles.
-// It does not touch RXOUT_DIV, QPLL, AD9528 or any wide-range/refclk switching
-// fields.  The GTXE2 and MMCME2 DRP tables are taken from
+// It does not touch RXOUT_DIV, AD9528 or any wide-range/refclk switching
+// fields.  QPLL control/status semantics are prepared for a later fixed
+// 10.000G profile, but no QPLL profile is exposed until RATE_ID_10000M is
+// explicitly added.  The GTXE2 and MMCME2 DRP tables are taken from
 // docs/debug_reports/06_drp_parameter_confirmation_for_500m_1000m.md.
 //
 // Level-3 profile-table refactor note:
@@ -47,6 +49,8 @@ module laser_gt_rate_switch_500m_1000m #(
     input  wire [31:0] gpio_status,
 
     input  wire        cplllock_sync,
+    input  wire        qplllock_sync,
+    input  wire        qpllrefclklost_sync,
     input  wire        txresetdone_sync,
     input  wire        tx_mmcm_locked_sync,
     input  wire        gt_ready_ctrl,
@@ -57,6 +61,8 @@ module laser_gt_rate_switch_500m_1000m #(
     output reg         rate_txuserrdy_block,
     output reg         rate_mmcm_reset,
     output reg         rate_cpll_reset,
+    output reg         rate_qpll_reset,
+    (* mark_debug = "true" *) output reg         qpll_selected,
     output reg         apply_enable_blocked,
 
     output reg  [8:0]  gt_drp_addr,
@@ -77,6 +83,9 @@ module laser_gt_rate_switch_500m_1000m #(
     (* mark_debug = "true" *) output reg  [15:0] target_rate_mbps,
     (* mark_debug = "true" *) output reg  [15:0] current_rate_mbps,
     (* mark_debug = "true" *) output reg  [3:0]  current_rate_id,
+    (* mark_debug = "true" *) output reg  [1:0]  target_pll_type_dbg,
+    (* mark_debug = "true" *) output reg  [1:0]  active_pll_type_dbg,
+    (* mark_debug = "true" *) output reg  [1:0]  programmed_pll_type_dbg,
     (* mark_debug = "true" *) output reg         rate_busy,
     (* mark_debug = "true" *) output reg         rate_done,
     (* mark_debug = "true" *) output reg         rate_error,
@@ -129,6 +138,8 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [7:0] RATE_ERR_TXUSRCLK2_NOT_ALIVE          = 8'h09;
     localparam [7:0] RATE_ERR_TXUSRCLK2_FREQ_OUT_OF_WINDOW = 8'h0a;
     localparam [7:0] RATE_ERR_CPLL_LOCK_TIMEOUT            = 8'h0b;
+    localparam [7:0] RATE_ERR_QPLL_LOCK_TIMEOUT            = 8'h0c;
+    localparam [7:0] RATE_ERR_QPLL_REFCLK_LOST             = 8'h0d;
 
     localparam [3:0] RATE_ID_NONE  = 4'd0;
     localparam [3:0] RATE_ID_500M  = 4'd1;
@@ -142,6 +153,7 @@ module laser_gt_rate_switch_500m_1000m #(
 
     localparam [1:0] REFCLK_125M = 2'd0;
     localparam [1:0] PLL_TYPE_CPLL = 2'd0;
+    localparam [1:0] PLL_TYPE_QPLL = 2'd1;
     localparam [3:0] GT_DRP_SEQ_TXOUT_DIV = 4'd1;
     localparam [3:0] GT_DRP_SEQ_CPLL_TXOUT_DIV = 4'd2;
     localparam [3:0] MMCM_DRP_SEQ_PROFILE0_500M = 4'd1;
@@ -191,6 +203,8 @@ module laser_gt_rate_switch_500m_1000m #(
     reg [1:0] target_refclk_id;
     reg [31:0] target_refclk_freq_hz;
     reg [1:0] target_pll_type;
+    reg [1:0] active_pll_type;
+    reg [1:0] programmed_pll_type;
     reg [3:0] target_gt_drp_seq_id;
     reg [3:0] target_mmcm_drp_seq_id;
     reg [31:0] target_expected_txusrclk2_hz;
@@ -727,6 +741,7 @@ module laser_gt_rate_switch_500m_1000m #(
             rate_txuserrdy_block <= 1'b0;
             rate_mmcm_reset <= 1'b0;
             rate_cpll_reset <= 1'b0;
+            rate_qpll_reset <= 1'b0;
             gt_drp_busy <= 1'b0;
             mmcm_drp_busy <= 1'b0;
         end
@@ -750,6 +765,11 @@ module laser_gt_rate_switch_500m_1000m #(
             target_refclk_id        <= REFCLK_125M;
             target_refclk_freq_hz   <= 32'd125000000;
             target_pll_type         <= PLL_TYPE_CPLL;
+            active_pll_type         <= PLL_TYPE_CPLL;
+            programmed_pll_type     <= PLL_TYPE_CPLL;
+            target_pll_type_dbg     <= PLL_TYPE_CPLL;
+            active_pll_type_dbg     <= PLL_TYPE_CPLL;
+            programmed_pll_type_dbg <= PLL_TYPE_CPLL;
             target_gt_drp_seq_id    <= GT_DRP_SEQ_TXOUT_DIV;
             target_mmcm_drp_seq_id  <= MMCM_DRP_SEQ_PROFILE0_500M;
             target_expected_txusrclk2_hz <= 32'd7812500;
@@ -771,6 +791,8 @@ module laser_gt_rate_switch_500m_1000m #(
             rate_txuserrdy_block    <= 1'b0;
             rate_mmcm_reset         <= 1'b0;
             rate_cpll_reset         <= 1'b0;
+            rate_qpll_reset         <= 1'b0;
+            qpll_selected           <= 1'b0;
             apply_enable_blocked    <= 1'b0;
 
             gt_drp_addr             <= 9'd0;
@@ -824,6 +846,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 target_refclk_id <= profile_refclk_id(requested_rate_id);
                 target_refclk_freq_hz <= profile_refclk_freq_hz(requested_rate_id);
                 target_pll_type <= profile_pll_type(requested_rate_id);
+                target_pll_type_dbg <= profile_pll_type(requested_rate_id);
                 if (cpll_div_drp_value(profile_cpll_refclk_div_enc(requested_rate_id),
                                        profile_cpll_fbdiv_45_enc(requested_rate_id),
                                        profile_cpll_fbdiv_enc(requested_rate_id)) !=
@@ -847,6 +870,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_txuserrdy_block <= 1'b0;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
+                rate_qpll_reset <= 1'b0;
                 gt_drp_busy <= 1'b0;
                 mmcm_drp_busy <= 1'b0;
                 tx_quiesce_req <= 1'b0;
@@ -876,6 +900,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_txuserrdy_block <= 1'b0;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
+                rate_qpll_reset <= 1'b0;
                 tx_quiesce_req <= 1'b0;
                 gt_drp_busy <= 1'b0;
                 mmcm_drp_busy <= 1'b0;
@@ -905,6 +930,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_txuserrdy_block <= 1'b0;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
+                rate_qpll_reset <= 1'b0;
                 gt_drp_busy <= 1'b0;
                 mmcm_drp_busy <= 1'b0;
                 if (request_pending) begin
@@ -932,7 +958,8 @@ module laser_gt_rate_switch_500m_1000m #(
                     set_error(RATE_ERR_UNSUPPORTED_RATE);
                 end else if ((target_refclk_id != REFCLK_125M) ||
                              (target_refclk_freq_hz != 32'd125000000) ||
-                             (target_pll_type != PLL_TYPE_CPLL) ||
+                             ((target_pll_type != PLL_TYPE_CPLL) &&
+                              (target_pll_type != PLL_TYPE_QPLL)) ||
                              ((target_gt_drp_seq_id != GT_DRP_SEQ_TXOUT_DIV) &&
                               (target_gt_drp_seq_id != GT_DRP_SEQ_CPLL_TXOUT_DIV)) ||
                              ((target_profile_flags & PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED) != 8'h00) ||
@@ -961,7 +988,9 @@ module laser_gt_rate_switch_500m_1000m #(
                     rate_gt_tx_reset <= 1'b1;
                     rate_txuserrdy_block <= 1'b1;
                     rate_mmcm_reset <= 1'b1;
-                    rate_cpll_reset <= (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                    rate_cpll_reset <= (target_pll_type == PLL_TYPE_CPLL) &&
+                                       (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                    rate_qpll_reset <= (target_pll_type == PLL_TYPE_QPLL);
                     reset_hold_count <= 32'd0;
                 end else if (timeout_count >= TX_QUIESCE_TIMEOUT) begin
                     set_error(RATE_ERR_TX_QUIESCE_TIMEOUT);
@@ -975,7 +1004,10 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_gt_tx_reset <= 1'b1;
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b1;
-                rate_cpll_reset <= (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                rate_cpll_reset <= (target_pll_type == PLL_TYPE_CPLL) &&
+                                   (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                rate_qpll_reset <= (target_pll_type == PLL_TYPE_QPLL);
+                qpll_selected <= (target_pll_type == PLL_TYPE_QPLL);
                 if (reset_hold_count >= target_reset_timeout) begin
                     rate_state <= RATE_PROGRAM_GT_DRP;
                     if (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV) begin
@@ -995,7 +1027,9 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_gt_tx_reset <= 1'b1;
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b1;
-                rate_cpll_reset <= (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                rate_cpll_reset <= (target_pll_type == PLL_TYPE_CPLL) &&
+                                   (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                rate_qpll_reset <= 1'b0;
                 gt_drp_busy <= 1'b1;
                 case (gt_step)
                 GT_STEP_READ_CPLL: begin
@@ -1154,7 +1188,9 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_gt_tx_reset <= 1'b1;
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b1;
-                rate_cpll_reset <= (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                rate_cpll_reset <= (target_pll_type == PLL_TYPE_CPLL) &&
+                                   (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV);
+                rate_qpll_reset <= 1'b0;
                 mmcm_drp_busy <= 1'b1;
                 if (mmcm_index < MMCM_TABLE_LEN) begin
                     if (timeout_count == 32'd0) begin
@@ -1192,6 +1228,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
+                rate_qpll_reset <= 1'b0;
                 rate_state <= RATE_WAIT_MMCM_RESET_RELEASE;
                 timeout_count <= 32'd0;
             end
@@ -1206,6 +1243,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_txuserrdy_block <= 1'b1;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
+                rate_qpll_reset <= 1'b0;
                 if (timeout_count >= target_reset_timeout) begin
                     rate_state <= RATE_WAIT_LOCK;
                     timeout_count <= 32'd0;
@@ -1218,7 +1256,20 @@ module laser_gt_rate_switch_500m_1000m #(
                 apply_enable_blocked <= 1'b1;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
-                if (!cplllock_sync) begin
+                rate_qpll_reset <= 1'b0;
+                if ((target_pll_type == PLL_TYPE_QPLL) && qpllrefclklost_sync) begin
+                    rate_gt_tx_reset <= 1'b0;
+                    rate_txuserrdy_block <= 1'b1;
+                    set_error(RATE_ERR_QPLL_REFCLK_LOST);
+                end else if ((target_pll_type == PLL_TYPE_QPLL) && !qplllock_sync) begin
+                    rate_gt_tx_reset <= 1'b0;
+                    rate_txuserrdy_block <= 1'b1;
+                    if (timeout_count >= target_lock_timeout) begin
+                        set_error(RATE_ERR_QPLL_LOCK_TIMEOUT);
+                    end else begin
+                        timeout_count <= timeout_count + 1'b1;
+                    end
+                end else if ((target_pll_type == PLL_TYPE_CPLL) && !cplllock_sync) begin
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b1;
                     if (timeout_count >= target_lock_timeout) begin
@@ -1227,6 +1278,8 @@ module laser_gt_rate_switch_500m_1000m #(
                         timeout_count <= timeout_count + 1'b1;
                     end
                 end else if (!tx_mmcm_locked_sync) begin
+                    programmed_pll_type <= target_pll_type;
+                    programmed_pll_type_dbg <= target_pll_type;
                     // Do not reassert rate_gt_tx_reset here.  The GT Wizard
                     // must see soft_reset_tx_in released so its startup FSM can
                     // drive tx_mmcm_reset_wizard low and allow MMCM lock.
@@ -1238,6 +1291,8 @@ module laser_gt_rate_switch_500m_1000m #(
                         timeout_count <= timeout_count + 1'b1;
                     end
                 end else if (!txresetdone_sync) begin
+                    programmed_pll_type <= target_pll_type;
+                    programmed_pll_type_dbg <= target_pll_type;
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b0;
                     if (timeout_count >= target_lock_timeout) begin
@@ -1246,6 +1301,8 @@ module laser_gt_rate_switch_500m_1000m #(
                         timeout_count <= timeout_count + 1'b1;
                     end
                 end else if (!gt_ready_ctrl) begin
+                    programmed_pll_type <= target_pll_type;
+                    programmed_pll_type_dbg <= target_pll_type;
                     rate_gt_tx_reset <= 1'b0;
                     rate_txuserrdy_block <= 1'b0;
                     if (timeout_count >= target_lock_timeout) begin
@@ -1254,6 +1311,8 @@ module laser_gt_rate_switch_500m_1000m #(
                         timeout_count <= timeout_count + 1'b1;
                     end
                 end else begin
+                    programmed_pll_type <= target_pll_type;
+                    programmed_pll_type_dbg <= target_pll_type;
                     rate_state <= RATE_VERIFY_RATE;
                     verify_count <= 32'd0;
                     timeout_count <= 32'd0;
@@ -1266,6 +1325,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 rate_txuserrdy_block <= 1'b0;
                 rate_mmcm_reset <= 1'b0;
                 rate_cpll_reset <= 1'b0;
+                rate_qpll_reset <= 1'b0;
                 if (verify_count < VERIFY_SETTLE_CYCLES) begin
                     verify_count <= verify_count + 1'b1;
                 end else if (!txusrclk2_alive_axi) begin
@@ -1275,6 +1335,8 @@ module laser_gt_rate_switch_500m_1000m #(
                 end else begin
                     current_rate_id <= target_rate_id;
                     current_rate_mbps <= target_rate_mbps;
+                    active_pll_type <= target_pll_type;
+                    active_pll_type_dbg <= target_pll_type;
                     active_cpll_drp_value <= target_cpll_drp_value;
                     rate_state <= RATE_DONE;
                     rate_busy <= 1'b0;
