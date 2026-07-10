@@ -72,6 +72,10 @@ module laser_gt_tx_profile0 (
     output wire [15:0] dbg_gt_drp_readback_value,
     output wire        dbg_txoutclk_alive_axi,
     output wire [31:0] dbg_timeout_count,
+    output wire        dbg_scope_rate_req,
+    output wire        dbg_scope_tx_mmcm_locked,
+    output wire        dbg_scope_gt_ready,
+    output wire        dbg_scope_txusrclk2_div16,
     output wire        gtx_txp_out,
     output wire        gtx_txn_out
 );
@@ -196,6 +200,7 @@ module laser_gt_tx_profile0 (
     (* ASYNC_REG = "TRUE" *) reg gt_ready_tx;
     reg [23:0] tx_word_count;
     reg [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_tx;
+    reg [7:0] dbg_txusrclk2_div_counter;
     wire [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_gray_tx =
         txusrclk2_counter_tx ^ (txusrclk2_counter_tx >> 1);
 
@@ -372,6 +377,9 @@ module laser_gt_tx_profile0 (
     assign dbg_gt_drp_rdy                  = gt_drprdy;
     assign dbg_gt_drp_readback_value       = gt_drp_readback_value;
     assign dbg_txoutclk_alive_axi          = txoutclk_alive_axi;
+    assign dbg_scope_tx_mmcm_locked        = tx_mmcm_locked_sync;
+    assign dbg_scope_gt_ready              = gt_ready_tx;
+    assign dbg_scope_txusrclk2_div16       = dbg_txusrclk2_div_counter[3];
 
     laser_gt_rate_switch_500m_1000m u_rate_switch_500m_1000m (
         .clk                         (ctrl_clk),
@@ -421,7 +429,8 @@ module laser_gt_tx_profile0 (
         .mmcm_drp_write_attempted    (mmcm_drp_write_attempted),
         .tx_quiesce_req              (tx_quiesce_req),
         .tx_idle_seen                (tx_idle_seen),
-        .dbg_timeout_count           (dbg_timeout_count)
+        .dbg_timeout_count           (dbg_timeout_count),
+        .dbg_scope_rate_req          (dbg_scope_rate_req)
     );
 
     always @(posedge ctrl_clk) begin
@@ -524,10 +533,12 @@ module laser_gt_tx_profile0 (
             gt_ready_tx      <= 1'b0;
             tx_word_count    <= 24'd0;
             txusrclk2_counter_tx <= {TXUSRCLK2_FREQ_WIDTH{1'b0}};
+            dbg_txusrclk2_div_counter <= 8'd0;
         end else begin
             gt_ready_meta_tx <= gt_ready_effective_ctrl;
             gt_ready_tx      <= gt_ready_meta_tx;
             txusrclk2_counter_tx <= txusrclk2_counter_tx + 1'b1;
+            dbg_txusrclk2_div_counter <= dbg_txusrclk2_div_counter + 1'b1;
             if (!gt_ready_tx) begin
                 tx_word_count <= 24'd0;
             end else if (|valid_mask_in) begin

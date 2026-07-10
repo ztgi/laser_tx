@@ -100,7 +100,11 @@ module laser_gt_rate_switch_500m_1000m #(
     // Debug-only mirror of the common timeout/wait counter. This does not
     // feed back into the state machine; it is only exported to the AXI/FCLK
     // ILA so RATE_WAIT_LOCK progress can be correlated with lock/reset state.
-    (* mark_debug = "true" *) output wire [31:0] dbg_timeout_count
+    (* mark_debug = "true" *) output wire [31:0] dbg_timeout_count,
+
+    // Oscilloscope-only stretched copy of the real request_event. This port
+    // is debug-only and does not feed back into the rate-switch FSM.
+    output wire        dbg_scope_rate_req
 );
 
     localparam [7:0] RATE_IDLE             = 8'h00;
@@ -154,6 +158,10 @@ module laser_gt_rate_switch_500m_1000m #(
     localparam [3:0] MMCM_DRP_SEQ_PROFILE7_6250M = 4'd8;
     localparam [7:0] PROFILE_FLAG_NONE = 8'h00;
     localparam [7:0] PROFILE_FLAG_AD9528_DYNAMIC_REQUIRED = 8'h01;
+    // ctrl_clk is PS FCLK / gt_ctrl_clk at 50 MHz in this project. Holding
+    // the scope pulse for 250 cycles gives a 5.0 us pulse that is easier to
+    // catch on an oscilloscope than the one-cycle request_event.
+    localparam [7:0] DBG_SCOPE_RATE_REQ_HOLD_CYCLES = 8'd250;
 
     localparam [8:0] GTX_DRP_ADDR_OUT_DIV = 9'h088;
     localparam [8:0] GTX_DRP_ADDR_CPLL_DIV = 9'h05e;
@@ -199,6 +207,7 @@ module laser_gt_rate_switch_500m_1000m #(
     reg [31:0] timeout_count;
     reg [31:0] reset_hold_count;
     reg [31:0] verify_count;
+    reg [7:0] dbg_scope_rate_req_count;
     reg [3:0] gt_step;
     reg [4:0] mmcm_index;
     reg [15:0] gt_outdiv_readback;
@@ -226,6 +235,7 @@ module laser_gt_rate_switch_500m_1000m #(
         (txusrclk2_freq_counter_axi <= {8'd0, expected_max_count});
 
     assign dbg_timeout_count = timeout_count;
+    assign dbg_scope_rate_req = (dbg_scope_rate_req_count != 8'd0);
 
     function profile_supported;
         input [3:0] rate_id;
@@ -727,6 +737,7 @@ module laser_gt_rate_switch_500m_1000m #(
             timeout_count           <= 32'd0;
             reset_hold_count        <= 32'd0;
             verify_count            <= 32'd0;
+            dbg_scope_rate_req_count <= 8'd0;
             gt_step                 <= GT_STEP_READ_OUTDIV;
             mmcm_index              <= 5'd0;
             gt_outdiv_readback      <= 16'd0;
@@ -772,6 +783,11 @@ module laser_gt_rate_switch_500m_1000m #(
             mmcm_drp_en <= 1'b0;
             mmcm_drp_we <= 1'b0;
             rate_req_toggle_d <= gpio_ctrl[17];
+            if (request_event) begin
+                dbg_scope_rate_req_count <= DBG_SCOPE_RATE_REQ_HOLD_CYCLES;
+            end else if (dbg_scope_rate_req_count != 8'd0) begin
+                dbg_scope_rate_req_count <= dbg_scope_rate_req_count - 1'b1;
+            end
 
             if (request_event && can_accept_rate_request) begin
                 request_pending <= 1'b1;

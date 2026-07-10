@@ -41,7 +41,14 @@ module laser_tx_board_top (
     input  wire        gt_refclk125_p,
     input  wire        gt_refclk125_n,
     output wire        gtx_txp_out,
-    output wire        gtx_txn_out
+    output wire        gtx_txn_out,
+
+    // J9 oscilloscope-only debug outputs. These pins do not feed back into
+    // the functional rate-switch or laser TX datapath.
+    output wire        dbg_scope_rate_req,
+    output wire        dbg_scope_tx_mmcm_locked,
+    output wire        dbg_scope_gt_ready,
+    output wire        dbg_scope_txusrclk2_div16
 );
 
     wire spi_ss2_unused;
@@ -245,6 +252,10 @@ module laser_tx_board_top (
         .dbg_gt_drp_readback_value      (dbg_gt_drp_readback_value),
         .dbg_txoutclk_alive_axi         (dbg_txoutclk_alive_axi),
         .dbg_timeout_count              (dbg_timeout_count),
+        .dbg_scope_rate_req             (dbg_scope_rate_req),
+        .dbg_scope_tx_mmcm_locked       (dbg_scope_tx_mmcm_locked),
+        .dbg_scope_gt_ready             (dbg_scope_gt_ready),
+        .dbg_scope_txusrclk2_div16      (dbg_scope_txusrclk2_div16),
         .gtx_txp_out   (gtx_txp_out),
         .gtx_txn_out   (gtx_txn_out)
     );
