@@ -235,16 +235,31 @@ static int command_has_extra_arg(char **cursor)
     return next_token(cursor) != NULL;
 }
 
-static int laser_rate_wait_done_or_error(uint32_t *final_status)
+static int laser_rate_wait_done_or_error(uint32_t expected_rate_id,
+                                         uint32_t *final_status)
 {
     uint32_t i;
     uint32_t status;
+    uint32_t rate_state;
+    uint32_t current_rate_id;
+    uint32_t error_code;
 
     for (i = 0U; i < LASER_RATE_SWITCH_POLL_ITERATIONS; ++i) {
         status = laser_gt_read_status();
+        rate_state = LASER_GT_STATUS_RATE_STATE(status);
+        current_rate_id = LASER_GT_STATUS_CURRENT_RATE_ID(status);
+        error_code = LASER_GT_STATUS_RATE_ERROR_CODE(status);
         if ((status & LASER_GT_STATUS_RATE_ERROR) != 0U ||
-            (LASER_GT_STATUS_RATE_STATE(status) == LASER_RATE_STATE_ERROR) ||
-            (LASER_GT_STATUS_RATE_STATE(status) == LASER_RATE_STATE_DONE)) {
+            rate_state == LASER_RATE_STATE_ERROR ||
+            error_code != LASER_RATE_ERR_NONE) {
+            if (final_status != NULL) {
+                *final_status = status;
+            }
+            return XST_SUCCESS;
+        }
+        if (rate_state == LASER_RATE_STATE_DONE &&
+            current_rate_id == expected_rate_id &&
+            error_code == LASER_RATE_ERR_NONE) {
             if (final_status != NULL) {
                 *final_status = status;
             }
@@ -357,7 +372,13 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         gt_status = laser_gt_read_status();
         current_rate_id = LASER_GT_STATUS_CURRENT_RATE_ID(gt_status);
         current_rate_mbps = laser_gt_rate_id_to_mbps(current_rate_id);
-        if (current_rate_id == rate_id) {
+        rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
+        error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
+        if (current_rate_id == rate_id &&
+            rate_state == LASER_RATE_STATE_DONE &&
+            (gt_status & LASER_GT_STATUS_RATE_ERROR) == 0U &&
+            error_code == LASER_RATE_ERR_NONE &&
+            laser_gt_is_ready(gt_status)) {
             (void)snprintf(response, response_size,
                            "OK RATE_SET target=%lu already_current_rate=1 current_rate=%lu",
                            (unsigned long)target_mbps,
@@ -373,6 +394,12 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
             return;
         }
 
+        gt_status = laser_gt_read_status();
+        current_rate_id = LASER_GT_STATUS_CURRENT_RATE_ID(gt_status);
+        current_rate_mbps = laser_gt_rate_id_to_mbps(current_rate_id);
+        rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
+        error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
+
         if ((gt_status & LASER_GT_STATUS_RATE_BUSY) != 0U) {
             (void)snprintf(response, response_size,
                            "ERROR RATE_SET_FAILED target=%lu state=%s error_code=RATE_BUSY current_rate=%lu",
@@ -382,7 +409,8 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
             return;
         }
 
-        if (!laser_gt_is_ready(gt_status)) {
+        if (!laser_gt_is_ready(gt_status) &&
+            rate_state != LASER_RATE_STATE_ERROR) {
             (void)snprintf(response, response_size,
                            "ERROR RATE_SET_FAILED target=%lu state=PRECHECK error_code=GT_NOT_READY current_rate=%lu",
                            (unsigned long)target_mbps,
@@ -391,16 +419,17 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         }
 
         laser_gpio_rate_request(gpio, rate_id);
-        if (laser_rate_wait_done_or_error(&gt_status) != XST_SUCCESS) {
+        if (laser_rate_wait_done_or_error(rate_id, &gt_status) != XST_SUCCESS) {
             rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
             error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
             current_rate_mbps = laser_gt_rate_id_to_mbps(
                 LASER_GT_STATUS_CURRENT_RATE_ID(gt_status));
             (void)snprintf(response, response_size,
-                           "ERROR RATE_SET_FAILED target=%lu state=%s error_code=TIMEOUT current_rate=%lu raw=0x%08lx",
+                           "ERROR RATE_SET_FAILED target=%lu state=%s error_code=TIMEOUT current_rate=%lu target_rate_id=%lu raw=0x%08lx",
                            (unsigned long)target_mbps,
                            laser_gt_rate_state_name(rate_state),
                            (unsigned long)current_rate_mbps,
+                           (unsigned long)rate_id,
                            (unsigned long)gt_status);
             return;
         }
@@ -418,6 +447,17 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
                            laser_gt_rate_state_name(rate_state),
                            laser_gt_rate_error_name(error_code),
                            (unsigned long)current_rate_mbps,
+                           (unsigned long)gt_status);
+            return;
+        }
+        if (rate_state != LASER_RATE_STATE_DONE ||
+            current_rate_id != rate_id) {
+            (void)snprintf(response, response_size,
+                           "ERROR RATE_SET_FAILED reason=CURRENT_RATE_MISMATCH target=%lu current=%lu state=%s error_code=%s raw=0x%08lx",
+                           (unsigned long)target_mbps,
+                           (unsigned long)current_rate_mbps,
+                           laser_gt_rate_state_name(rate_state),
+                           laser_gt_rate_error_name(error_code),
                            (unsigned long)gt_status);
             return;
         }
