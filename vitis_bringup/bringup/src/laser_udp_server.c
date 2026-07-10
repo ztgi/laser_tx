@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <errno.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,38 +63,6 @@ static void laser_lwip_platform_setup_interrupts(void)
     xil_printf("lwIP IRQ platform setup done: scugic_device_id=%u\r\n",
                (unsigned int)XPAR_SCUGIC_0_DEVICE_ID);
 #endif
-}
-
-static uint32_t laser_rate_id_from_mbps(uint32_t target_mbps)
-{
-    if (target_mbps == 500U) {
-        return LASER_RATE_ID_500M;
-    }
-    if (target_mbps == 1000U) {
-        return LASER_RATE_ID_1000M;
-    }
-    if (target_mbps == 1250U) {
-        return LASER_RATE_ID_1250M;
-    }
-    if (target_mbps == 2500U) {
-        return LASER_RATE_ID_2500M;
-    }
-    if (target_mbps == 5000U) {
-        return LASER_RATE_ID_5000M;
-    }
-    if (target_mbps == 3125U) {
-        return LASER_RATE_ID_3125M;
-    }
-    if (target_mbps == 6250U) {
-        return LASER_RATE_ID_6250M;
-    }
-    if (target_mbps == 10000U) {
-        return LASER_RATE_ID_10000M;
-    }
-    if (target_mbps == 2000U) {
-        return LASER_RATE_ID_2000M;
-    }
-    return LASER_RATE_ID_NONE;
 }
 
 static int laser_rate_wait_tx_idle(LaserGpio *gpio)
@@ -225,12 +195,61 @@ static int parse_u32_arg(char **cursor, uint32_t *value)
     if (token == NULL || token[0] == '\0') {
         return XST_FAILURE;
     }
-    parsed = strtoul(token, &end, 0);
-    if (end == token || *end != '\0') {
+    if (token[0] == '-') {
+        return XST_FAILURE;
+    }
+    errno = 0;
+    parsed = strtoul(token, &end, 10);
+    if (errno == ERANGE || parsed > UINT32_MAX ||
+        end == token || *end != '\0') {
         return XST_FAILURE;
     }
     *value = (uint32_t)parsed;
     return XST_SUCCESS;
+}
+
+static void format_rate_list(char *response, size_t response_size)
+{
+    size_t i;
+    size_t used = 0U;
+    int count;
+
+    count = snprintf(response, response_size, "OK RATE_LIST supported=");
+    if (count < 0 || (size_t)count >= response_size) {
+        return;
+    }
+    used = (size_t)count;
+    for (i = 0U; i < gt_rate_profile_count(); ++i) {
+        const GtRateProfile *profile = gt_rate_profile_at(i);
+        count = snprintf(response + used, response_size - used, "%s%lu",
+                         (i == 0U) ? "" : ",",
+                         (unsigned long)profile->rate_mbps);
+        if (count < 0 || (size_t)count >= response_size - used) {
+            return;
+        }
+        used += (size_t)count;
+    }
+    count = snprintf(response + used, response_size - used, " profiles=");
+    if (count < 0 || (size_t)count >= response_size - used) {
+        return;
+    }
+    used += (size_t)count;
+    for (i = 0U; i < gt_rate_profile_count(); ++i) {
+        const GtRateProfile *profile = gt_rate_profile_at(i);
+        count = snprintf(response + used, response_size - used,
+                         "%s%lu:%s:125M:verified=%u:id=%lu",
+                         (i == 0U) ? "" : ",",
+                         (unsigned long)profile->rate_mbps,
+                         gt_rate_pll_source_name(profile->pll_source),
+                         (unsigned int)profile->board_verified,
+                         (unsigned long)profile->rate_id);
+        if (count < 0 || (size_t)count >= response_size - used) {
+            return;
+        }
+        used += (size_t)count;
+    }
+    (void)snprintf(response + used, response_size - used,
+                   " refclk=125MHz pll=CPLL/QPLL ad9528_dynamic=0 qpll=1");
 }
 
 static int command_has_extra_arg(char **cursor)
@@ -326,35 +345,60 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
             (void)snprintf(response, response_size, "ERR RATE_LIST_ARGS");
             return;
         }
-        (void)snprintf(response, response_size,
-                       "OK RATE_LIST supported=500,1000,1250,2000,2500,3125,5000,6250,10000 refclk=125MHz pll=CPLL/QPLL ad9528_dynamic=0 qpll=1");
+        format_rate_list(response, response_size);
         return;
     }
 
     if (token_equals(subcommand, "PLAN")) {
-        if (parse_u32_arg(cursor, &target_mbps) != XST_SUCCESS ||
-            command_has_extra_arg(cursor)) {
+        char *mode;
+        if (parse_u32_arg(cursor, &target_mbps) != XST_SUCCESS) {
             (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
             return;
         }
-
-        plan_status = gt_rate_plan(target_mbps, &plan);
-        if (plan_status == GT_RATE_PLAN_OK) {
-            (void)snprintf(response, response_size,
-                           "OK RATE_PLAN target_rate=%lu refclk=125MHz pll=%s QPLL_N=%lu TXOUT_DIV=%lu TXOUTCLK=%luHz TXUSRCLK=%luHz TXUSRCLK2=%luHz requires_gt_drp=1 requires_mmcm_drp=1 ad9528_dynamic=0 supported_dynamic=1",
-                           (unsigned long)plan.target_mbps,
-                           gt_rate_pll_source_name(plan.pll_source),
-                           (unsigned long)plan.qpll_n,
-                           (unsigned long)plan.txout_div,
-                           (unsigned long)plan.txoutclk_hz,
-                           (unsigned long)plan.txusrclk_hz,
-                           (unsigned long)plan.txusrclk2_hz);
+        mode = next_token(cursor);
+        if (mode != NULL && (!token_equals(mode, "NEAREST") ||
+                             command_has_extra_arg(cursor))) {
+            (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
             return;
         }
-
+        plan_status = (mode == NULL) ? gt_rate_plan_exact(target_mbps, &plan) :
+                                       gt_rate_plan_nearest(target_mbps, &plan);
+        if (plan_status == GT_RATE_PLAN_OK && plan.result == GT_RATE_PLAN_EXACT) {
+            (void)snprintf(response, response_size,
+                           "OK RATE_PLAN result=EXACT requested=%lu selected=%lu rate_id=%lu refclk=%lu pll=%s QPLL_N=%u TXOUT_DIV=%u expected_txusrclk2=%lu freq_counter_min=%lu freq_counter_max=%lu qpll_required=%u ad9528_dynamic_required=%u verified=%u",
+                           (unsigned long)plan.requested_rate_mbps,
+                           (unsigned long)plan.selected_rate_mbps,
+                           (unsigned long)plan.selected_rate_id,
+                           (unsigned long)plan.profile->refclk_hz,
+                           gt_rate_pll_source_name(plan.profile->pll_source),
+                           (unsigned int)plan.profile->qpll_n,
+                           (unsigned int)plan.profile->txout_div,
+                           (unsigned long)plan.profile->expected_txusrclk2_hz,
+                           (unsigned long)plan.profile->freq_counter_min,
+                           (unsigned long)plan.profile->freq_counter_max,
+                           (unsigned int)plan.profile->qpll_required,
+                           (unsigned int)plan.profile->ad9528_dynamic_required,
+                           (unsigned int)plan.profile->board_verified);
+            return;
+        }
+        if (plan_status == GT_RATE_PLAN_OK && plan.result == GT_RATE_PLAN_NEAREST) {
+            (void)snprintf(response, response_size,
+                           "OK RATE_PLAN result=NEAREST requested=%lu selected=%lu rate_id=%lu delta=%lu nearest_lower=%lu nearest_upper=%lu reason=%s suggestion_only=1",
+                           (unsigned long)plan.requested_rate_mbps,
+                           (unsigned long)plan.selected_rate_mbps,
+                           (unsigned long)plan.selected_rate_id,
+                           (unsigned long)plan.absolute_error_mbps,
+                           (unsigned long)plan.nearest_lower_mbps,
+                           (unsigned long)plan.nearest_upper_mbps,
+                           plan.reason);
+            return;
+        }
         (void)snprintf(response, response_size,
-                       "ERROR unsupported_rate target=%lu",
-                       (unsigned long)target_mbps);
+                       "OK RATE_PLAN result=UNSUPPORTED requested=%lu nearest_lower=%lu nearest_upper=%lu reason=%s",
+                       (unsigned long)plan.requested_rate_mbps,
+                       (unsigned long)plan.nearest_lower_mbps,
+                       (unsigned long)plan.nearest_upper_mbps,
+                       plan.reason);
         return;
     }
 
@@ -365,14 +409,19 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
             return;
         }
 
-        plan_status = gt_rate_plan(target_mbps, &plan);
-        rate_id = laser_rate_id_from_mbps(target_mbps);
-        if (plan_status != GT_RATE_PLAN_OK || rate_id == LASER_RATE_ID_NONE) {
+        plan_status = gt_rate_plan_exact(target_mbps, &plan);
+        if (plan_status != GT_RATE_PLAN_OK ||
+            plan.result != GT_RATE_PLAN_EXACT ||
+            plan.profile == NULL || plan.profile->board_verified == 0U) {
             (void)snprintf(response, response_size,
-                           "ERROR unsupported_rate target=%lu",
-                           (unsigned long)target_mbps);
+                           "ERROR RATE_SET_UNSUPPORTED requested=%lu nearest_lower=%lu nearest_upper=%lu reason=%s",
+                           (unsigned long)target_mbps,
+                           (unsigned long)plan.nearest_lower_mbps,
+                           (unsigned long)plan.nearest_upper_mbps,
+                           plan.reason);
             return;
         }
+        rate_id = plan.selected_rate_id;
 
         gt_status = laser_gt_read_status();
         current_rate_id = LASER_GT_STATUS_CURRENT_RATE_ID(gt_status);
