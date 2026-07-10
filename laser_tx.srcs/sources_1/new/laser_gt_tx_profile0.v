@@ -182,6 +182,10 @@ module laser_gt_tx_profile0 (
     (* mark_debug = "true" *) wire mmcm_drp_write_attempted;
     (* mark_debug = "true" *) wire tx_quiesce_req;
     (* mark_debug = "true" *) wire tx_idle_seen;
+    (* mark_debug = "true" *) wire [1:0] target_pll_type_dbg;
+    (* mark_debug = "true" *) wire [1:0] active_pll_type_dbg;
+    (* mark_debug = "true" *) wire [1:0] programmed_pll_type_dbg;
+    wire [31:0] dbg_rate_timeout_count;
 
     (* ASYNC_REG = "TRUE" *) reg cplllock_meta;
     (* ASYNC_REG = "TRUE" *) reg cplllock_sync;
@@ -377,6 +381,32 @@ module laser_gt_tx_profile0 (
     assign dbg_gt_drp_rdy                  = gt_drprdy;
     assign dbg_gt_drp_readback_value       = gt_drp_readback_value;
     assign dbg_txoutclk_alive_axi          = txoutclk_alive_axi;
+    // Probe49 of the AXI/FCLK ILA remains 32-bit wide and is reused as a
+    // debug-only PLL/QPLL status bus to avoid changing the BD ILA probe count.
+    // [15:0]  = low bits of the common rate-switch timeout counter
+    // [16]    = qpll_selected, the real PLL-source select driving TXSYSCLKSEL
+    // [17]    = synchronized QPLLLOCK
+    // [18]    = synchronized QPLLREFCLKLOST
+    // [20:19] = effective TXSYSCLKSEL delivered to the GT channel
+    // [22:21] = active_pll_type, updated only after VERIFY_RATE succeeds
+    // [24:23] = programmed_pll_type, latest actual PLL source selection
+    // [26:25] = target_pll_type, current request target PLL type
+    // [27]    = qpllreset_ctrl
+    // [28]    = synchronized CPLLLOCK
+    // [31:29] = reserved
+    assign dbg_timeout_count = {
+        3'b000,
+        cplllock_sync,
+        qpllreset_ctrl,
+        target_pll_type_dbg,
+        programmed_pll_type_dbg,
+        active_pll_type_dbg,
+        gt0_txsysclksel_effective,
+        qpllrefclklost_sync,
+        qplllock_sync,
+        qpll_selected,
+        dbg_rate_timeout_count[15:0]
+    };
 
     laser_gt_rate_switch_500m_1000m u_rate_switch_500m_1000m (
         .clk                         (ctrl_clk),
@@ -414,9 +444,9 @@ module laser_gt_tx_profile0 (
         .target_rate_mbps            (target_rate_mbps),
         .current_rate_mbps           (current_rate_mbps),
         .current_rate_id             (current_rate_id),
-        .target_pll_type_dbg         (),
-        .active_pll_type_dbg         (),
-        .programmed_pll_type_dbg     (),
+        .target_pll_type_dbg         (target_pll_type_dbg),
+        .active_pll_type_dbg         (active_pll_type_dbg),
+        .programmed_pll_type_dbg     (programmed_pll_type_dbg),
         .rate_busy                   (rate_busy),
         .rate_done                   (rate_done),
         .rate_error                  (rate_error),
@@ -433,7 +463,7 @@ module laser_gt_tx_profile0 (
         .mmcm_drp_write_attempted    (mmcm_drp_write_attempted),
         .tx_quiesce_req              (tx_quiesce_req),
         .tx_idle_seen                (tx_idle_seen),
-        .dbg_timeout_count           (dbg_timeout_count)
+        .dbg_timeout_count           (dbg_rate_timeout_count)
     );
 
     always @(posedge ctrl_clk) begin

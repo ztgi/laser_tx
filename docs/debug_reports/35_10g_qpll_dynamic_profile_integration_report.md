@@ -199,6 +199,49 @@ DRP 序列复用当前工程已有的 Xilinx VPHY MMCME2 encoding 方法，没�
 - `txusrclk2_freq_counter_axi`
 - GT/MMCM DRP addr/data/en/we/rdy/done/error
 
+## QPLL / PLL source ILA 可观测性
+
+为补齐 10G QPLL bring-up 的 PLL source 证据链，本轮将 QPLL/PLL source 状态加入现有稳定 AXI/FCLK 域 ILA。现有 `ila_laser_axi_cfg` 已有 50 个 probe，且 probe0-probe48 均用于 rate、reset、DRP、MMCM lock、GT ready、txusrclk2 frequency 等关键证据。为避免修改 BD ILA probe 数量、capture depth 和 clock，本轮复用 32-bit `ila_laser_axi_cfg/probe49`，将其从单一 `dbg_timeout_count` 升级为 debug-only PLL/QPLL status bus。
+
+该 probe 仍接在 `gt_ctrl_clk / AXI FCLK` 域，不依赖 TXUSRCLK2、TXOUTCLK 或 QPLL/CPLL 输出时钟。新增观测不反馈到 rate controller、GT DRP、MMCM DRP、profile table 或 VERIFY_RATE 逻辑。
+
+### 新增/暴露的 QPLL 关键观测
+
+| 信号 | 位宽 | 所属时钟域 | ILA 承载位置 | 含义 |
+|---|---:|---|---|---|
+| `qpll_selected` | 1 | `gt_ctrl_clk` | `probe49[16]` | 真实驱动 `TXSYSCLKSEL` mux 的 QPLL source select。 |
+| `qplllock_sync` | 1 | `gt_ctrl_clk` 同步后 | `probe49[17]` | 同步后的 QPLLLOCK，用于证明 QPLL lock 已建立。 |
+| `qpllrefclklost_sync` | 1 | `gt_ctrl_clk` 同步后 | `probe49[18]` | 同步后的 QPLL reference clock lost，10G DONE 稳态预期为 0。 |
+| `gt0_txsysclksel_effective[1:0]` | 2 | `gt_ctrl_clk` 组合稳定选择 | `probe49[20:19]` | 实际送入 GTXE2_CHANNEL 的 `TXSYSCLKSEL`。当前 encoding：CPLL=`2'b00`，QPLL=`2'b11`。 |
+| `active_pll_type_dbg[1:0]` | 2 | `gt_ctrl_clk` | `probe49[22:21]` | 最后一次通过 VERIFY_RATE 后正式接受的 PLL 类型。当前 encoding：CPLL=0，QPLL=1。 |
+| `programmed_pll_type_dbg[1:0]` | 2 | `gt_ctrl_clk` | `probe49[24:23]` | 最近一次实际完成 PLL source 选择 / lock 流程后的 PLL 类型。 |
+
+同时在同一 probe 中加入推荐辅助项：
+
+| 信号 | 位宽 | ILA 承载位置 | 用途 |
+|---|---:|---|---|
+| `target_pll_type_dbg[1:0]` | 2 | `probe49[26:25]` | 本轮请求目标 PLL 类型。 |
+| `qpllreset_ctrl` | 1 | `probe49[27]` | 观察 QPLL reset 控制。 |
+| `cplllock_sync` | 1 | `probe49[28]` | 观察 QPLL->CPLL 回切时 CPLL lock 是否恢复。 |
+| `dbg_rate_timeout_count[15:0]` | 16 | `probe49[15:0]` | 保留原 timeout counter 的低 16 位，用于观察 WAIT/timeout 推进。 |
+
+`active_pll_type_dbg` 与 `programmed_pll_type_dbg` 的区别是本阶段 10G/QPLL 恢复语义的关键：`programmed_pll_type_dbg` 表示硬件 source 最近实际切换到哪一类 PLL；`active_pll_type_dbg` 只有在 VERIFY_RATE 成功后才更新，代表当前 rate controller 认可的 last-good PLL 类型。因此，当 source 已切换但 VERIFY 尚未成功时，两者允许短暂不同。
+
+本轮只是增加 ILA 可观测性，不修改动态切换功能逻辑。更新后的 hardware capture 尚未执行；后续上板应重点保存：
+
+```text
+docs/images/dynamic_rate/qpll_10g_profile/ila_cpll_to_qpll_10g_pll_select_lock_sequence.png
+docs/images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_done_pll_state_freq.png
+docs/images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_to_cpll_pll_restore_sequence.png
+```
+
+当前证据边界：
+
+```text
+ILA probes were added and implementation passed.
+Updated hardware capture has not yet been run.
+```
+
 ## 16. Vitis / UDP 修改
 
 软件新增：
