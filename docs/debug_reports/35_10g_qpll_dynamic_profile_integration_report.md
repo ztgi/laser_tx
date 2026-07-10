@@ -235,7 +235,20 @@ docs/images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_done_pll_state_freq.png
 docs/images/dynamic_rate/qpll_10g_profile/ila_qpll_10g_to_cpll_pll_restore_sequence.png
 ```
 
-当前 RTL 的 PLL type 编码以 `laser_gt_rate_switch_500m_1000m.v` 中的 localparam 为准：CPLL=`2'd0`，QPLL=`2'd1`。本报告后续引用的五张实际 ILA 截图中，PLL type 调试字段显示的 QPLL 数值为 `2`；这与当前源码定义不一致。报告将该数值视为截图所对应已下载 bitstream 的历史调试编码，不把它改写为当前源码的 `QPLL=1`，也不据此声称截图与当前提交可逐位复现。PLL source 的硬件证据以同图中的 `qpll_selected` 和 `gt0_txsysclksel_effective` 为主；后续若需对当前提交做严格复现，应使用当前 bit/LTX 重新抓取 ILA。
+### Hardware Manager 用户自定义 probe 位序
+
+当前 RTL 的 PLL type 编码以 `laser_gt_rate_switch_500m_1000m.v` 中的 localparam 为准：CPLL=`2'd0`，QPLL=`2'd1`。`probe49` 的物理位分配没有变化；问题只发生在 Hardware Manager 对 2-bit 用户自定义 probe 的 `-map` 列表解释上。Vivado 的 `-map` 列表按用户 probe 的 **MSB 到 LSB** 排列。
+
+Hardware Manager 中已直接观察到 `active_pll_type_dbg` 被创建为 `probe49[21] probe49[22]`，即按物理低位到高位填写，导致 RTL 的 QPLL 值 `2'b01` 被解释为 `2'b10`、显示为十进制 2。其余三项应按同一规则在 GUI 中核对；若它们同样按低位到高位创建，则当前错误 map 与应使用的 map 如下：
+
+| 用户 probe | 物理 RTL bit 定义 | 低位到高位创建时的错误 MAP | 正确 MAP（MSB → LSB） |
+|---|---|---|---|
+| `gt0_txsysclksel_effective` | `probe49[20:19]` | `probe49[19] probe49[20]` | `probe49[20] probe49[19]` |
+| `active_pll_type_dbg` | `probe49[22:21]` | `probe49[21] probe49[22]`（已观察） | `probe49[22] probe49[21]` |
+| `programmed_pll_type_dbg` | `probe49[24:23]` | `probe49[23] probe49[24]` | `probe49[24] probe49[23]` |
+| `target_pll_type_dbg` | `probe49[26:25]` | `probe49[25] probe49[26]` | `probe49[26] probe49[25]` |
+
+修正仅需删除并按表中 MSB→LSB 顺序重建 Hardware Manager 用户 probe；不修改 `probe49`、RTL、ILA core、bitstream 或 LTX。10G 稳态下，修正后的用户 probe 应显示：`gt0_txsysclksel_effective=2'b11`（十进制 3）、`target_pll_type_dbg=1`、`programmed_pll_type_dbg=1`、`active_pll_type_dbg=1`，同时 `qpll_selected=1`、`qplllock_sync=1`、`qpllrefclklost_sync=0`。CPLL 稳态下三个 PLL type 应均显示 0，TXSYSCLKSEL 应显示 `2'b00`。
 
 ## 16. Vitis / UDP 修改
 
@@ -332,7 +345,7 @@ ELF strings 已确认包含 `10000`、`QPLL`、`OK RATE_LIST`、`OK RATE_PLAN`�
 
 五张真实 Hardware Manager / UDP 截图表明，固定 10.000Gbps QPLL profile 已完成初步上板验证。10G 稳态可观察到 QPLL lock 有效、QPLL refclk-lost 为 0、GT/MMCM/txresetdone/ready 恢复，且 `txusrclk2_freq_counter_axi` 为约 `156250`，符合约 1ms 统计窗口下 156.25MHz TXUSRCLK2 的预期。
 
-需要区分当前 RTL 源码与截图对应 bitstream 的 PLL-type 数值编码：当前 RTL 为 CPLL=`2'd0`、QPLL=`2'd1`；截图中的 QPLL type 数值显示为 `2`。因此，以下 ILA 分析以 `qpll_selected` 和 `TXSYSCLKSEL` 的真实 source 选择为主要硬件证据，而不把截图中的 `2` 解释成当前源码编码。
+当前 RTL 的 PLL type 编码为 CPLL=`2'd0`、QPLL=`2'd1`。截图中 QPLL type 显示为 `2` 的原因是 Hardware Manager 用户自定义 probe 的 bit map 使用了低位到高位顺序；修正为 MSB→LSB map 后，10G QPLL 将显示为 1。以下 ILA 分析的 PLL source 证据由 `qpll_selected` 和 `TXSYSCLKSEL` 交叉确认。
 
 ## 21. CPLL -> QPLL 动态切换过程分析
 
@@ -342,7 +355,7 @@ ELF strings 已确认包含 `10000`、`QPLL`、`OK RATE_LIST`、`OK RATE_PLAN`�
 
 图中初始状态为 1000M 的 `RATE_DONE`：`target_rate_mbps=current_rate_mbps=1000`，`qpll_selected=0`，`gt0_txsysclksel_effective=2'b00`，同时 `qplllock_sync=1`、`qpllrefclklost_sync=0`。这说明固定 10G QPLL COMMON 可以在 TX 尚使用 CPLL 时预先保持 lock；QPLL lock 本身并不表示 TX channel 已经选择 QPLL。
 
-10G 请求到达后，`target_rate_mbps` 先变为 10000，状态机离开 `RATE_DONE` 进入 `RATE_ASSERT_RESET`；`qpllreset_ctrl` 出现受控动作，随后 `qpll_selected` 由 0 变为 1，`gt0_txsysclksel_effective` 由 `2'b00` 变为 `2'b11`，而 `qpllrefclklost_sync` 保持 0。截图窗口内 `current_rate_mbps`、`active_pll_type` 和 `programmed_pll_type` 仍保留 last-good CPLL 状态，符合“target 先变、active/current 仅在 VERIFY_RATE 成功后更新”的设计语义。截图中 PLL-type 字段的 QPLL 显示值为 2，属于前述历史 bitstream 编码差异，不能替代当前 RTL 中 QPLL=`2'd1` 的定义。
+10G 请求到达后，`target_rate_mbps` 先变为 10000，状态机离开 `RATE_DONE` 进入 `RATE_ASSERT_RESET`；`qpllreset_ctrl` 出现受控动作，随后 `qpll_selected` 由 0 变为 1，`gt0_txsysclksel_effective` 由 `2'b00` 变为 `2'b11`，而 `qpllrefclklost_sync` 保持 0。截图窗口内 `current_rate_mbps`、`active_pll_type` 和 `programmed_pll_type` 仍保留 last-good CPLL 状态，符合“target 先变、active/current 仅在 VERIFY_RATE 成功后更新”的设计语义。截图里 QPLL type 的显示值 2 属于用户 probe 位序反转；按修正 map 重建后，应显示当前 RTL 定义的 QPLL=1。
 
 这证明 CPLL 到 QPLL 不是仅改变软件状态，而是在 GT reset 保护期间实际把 TXSYSCLKSEL 从 CPLL encoding 切到 QPLL encoding。
 
@@ -370,7 +383,7 @@ ELF strings 已确认包含 `10000`、`QPLL`、`OK RATE_LIST`、`OK RATE_PLAN`�
 
 图中初始 10G 状态满足 `qpll_selected=1`、`gt0_txsysclksel_effective=2'b11`、`qplllock_sync=1`、`qpllrefclklost_sync=0`。6250M 请求后，`qpll_selected` 从 1 恢复为 0，`gt0_txsysclksel_effective` 从 `2'b11` 恢复为 `2'b00`，同时 `cplllock_sync` 保持有效。
 
-截图窗口中 current/active/programmed PLL-type 调试字段仍保持 QPLL，说明它们没有在请求到达时提前更新：target 表示请求目标；programmed 表示完成硬件 source/lock 流程后的实际状态；active/current 仅表示最后一次经 VERIFY_RATE 接受的 last-good 状态。该图中 QPLL 的 type 数值显示为 2，仍按本报告已声明的历史截图编码差异处理。`qpll_selected` 和 TXSYSCLKSEL 的 1→0、11→00 变化则直接证明了 QPLL 到 CPLL 的真实 source 恢复。
+截图窗口中 current/active/programmed PLL-type 调试字段仍保持 QPLL，说明它们没有在请求到达时提前更新：target 表示请求目标；programmed 表示完成硬件 source/lock 流程后的实际状态；active/current 仅表示最后一次经 VERIFY_RATE 接受的 last-good 状态。图中的 QPLL type 显示值 2 由用户 probe 位序反转造成，修正后应显示 RTL 定义的值 1。`qpll_selected` 和 TXSYSCLKSEL 的 1→0、11→00 变化则直接证明了 QPLL 到 CPLL 的真实 source 恢复。
 
 ## 23. UDP 多档循环回归
 
@@ -386,7 +399,7 @@ ELF strings 已确认包含 `10000`、`QPLL`、`OK RATE_LIST`、`OK RATE_PLAN`�
 
 ILA 同时显示 10G QPLL 回切 6250M CPLL 时，`qpll_selected` 从 1 恢复到 0，`TXSYSCLKSEL` 从 `2'b11` 恢复到 `2'b00`，而 current_rate 和 active PLL 类型在 VERIFY_RATE 前维持 last-good 语义。UDP 日志显示 10G 与 1000M、1250M、5000M、6250M 的实际测试路径均返回 DONE。因此，所测试的 CPLL/QPLL 双向动态切换控制链路已初步上板通过。
 
-该结论不消除“截图中的 PLL-type 数值=2 与当前 RTL QPLL=`2'd1` 不一致”的可追溯性风险；若以当前提交建立可复现基线，仍应使用当前生成 bit/LTX 再抓取一组 ILA。
+截图中 PLL-type 数值 2 的问题已定位为 Hardware Manager 用户自定义 probe 位序反转，不涉及 RTL 或已下载 bitstream。按本报告的 MSB→LSB map 重建四个用户 probe 后，10G QPLL 稳态的 PLL type 将显示为 1，与当前 RTL 定义一致。
 
 ## 25. 示波器与 BER 边界
 
