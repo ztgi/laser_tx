@@ -183,6 +183,8 @@ module laser_gt_rate_switch_500m_1000m #(
     reg [6:0] target_cpll_fbdiv_enc;
     (* mark_debug = "true", keep = "true" *) reg [15:0] target_cpll_drp_value;
     (* mark_debug = "true", keep = "true" *) reg [15:0] active_cpll_drp_value;
+    reg [15:0] programmed_cpll_drp_value;
+    reg        programmed_cpll_drp_valid;
     reg [23:0] expected_min_count;
     reg [23:0] expected_max_count;
     reg [1:0] target_refclk_id;
@@ -204,7 +206,8 @@ module laser_gt_rate_switch_500m_1000m #(
     reg request_pending;
 
     (* mark_debug = "true", keep = "true" *) wire cpll_drp_required =
-        (target_cpll_drp_value != active_cpll_drp_value);
+        (!programmed_cpll_drp_valid) ||
+        (target_cpll_drp_value != programmed_cpll_drp_value);
 
     wire can_accept_rate_request =
         (rate_state == RATE_IDLE) ||
@@ -706,6 +709,8 @@ module laser_gt_rate_switch_500m_1000m #(
             target_cpll_fbdiv_enc   <= 7'h02;
             target_cpll_drp_value   <= 16'h1002;
             active_cpll_drp_value   <= 16'h1002;
+            programmed_cpll_drp_value <= 16'd0;
+            programmed_cpll_drp_valid <= 1'b0;
             expected_min_count      <= FREQ_500M_MIN_COUNT[23:0];
             expected_max_count      <= FREQ_500M_MAX_COUNT[23:0];
             target_refclk_id        <= REFCLK_125M;
@@ -788,7 +793,7 @@ module laser_gt_rate_switch_500m_1000m #(
                 if (cpll_div_drp_value(profile_cpll_refclk_div_enc(requested_rate_id),
                                        profile_cpll_fbdiv_45_enc(requested_rate_id),
                                        profile_cpll_fbdiv_enc(requested_rate_id)) !=
-                    active_cpll_drp_value) begin
+                    programmed_cpll_drp_value || !programmed_cpll_drp_valid) begin
                     target_gt_drp_seq_id <= GT_DRP_SEQ_CPLL_TXOUT_DIV;
                 end else begin
                     target_gt_drp_seq_id <= profile_gt_drp_seq_id(requested_rate_id);
@@ -973,6 +978,7 @@ module laser_gt_rate_switch_500m_1000m #(
                         gt_step <= GT_STEP_WRITE_CPLL;
                     end else if (timeout_count >= DRP_TIMEOUT_CYCLES) begin
                         gt_drp_error <= 1'b1;
+                        programmed_cpll_drp_valid <= 1'b0;
                         set_error(RATE_ERR_GT_DRP_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;
@@ -995,6 +1001,7 @@ module laser_gt_rate_switch_500m_1000m #(
                         gt_step <= GT_STEP_READBACK_CPLL;
                     end else if (timeout_count >= DRP_TIMEOUT_CYCLES) begin
                         gt_drp_error <= 1'b1;
+                        programmed_cpll_drp_valid <= 1'b0;
                         set_error(RATE_ERR_GT_DRP_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;
@@ -1014,13 +1021,17 @@ module laser_gt_rate_switch_500m_1000m #(
                             cpll_div_drp_value(target_cpll_refclk_div_enc,
                                                target_cpll_fbdiv_45_enc,
                                                target_cpll_fbdiv_enc)) begin
+                            programmed_cpll_drp_value <= target_cpll_drp_value;
+                            programmed_cpll_drp_valid <= 1'b1;
                             gt_step <= GT_STEP_READ_OUTDIV;
                         end else begin
                             gt_drp_error <= 1'b1;
+                            programmed_cpll_drp_valid <= 1'b0;
                             set_error(RATE_ERR_GT_DRP_READBACK_MISMATCH);
                         end
                     end else if (timeout_count >= DRP_TIMEOUT_CYCLES) begin
                         gt_drp_error <= 1'b1;
+                        programmed_cpll_drp_valid <= 1'b0;
                         set_error(RATE_ERR_GT_DRP_TIMEOUT);
                     end else begin
                         timeout_count <= timeout_count + 1'b1;
@@ -1096,6 +1107,9 @@ module laser_gt_rate_switch_500m_1000m #(
                 end
                 default: begin
                     gt_drp_error <= 1'b1;
+                    if (target_gt_drp_seq_id == GT_DRP_SEQ_CPLL_TXOUT_DIV) begin
+                        programmed_cpll_drp_valid <= 1'b0;
+                    end
                     set_error(RATE_ERR_GT_DRP_TIMEOUT);
                 end
                 endcase
