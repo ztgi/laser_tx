@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "gt_rate_plan.h"
 
@@ -17,7 +18,7 @@ static void expect_exact(uint32_t rate_mbps, uint32_t rate_id,
 }
 
 static void expect_unsupported(uint32_t rate_mbps, uint32_t lower,
-                               uint32_t upper)
+                               uint32_t upper, const char *reason)
 {
     GtRatePlan plan;
     assert(gt_rate_plan_exact(rate_mbps, &plan) == GT_RATE_PLAN_STATUS_UNSUPPORTED);
@@ -26,6 +27,7 @@ static void expect_unsupported(uint32_t rate_mbps, uint32_t lower,
     assert(plan.profile == NULL);
     assert(plan.nearest_lower_mbps == lower);
     assert(plan.nearest_upper_mbps == upper);
+    assert(strcmp(plan.reason, reason) == 0);
 }
 
 static void expect_nearest(uint32_t requested, uint32_t selected)
@@ -49,15 +51,15 @@ int main(void)
     expect_exact(6250U, 8U, GT_RATE_PLL_CPLL);
     expect_exact(10000U, 9U, GT_RATE_PLL_QPLL);
 
-    expect_unsupported(0U, 0U, 500U);
-    expect_unsupported(499U, 0U, 500U);
-    expect_unsupported(750U, 500U, 1000U);
-    expect_unsupported(1500U, 1250U, 2000U);
-    expect_unsupported(3000U, 2500U, 3125U);
-    expect_unsupported(4000U, 3125U, 5000U);
-    expect_unsupported(7000U, 6250U, 10000U);
-    expect_unsupported(9999U, 6250U, 10000U);
-    expect_unsupported(10001U, 10000U, 0U);
+    expect_unsupported(0U, 0U, 500U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(499U, 0U, 500U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(750U, 500U, 1000U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(1500U, 1250U, 2000U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(3000U, 2500U, 3125U, "NO_LEGAL_VERIFIED_125M_CPLL_PROFILE");
+    expect_unsupported(4000U, 3125U, 5000U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(7000U, 6250U, 10000U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(9999U, 6250U, 10000U, "NO_VERIFIED_EXACT_PROFILE");
+    expect_unsupported(10001U, 10000U, 0U, "NO_VERIFIED_EXACT_PROFILE");
 
     expect_nearest(3000U, 3125U);
     expect_nearest(2800U, 2500U);
@@ -68,6 +70,7 @@ int main(void)
     assert(gt_rate_profile_count() == 9U);
     assert(gt_rate_profile_rate_mbps_from_id(9U) == 10000U);
     assert(gt_rate_profile_rate_mbps_from_id(10U) == 0U);
+    assert(strcmp(gt_rate_pll_source_name((GtRatePllSource)99), "UNKNOWN_PLL") == 0);
     puts("PASS: discrete rate planner tests");
     return 0;
 }

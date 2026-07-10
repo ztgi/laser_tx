@@ -252,6 +252,21 @@ static void format_rate_list(char *response, size_t response_size)
                    " refclk=125MHz pll=CPLL/QPLL ad9528_dynamic=0 qpll=1");
 }
 
+static void print_rate_profile_startup_summary(void)
+{
+    size_t i;
+
+    xil_printf("Verified profiles : ");
+    for (i = 0U; i < gt_rate_profile_count(); ++i) {
+        const GtRateProfile *profile = gt_rate_profile_at(i);
+        xil_printf("%s%lu:%s",
+                   (i == 0U) ? "" : ",",
+                   (unsigned long)profile->rate_mbps,
+                   gt_rate_pll_source_name(profile->pll_source));
+    }
+    xil_printf("\r\n");
+}
+
 static int command_has_extra_arg(char **cursor)
 {
     return next_token(cursor) != NULL;
@@ -747,8 +762,9 @@ int laser_udp_server_run(void)
     uint32_t input_nonzero_count = 0U;
     uint32_t loop_count = 0U;
 
-    xil_printf("\r\n=== laser_tx UDP_SERVER / 500M/1000M/1250M/2000M/2500M/3125M/5000M/6250M/10000M dynamic rate switch ===\r\n");
-    xil_printf("UDP purpose      : control layer + real GTX TXOUT_DIV/CPLL/MMCM DRP switch for fixed 125MHz CPLL profiles only\r\n");
+    xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
+    xil_printf("UDP purpose      : fixed 125MHz CPLL/QPLL profile selection, GT/MMCM reconfiguration, PLL/reset/lock handling and TXUSRCLK2 frequency verification\r\n");
+    print_rate_profile_startup_summary();
     xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,

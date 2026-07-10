@@ -50,7 +50,10 @@ def main() -> int:
 
     table = plan_c.split("static const GtRateProfile gt_rate_profile_table", 1)[1].split("};", 1)[0]
     rows = re.findall(
-        r"\{(\d+)U,\s*LASER_RATE_ID_(\d+M),\s*GT_RATE_PLL_(CPLL|QPLL).*?\}\s*,?",
+        r"\.rate_mbps\s*=\s*(\d+)U,\s*\.rate_id\s*=\s*LASER_RATE_ID_(\d+M),\s*"
+        r"\.pll_source\s*=\s*GT_RATE_PLL_(CPLL|QPLL).*?"
+        r"\.expected_txusrclk2_hz\s*=\s*(\d+)U,\s*"
+        r"\.freq_counter_min\s*=\s*(\d+)U,\s*\.freq_counter_max\s*=\s*(\d+)U",
         table,
         flags=re.DOTALL,
     )
@@ -62,19 +65,20 @@ def main() -> int:
     require(3000 not in rates, "blocked 3000M entered supported table")
     require(rows[-1][2] == "QPLL", "10000M must use QPLL")
     require(all(row[2] == "CPLL" for row in rows[:-1]), "non-10G profile must use CPLL")
-    windows = re.findall(
-        r"\{(\d+)U,\s*LASER_RATE_ID_\d+M,\s*GT_RATE_PLL_(?:CPLL|QPLL),\s*125000000U,\s*"
-        r"(\d+)U,\s*(\d+)U,\s*(\d+)U,",
-        table,
-        flags=re.DOTALL,
-    )
-    require(len(windows) == len(rows), "could not parse every counter window")
-    for rate, expected_hz, minimum, maximum in windows:
+    for rate, _, _, expected_hz, minimum, maximum in rows:
         expected_count = int(expected_hz) // 1000
         require(int(minimum) <= expected_count <= int(maximum),
                 f"{rate}M expected counter is outside its window")
     require("freq_counter_min" in plan_h and "freq_counter_max" in plan_h,
             "counter window fields missing")
+    require("sizeof(gt_rate_profile_table)" in plan_c,
+            "profile count must be derived from the array")
+    require("gt_blocked_rate_table" in plan_c and "{3000U," in plan_c,
+            "3000M blocked reason table missing")
+    require("fixed 125MHz CPLL profiles only" not in read(ROOT / "vitis_bringup/bringup/src/laser_udp_server.c"),
+            "stale CPLL-only startup banner remains")
+    require("format_rate_list(response, response_size)" in read(ROOT / "vitis_bringup/bringup/src/laser_udp_server.c"),
+            "rate list is not sourced from the profile table")
     print("PASS: rate profile consistency (RTL IDs, Vitis IDs, order, PLL type, 3000M exclusion)")
     return 0
 

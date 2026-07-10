@@ -15,21 +15,42 @@
 #define LASER_RATE_ID_10000M 9U
 #endif
 
-#define GT_RATE_PROFILE_COUNT 9U
+typedef struct {
+    uint32_t rate_mbps;
+    const char *reason;
+} GtBlockedRate;
+
+static const GtBlockedRate gt_blocked_rate_table[] = {
+    {3000U, "NO_LEGAL_VERIFIED_125M_CPLL_PROFILE"}
+};
 
 /* Sorted by rate_mbps. Values are copied from the active RTL profile accessors:
  * FREQ_*_COUNT is a roughly 1 ms counter window, not hertz. */
-static const GtRateProfile gt_rate_profile_table[GT_RATE_PROFILE_COUNT] = {
-    {500U,   LASER_RATE_ID_500M,   GT_RATE_PLL_CPLL, 125000000U,   7812500U,   7700U,   7950U, 0x1002U, 8U, 1U,  0U, 0U, 0U, 1U},
-    {1000U,  LASER_RATE_ID_1000M,  GT_RATE_PLL_CPLL, 125000000U,  15625000U,  15400U,  15900U, 0x1002U, 4U, 2U,  0U, 0U, 0U, 1U},
-    {1250U,  LASER_RATE_ID_1250M,  GT_RATE_PLL_CPLL, 125000000U,  19531250U,  19200U,  19850U, 0x1003U, 4U, 4U,  0U, 0U, 0U, 1U},
-    {2000U,  LASER_RATE_ID_2000M,  GT_RATE_PLL_CPLL, 125000000U,  31250000U,  30800U,  31800U, 0x1002U, 2U, 3U,  0U, 0U, 0U, 1U},
-    {2500U,  LASER_RATE_ID_2500M,  GT_RATE_PLL_CPLL, 125000000U,  39062500U,  38400U,  39750U, 0x1003U, 2U, 5U,  0U, 0U, 0U, 1U},
-    {3125U,  LASER_RATE_ID_3125M,  GT_RATE_PLL_CPLL, 125000000U,  48828125U,  48000U,  49700U, 0x1083U, 2U, 7U,  0U, 0U, 0U, 1U},
-    {5000U,  LASER_RATE_ID_5000M,  GT_RATE_PLL_CPLL, 125000000U,  78125000U,  76800U,  79500U, 0x1003U, 1U, 6U,  0U, 0U, 0U, 1U},
-    {6250U,  LASER_RATE_ID_6250M,  GT_RATE_PLL_CPLL, 125000000U,  97656250U,  96000U,  99500U, 0x1083U, 1U, 8U,  0U, 0U, 0U, 1U},
-    {10000U, LASER_RATE_ID_10000M, GT_RATE_PLL_QPLL, 125000000U, 156250000U, 153000U, 159500U, 0x0000U, 1U, 9U, 80U, 1U, 0U, 1U}
+static const GtRateProfile gt_rate_profile_table[] = {
+    { .rate_mbps = 500U,   .rate_id = LASER_RATE_ID_500M,   .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 7812500U,   .freq_counter_min = 7700U,   .freq_counter_max = 7950U,   .cpll_drp_value = 0x1002U, .txout_div = 8U, .mmcm_profile_id = 1U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 1000U,  .rate_id = LASER_RATE_ID_1000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 15625000U,  .freq_counter_min = 15400U,  .freq_counter_max = 15900U,  .cpll_drp_value = 0x1002U, .txout_div = 4U, .mmcm_profile_id = 2U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 1250U,  .rate_id = LASER_RATE_ID_1250M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 19531250U,  .freq_counter_min = 19200U,  .freq_counter_max = 19850U,  .cpll_drp_value = 0x1003U, .txout_div = 4U, .mmcm_profile_id = 4U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 2000U,  .rate_id = LASER_RATE_ID_2000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 31250000U,  .freq_counter_min = 30800U,  .freq_counter_max = 31800U,  .cpll_drp_value = 0x1002U, .txout_div = 2U, .mmcm_profile_id = 3U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 2500U,  .rate_id = LASER_RATE_ID_2500M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 39062500U,  .freq_counter_min = 38400U,  .freq_counter_max = 39750U,  .cpll_drp_value = 0x1003U, .txout_div = 2U, .mmcm_profile_id = 5U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 3125U,  .rate_id = LASER_RATE_ID_3125M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 48828125U,  .freq_counter_min = 48000U,  .freq_counter_max = 49700U,  .cpll_drp_value = 0x1083U, .txout_div = 2U, .mmcm_profile_id = 7U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 5000U,  .rate_id = LASER_RATE_ID_5000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 78125000U,  .freq_counter_min = 76800U,  .freq_counter_max = 79500U,  .cpll_drp_value = 0x1003U, .txout_div = 1U, .mmcm_profile_id = 6U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 6250U,  .rate_id = LASER_RATE_ID_6250M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 97656250U,  .freq_counter_min = 96000U,  .freq_counter_max = 99500U,  .cpll_drp_value = 0x1083U, .txout_div = 1U, .mmcm_profile_id = 8U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
+    { .rate_mbps = 10000U, .rate_id = LASER_RATE_ID_10000M, .pll_source = GT_RATE_PLL_QPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 156250000U, .freq_counter_min = 153000U, .freq_counter_max = 159500U, .cpll_drp_value = 0x0000U, .txout_div = 1U, .mmcm_profile_id = 9U, .qpll_n = 80U, .qpll_required = 1U, .ad9528_dynamic_required = 0U, .board_verified = 1U }
 };
+
+#define GT_RATE_PROFILE_COUNT \
+    (sizeof(gt_rate_profile_table) / sizeof(gt_rate_profile_table[0]))
+
+static const char *gt_rate_blocked_reason(uint32_t rate_mbps)
+{
+    size_t i;
+    for (i = 0U; i < sizeof(gt_blocked_rate_table) / sizeof(gt_blocked_rate_table[0]); ++i) {
+        if (gt_blocked_rate_table[i].rate_mbps == rate_mbps) {
+            return gt_blocked_rate_table[i].reason;
+        }
+    }
+    return NULL;
+}
 
 static void gt_rate_plan_clear(GtRatePlan *plan, uint32_t requested_rate_mbps)
 {
@@ -105,8 +126,9 @@ int gt_rate_plan_exact(uint32_t requested_rate_mbps, GtRatePlan *plan)
             return GT_RATE_PLAN_OK;
         }
     }
-    if (requested_rate_mbps == 3000U) {
-        plan->reason = "NO_LEGAL_VERIFIED_125M_CPLL_PROFILE";
+    plan->reason = gt_rate_blocked_reason(requested_rate_mbps);
+    if (plan->reason == NULL) {
+        plan->reason = "NO_VERIFIED_EXACT_PROFILE";
     }
     return GT_RATE_PLAN_STATUS_UNSUPPORTED;
 }
@@ -173,7 +195,14 @@ const char *gt_rate_ref_source_name(GtRateRefSource ref_source)
 
 const char *gt_rate_pll_source_name(GtRatePllSource pll_source)
 {
-    return (pll_source == GT_RATE_PLL_QPLL) ? "QPLL" : "CPLL";
+    switch (pll_source) {
+    case GT_RATE_PLL_CPLL:
+        return "CPLL";
+    case GT_RATE_PLL_QPLL:
+        return "QPLL";
+    default:
+        return "UNKNOWN_PLL";
+    }
 }
 
 void gt_rate_plan_print(const GtRatePlan *plan)

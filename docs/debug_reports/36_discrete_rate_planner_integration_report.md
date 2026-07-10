@@ -51,3 +51,13 @@ AXI 地址、GPIO bitfield、rate_id 编码、UDP 端口和 PL executor 均未�
 Hardware rate-switch regression was not run。本阶段仅完成 Vitis build；尚需验证 `rate list`、EXACT 500/10000、`rate plan 3000`、`rate plan 3000 nearest`、`rate set 3000` 不触发 PL request，以及 CPLL/QPLL 已验证路径不退化。
 
 本阶段只能描述为“九档已验证固定 profile 的离散规划与安全执行接口”，不能描述为 0.5G～10G 任意连续速率可调。
+
+## 8. 软件收口：blocked rate 与统一打印
+
+`gt_rate_plan_exact()` 不再对 3000M 保留速率专用 if/else；已知 blocked 速率改由小型只读 `GtBlockedRate` 表查询。3000M 仍不进入正式 profile，仍返回 `NO_LEGAL_VERIFIED_125M_CPLL_PROFILE`；其它未支持值返回 `NO_VERIFIED_EXACT_PROFILE`。NEAREST 仍只给出建议，不能触发硬件切换。
+
+启动 banner 已从“fixed 125MHz CPLL profiles only”修正为固定 verified 125MHz CPLL/QPLL profile 的选择、GT/MMCM 重配置、PLL/reset/lock 处理与 TXUSRCLK2 frequency verification。启动时的 profile 摘要和 UDP `rate list` 均遍历同一 `gt_rate_profile_table`，不再维护手写九档速率字符串。
+
+`GT_RATE_PROFILE_COUNT` 改为 `sizeof(gt_rate_profile_table) / sizeof(gt_rate_profile_table[0])` 推导；`gt_rate_pll_source_name()` 对非法 enum 返回 `UNKNOWN_PLL`。当前 ARM GCC Vitis build 支持 designated initializer，profile 表已采用字段名初始化以减少字段错位风险。
+
+`GT_RATE_PLAN_HOST_TEST` 为脱离 Xilinx BSP 的 host 编译保留 RATE_ID 宏副本；本轮未大规模移动公共头文件。`scripts/check_rate_profile_consistency.py` 会比较该正式软件 RATE_ID 与 RTL localparam，但 host 宏副本仍是需维护的低风险测试辅助结构。
