@@ -22,8 +22,8 @@ EXPECTED = [
     ("3125M", 7, 3125, "CPLL", 1),
     ("6250M", 8, 6250, "CPLL", 1),
     ("10000M", 9, 10000, "QPLL", 1),
-    ("625M", 10, 625, "CPLL", 0),
-    ("4000M", 11, 4000, "CPLL", 0),
+    ("625M", 10, 625, "CPLL", 1),
+    ("4000M", 11, 4000, "CPLL", 1),
 ]
 
 
@@ -68,11 +68,9 @@ def main() -> int:
     require(3000 not in rates, "blocked 3000M entered supported table")
     require(rows[-1][2] == "QPLL", "10000M must use QPLL")
     require(all(row[2] == "CPLL" for row in rows[:-1]), "non-10G profile must use CPLL")
-    candidate_rows = {int(row[0]): int(row[6]) for row in rows}
-    require(candidate_rows[625] == 0 and candidate_rows[4000] == 0,
-            "625M/4000M must remain board-unverified candidates")
-    require(all(candidate_rows[rate] == 1 for rate in rates if rate not in (625, 4000)),
-            "verified profile unexpectedly marked as candidate")
+    verified_rows = {int(row[0]): int(row[6]) for row in rows}
+    require(all(verified_rows[rate] == 1 for rate in rates),
+            "a profile in the formal table is not board verified")
     for rate, _, _, expected_hz, minimum, maximum, _ in rows:
         expected_count = int(expected_hz) // 1000
         require(int(minimum) <= expected_count <= int(maximum),
@@ -88,12 +86,10 @@ def main() -> int:
     udp_c = read(ROOT / "vitis_bringup/bringup/src/laser_udp_server.c")
     require("format_rate_list(response, response_size)" in udp_c,
             "rate list is not sourced from the profile table")
-    require("if (profile->board_verified == 0U)" in udp_c,
-            "rate list/startup output does not filter candidate profiles")
-    require("rate candidate set <Mbps>" in udp_c and
+    require("rate candidate set <Mbps>" not in udp_c and
             "ERROR RATE_SET_UNSUPPORTED" in udp_c,
-            "candidate bring-up or ordinary rate-set gating is missing")
-    print("PASS: rate profile consistency (RTL IDs, Vitis IDs, order, PLL type, candidate gating, 3000M exclusion)")
+            "obsolete candidate command remains or ordinary rate-set gating is missing")
+    print("PASS: rate profile consistency (RTL IDs, Vitis IDs, order, PLL type, verified profiles, 3000M exclusion)")
     return 0
 
 

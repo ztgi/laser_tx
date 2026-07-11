@@ -30,13 +30,13 @@ static const GtBlockedRate gt_blocked_rate_table[] = {
  * FREQ_*_COUNT is a roughly 1 ms counter window, not hertz. */
 static const GtRateProfile gt_rate_profile_table[] = {
     { .rate_mbps = 500U,   .rate_id = LASER_RATE_ID_500M,   .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 7812500U,   .freq_counter_min = 7700U,   .freq_counter_max = 7950U,   .cpll_drp_value = 0x1002U, .txout_div = 8U, .mmcm_profile_id = 1U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
-    { .rate_mbps = 625U,   .rate_id = LASER_RATE_ID_625M,   .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 9765625U,   .freq_counter_min = 9600U,   .freq_counter_max = 9950U,   .cpll_drp_value = 0x1003U, .txout_div = 8U, .mmcm_profile_id = 10U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 0U },
+    { .rate_mbps = 625U,   .rate_id = LASER_RATE_ID_625M,   .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 9765625U,   .freq_counter_min = 9600U,   .freq_counter_max = 9950U,   .cpll_drp_value = 0x1003U, .txout_div = 8U, .mmcm_profile_id = 10U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 1000U,  .rate_id = LASER_RATE_ID_1000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 15625000U,  .freq_counter_min = 15400U,  .freq_counter_max = 15900U,  .cpll_drp_value = 0x1002U, .txout_div = 4U, .mmcm_profile_id = 2U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 1250U,  .rate_id = LASER_RATE_ID_1250M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 19531250U,  .freq_counter_min = 19200U,  .freq_counter_max = 19850U,  .cpll_drp_value = 0x1003U, .txout_div = 4U, .mmcm_profile_id = 4U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 2000U,  .rate_id = LASER_RATE_ID_2000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 31250000U,  .freq_counter_min = 30800U,  .freq_counter_max = 31800U,  .cpll_drp_value = 0x1002U, .txout_div = 2U, .mmcm_profile_id = 3U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 2500U,  .rate_id = LASER_RATE_ID_2500M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 39062500U,  .freq_counter_min = 38400U,  .freq_counter_max = 39750U,  .cpll_drp_value = 0x1003U, .txout_div = 2U, .mmcm_profile_id = 5U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 3125U,  .rate_id = LASER_RATE_ID_3125M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 48828125U,  .freq_counter_min = 48000U,  .freq_counter_max = 49700U,  .cpll_drp_value = 0x1083U, .txout_div = 2U, .mmcm_profile_id = 7U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
-    { .rate_mbps = 4000U,  .rate_id = LASER_RATE_ID_4000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 62500000U,  .freq_counter_min = 61400U,  .freq_counter_max = 63600U,  .cpll_drp_value = 0x1002U, .txout_div = 1U, .mmcm_profile_id = 11U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 0U },
+    { .rate_mbps = 4000U,  .rate_id = LASER_RATE_ID_4000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 62500000U,  .freq_counter_min = 61400U,  .freq_counter_max = 63600U,  .cpll_drp_value = 0x1002U, .txout_div = 1U, .mmcm_profile_id = 11U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 5000U,  .rate_id = LASER_RATE_ID_5000M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 78125000U,  .freq_counter_min = 76800U,  .freq_counter_max = 79500U,  .cpll_drp_value = 0x1003U, .txout_div = 1U, .mmcm_profile_id = 6U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 6250U,  .rate_id = LASER_RATE_ID_6250M,  .pll_source = GT_RATE_PLL_CPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 97656250U,  .freq_counter_min = 96000U,  .freq_counter_max = 99500U,  .cpll_drp_value = 0x1083U, .txout_div = 1U, .mmcm_profile_id = 8U, .qpll_n = 0U,  .qpll_required = 0U, .ad9528_dynamic_required = 0U, .board_verified = 1U },
     { .rate_mbps = 10000U, .rate_id = LASER_RATE_ID_10000M, .pll_source = GT_RATE_PLL_QPLL, .refclk_hz = 125000000U, .expected_txusrclk2_hz = 156250000U, .freq_counter_min = 153000U, .freq_counter_max = 159500U, .cpll_drp_value = 0x0000U, .txout_div = 1U, .mmcm_profile_id = 9U, .qpll_n = 80U, .qpll_required = 1U, .ad9528_dynamic_required = 0U, .board_verified = 1U }
@@ -127,34 +127,6 @@ int gt_rate_plan_exact(uint32_t requested_rate_mbps, GtRatePlan *plan)
             plan->selected_rate_id = gt_rate_profile_table[i].rate_id;
             plan->profile = &gt_rate_profile_table[i];
             plan->reason = "VERIFIED_EXACT_PROFILE";
-            return GT_RATE_PLAN_OK;
-        }
-    }
-    plan->reason = gt_rate_blocked_reason(requested_rate_mbps);
-    if (plan->reason == NULL) {
-        plan->reason = "NO_VERIFIED_EXACT_PROFILE";
-    }
-    return GT_RATE_PLAN_STATUS_UNSUPPORTED;
-}
-
-int gt_rate_plan_lookup(uint32_t requested_rate_mbps, GtRatePlan *plan)
-{
-    size_t i;
-
-    if (plan == NULL) {
-        return GT_RATE_PLAN_STATUS_BAD_ARG;
-    }
-    gt_rate_plan_clear(plan, requested_rate_mbps);
-    gt_rate_plan_set_bounds(requested_rate_mbps, plan);
-    for (i = 0U; i < GT_RATE_PROFILE_COUNT; ++i) {
-        if (gt_rate_profile_table[i].rate_mbps == requested_rate_mbps) {
-            plan->result = GT_RATE_PLAN_EXACT;
-            plan->selected_rate_mbps = requested_rate_mbps;
-            plan->selected_rate_id = gt_rate_profile_table[i].rate_id;
-            plan->profile = &gt_rate_profile_table[i];
-            plan->reason = (plan->profile->board_verified != 0U) ?
-                           "VERIFIED_EXACT_PROFILE" :
-                           "CANDIDATE_PROFILE_BOARD_VALIDATION_REQUIRED";
             return GT_RATE_PLAN_OK;
         }
     }

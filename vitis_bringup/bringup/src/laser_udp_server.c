@@ -117,7 +117,7 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     xil_printf("GPIO ctrl/status : 0x%08lx\r\n", (unsigned long)LASER_GPIO_BASEADDR);
     xil_printf("BRAM             : 0x%08lx\r\n", (unsigned long)LASER_BRAM_BASEADDR);
     xil_printf("GT status GPIO   : 0x%08lx\r\n", (unsigned long)LASER_GT_STATUS_GPIO_BASEADDR);
-    xil_printf("Runtime rate set : verified 125MHz CPLL/QPLL profiles, no AD9528/refclk/wide-range rate change\r\n");
+    xil_printf("Runtime rate set : verified 125MHz CPLL/QPLL profiles including 625M and 4000M, no AD9528/refclk/wide-range rate change\r\n");
 
     status = laser_gpio_init(gpio);
     if (status != XST_SUCCESS) {
@@ -280,7 +280,6 @@ static void print_rate_profile_startup_summary(void)
         ++emitted;
     }
     xil_printf("\r\n");
-    xil_printf("Candidate profiles: use rate plan <Mbps>; engineering-only rate candidate set <Mbps> is required before promotion\r\n");
 }
 
 static int command_has_extra_arg(char **cursor)
@@ -340,7 +339,6 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
     uint32_t error_code;
     GtRatePlan plan;
     int plan_status;
-    int candidate_request = 0;
 
     if (subcommand == NULL) {
         (void)snprintf(response, response_size, "ERR RATE_COMMAND_ARGS");
@@ -358,7 +356,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
         error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
         (void)snprintf(response, response_size,
-                       "OK RATE_STATUS mode=dynamic_verified_profiles_candidate_625m_4000m current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx",
+                       "OK RATE_STATUS mode=dynamic_verified_125mhz_cpll_qpll_profiles current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx",
                        (unsigned long)current_rate_mbps,
                        (unsigned long)current_rate_id,
                        laser_gt_rate_state_name(rate_state),
@@ -393,7 +391,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
             (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
             return;
         }
-        plan_status = (mode == NULL) ? gt_rate_plan_lookup(target_mbps, &plan) :
+        plan_status = (mode == NULL) ? gt_rate_plan_exact(target_mbps, &plan) :
                                        gt_rate_plan_nearest(target_mbps, &plan);
         if (plan_status == GT_RATE_PLAN_OK && plan.result == GT_RATE_PLAN_EXACT) {
             (void)snprintf(response, response_size,
@@ -434,35 +432,18 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         return;
     }
 
-    if (token_equals(subcommand, "CANDIDATE")) {
-        char *candidate_subcommand = next_token(cursor);
-        if (candidate_subcommand == NULL ||
-            !token_equals(candidate_subcommand, "SET")) {
-            (void)snprintf(response, response_size, "ERR RATE_CANDIDATE_ARGS");
-            return;
-        }
-        candidate_request = 1;
-    }
-
-    if (token_equals(subcommand, "SET") || candidate_request != 0) {
+    if (token_equals(subcommand, "SET")) {
         if (parse_u32_arg(cursor, &target_mbps) != XST_SUCCESS ||
             command_has_extra_arg(cursor)) {
-            (void)snprintf(response, response_size,
-                           candidate_request ? "ERR RATE_CANDIDATE_SET_ARGS" : "ERR RATE_SET_ARGS");
+            (void)snprintf(response, response_size, "ERR RATE_SET_ARGS");
             return;
         }
 
-        plan_status = (candidate_request != 0) ?
-                      gt_rate_plan_lookup(target_mbps, &plan) :
-                      gt_rate_plan_exact(target_mbps, &plan);
+        plan_status = gt_rate_plan_exact(target_mbps, &plan);
         if (plan_status != GT_RATE_PLAN_OK ||
             plan.result != GT_RATE_PLAN_EXACT ||
-            plan.profile == NULL ||
-            ((candidate_request == 0) && plan.profile->board_verified == 0U) ||
-            ((candidate_request != 0) && plan.profile->board_verified != 0U)) {
+            plan.profile == NULL || plan.profile->board_verified == 0U) {
             (void)snprintf(response, response_size,
-                           candidate_request ?
-                           "ERROR RATE_CANDIDATE_SET_UNSUPPORTED requested=%lu nearest_lower=%lu nearest_upper=%lu reason=%s" :
                            "ERROR RATE_SET_UNSUPPORTED requested=%lu nearest_lower=%lu nearest_upper=%lu reason=%s",
                            (unsigned long)target_mbps,
                            (unsigned long)plan.nearest_lower_mbps,
@@ -566,8 +547,6 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         }
 
         (void)snprintf(response, response_size,
-                       candidate_request ?
-                       "OK RATE_CANDIDATE_SET target=%lu current_rate=%lu state=DONE gt_drp_written=%lu mmcm_drp_written=%lu" :
                        "OK RATE_SET target=%lu current_rate=%lu state=DONE gt_drp_written=%lu mmcm_drp_written=%lu",
                        (unsigned long)target_mbps,
                        (unsigned long)current_rate_mbps,
@@ -801,7 +780,7 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed 125MHz CPLL/QPLL profile selection, GT/MMCM reconfiguration, PLL/reset/lock handling and TXUSRCLK2 frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps> rate candidate set <Mbps>\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);
@@ -844,7 +823,7 @@ int laser_udp_server_run(void)
     }
 
     udp_recv(pcb, laser_udp_recv, &gpio);
-    xil_printf("UDP server ready. Ordinary rate set supports verified profiles only; candidate bring-up requires an explicit rate candidate set command.\r\n");
+    xil_printf("UDP server ready. Ordinary rate set supports all verified fixed profiles.\r\n");
 
     while (1) {
         int input_ret;
@@ -875,7 +854,7 @@ int laser_udp_server_run(void)
     xil_printf("ERROR: current BSP does not provide lwIP headers/libraries.\r\n");
     xil_printf("Searched by compile-time __has_include for lwip/init.h, lwip/udp.h and netif/xadapter.h.\r\n");
     xil_printf("Enable lwIP in the Vitis BSP/platform, then rebuild this app.\r\n");
-    xil_printf("This build needs lwIP for verified fixed CPLL/QPLL profile control and explicit candidate bring-up.\r\n");
+    xil_printf("This build needs lwIP for verified fixed CPLL/QPLL profile control.\r\n");
     return XST_FAILURE;
 }
 #endif
