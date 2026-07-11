@@ -7,6 +7,7 @@
 #include <string.h>
 #include "sleep.h"
 #include "gt_rate_plan.h"
+#include "laser_ad9528.h"
 #include "laser_bram.h"
 #include "laser_gpio.h"
 #include "laser_gt.h"
@@ -128,6 +129,10 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     if (status != XST_SUCCESS) {
         xil_printf("ERROR: GT status GPIO init failed: %d\r\n", status);
         return XST_FAILURE;
+    }
+    status = laser_ad9528_spi_init();
+    if (status != XST_SUCCESS) {
+        xil_printf("WARNING: AD9528 SPI init failed: %d; read-only AD9528 commands will return an error\r\n", status);
     }
 
     laser_gpio_set_enable(gpio, 0);
@@ -591,6 +596,31 @@ static void handle_udp_command(LaserGpio *gpio,
         return;
     }
 
+    if (token_equals(command, "AD9528")) {
+        char *subcommand = next_token(&cursor);
+        LaserAd9528RuntimeState state;
+        int32_t ad9528_status;
+
+        if (subcommand == NULL || command_has_extra_arg(&cursor) ||
+            (!token_equals(subcommand, "STATUS") && !token_equals(subcommand, "DUMP"))) {
+            (void)snprintf(response, response_size, "ERR AD9528_COMMAND");
+            return;
+        }
+        ad9528_status = laser_ad9528_dump_runtime_state(&state);
+        if (ad9528_status != XST_SUCCESS) {
+            (void)snprintf(response, response_size,
+                           "ERROR AD9528_STATUS spi_ok=0 error_code=%ld failed_reg=0x%04x",
+                           (long)ad9528_status,
+                           (unsigned int)laser_ad9528_last_read_error_reg());
+            return;
+        }
+        if (token_equals(subcommand, "DUMP")) {
+            laser_ad9528_print_runtime_state(&state);
+        }
+        (void)laser_ad9528_format_runtime_status(response, response_size, &state);
+        return;
+    }
+
     if (token_equals(command, "RATE")) {
         handle_rate_command(gpio, &cursor, response, response_size);
         return;
@@ -780,7 +810,7 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed 125MHz CPLL/QPLL profile selection, GT/MMCM reconfiguration, PLL/reset/lock handling and TXUSRCLK2 frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);
