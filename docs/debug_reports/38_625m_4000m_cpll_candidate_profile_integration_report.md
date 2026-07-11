@@ -1,5 +1,7 @@
 # 625M / 4000M 125MHz CPLL 候选 Profile 主工程集成报告
 
+> 历史记录：本文件描述 candidate 集成阶段。两档已在后续收口中提升为正式 supported profile；当前状态和上板证据边界见 [625M / 4000M CPLL Profile 上板验证与正式支持收口报告](38_625m_4000m_cpll_profile_board_validation.md)。
+
 ## 1. 本阶段目标与边界
 
 本阶段将两个已经由隔离 GT Wizard 参数包确认的 125MHz CPLL profile 接入主工程动态执行器：625Mbps 与 4000Mbps。两者均为 **candidate**，而非正式 supported profile。
