@@ -604,7 +604,9 @@ static void handle_udp_command(LaserGpio *gpio,
         if (subcommand != NULL && token_equals(subcommand, "PROFILE")) {
             char *action = next_token(&cursor);
             char *profile = next_token(&cursor);
+            char *view = next_token(&cursor);
             LaserAd9528ClockProfilePlan plan;
+            uint32_t transaction_index = 0U;
 
             if (action == NULL || profile == NULL || command_has_extra_arg(&cursor) ||
                 !token_equals(action, "PLAN")) {
@@ -619,9 +621,27 @@ static void handle_udp_command(LaserGpio *gpio,
                                profile);
                 return;
             }
-            if (ad9528_status != XST_SUCCESS ||
-                laser_ad9528_format_clock_profile_plan(response, response_size,
-                                                        &plan) != XST_SUCCESS) {
+            if (ad9528_status == XST_SUCCESS && view != NULL &&
+                !token_equals(view, "SUMMARY")) {
+                char *end = NULL;
+                unsigned long parsed;
+                errno = 0;
+                parsed = strtoul(view, &end, 10);
+                if (errno == ERANGE || parsed > UINT32_MAX || end == view ||
+                    *end != '\0' || parsed >= plan.write_count) {
+                    (void)snprintf(response, response_size,
+                                   "ERROR AD9528_PROFILE_PLAN_INDEX index=%s valid=0..%u",
+                                   view, (unsigned int)(plan.write_count - 1U));
+                    return;
+                }
+                transaction_index = (uint32_t)parsed;
+                ad9528_status = laser_ad9528_format_clock_profile_plan_transaction(
+                    response, response_size, &plan, transaction_index);
+            } else if (ad9528_status == XST_SUCCESS) {
+                ad9528_status = laser_ad9528_format_clock_profile_plan(
+                    response, response_size, &plan);
+            }
+            if (ad9528_status != XST_SUCCESS) {
                 (void)snprintf(response, response_size,
                                "ERROR AD9528_PROFILE_PLAN status=%ld",
                                (long)ad9528_status);

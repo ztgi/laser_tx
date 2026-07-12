@@ -14,6 +14,8 @@ typedef struct {
     uint8_t new_value;
     uint8_t readback_mask;
     uint8_t readback_value;
+    const char *field_description;
+    uint8_t shared_resource;
 } LaserAd9528RegisterPlan;
 
 typedef struct {
@@ -22,7 +24,17 @@ typedef struct {
     uint8_t write_count;
     uint8_t requires_io_update;
     uint8_t requires_sync;
-    uint8_t affects_other_outputs;
+    uint8_t affects_out0;
+    uint8_t affects_shared_clock_tree;
+    uint8_t may_affect_other_outputs;
+    uint8_t directly_modifies_other_output_channels;
+    uint8_t spi_identity_valid;
+    uint8_t out0_ldo_enabled;
+    uint8_t out0_channel_enabled;
+    uint8_t chip_enabled;
+    uint8_t clock_distribution_enabled;
+    uint8_t requires_pll1_lock;
+    uint8_t requires_pll2_lock;
     LaserAd9528RegisterPlan writes[LASER_AD9528_PROFILE_PLAN_MAX_WRITES];
 } LaserAd9528ClockProfilePlan;
 
@@ -89,5 +101,8 @@ int32_t laser_ad9528_plan_clock_profile(const char *profile_name,
                                          LaserAd9528ClockProfilePlan *plan);
 int32_t laser_ad9528_format_clock_profile_plan(
     char *buffer, size_t buffer_size, const LaserAd9528ClockProfilePlan *plan);
+int32_t laser_ad9528_format_clock_profile_plan_transaction(
+    char *buffer, size_t buffer_size, const LaserAd9528ClockProfilePlan *plan,
+    uint32_t transaction_index);
 
 #endif

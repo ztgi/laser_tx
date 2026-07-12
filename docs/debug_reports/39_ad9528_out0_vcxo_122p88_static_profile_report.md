@@ -27,7 +27,8 @@
 - channel power-down bit 为 1 时关闭，因此 OUT0 必须清除 channel 0 的 bit；
 - PLL1/PLL2 均可在 VCXO direct 测试中 power-down；
 - 单 channel source/divider 更新由 channel register + IO_UPDATE 生效；本计划不做全局
-  SYNC，以免改变其他 output 的相位/对齐状态。
+  SYNC。`requires_sync=0` 只适用于单 OUT0、divider=1、没有多输出相位对齐要求的
+  独立测试目标。
 
 ## 3. Dry-run transaction
 
@@ -35,6 +36,10 @@ UDP 只读命令：
 
 ```text
 ad9528 profile plan vcxo_122p88
+ad9528 profile plan vcxo_122p88 summary
+ad9528 profile plan vcxo_122p88 0
+...
+ad9528 profile plan vcxo_122p88 6
 ```
 
 该命令只读取 old value 并计算 RMW 结果，不写硬件。
@@ -64,9 +69,16 @@ new = (old & ~mask) | (value & mask)
 
 ```text
 configured_out0_hz=122880000
+runtime_active_likely=0
+measured_out0_hz=UNKNOWN
 requires_io_update=1
 requires_sync=0
-affects_other_outputs=0
+affects_out0=1
+affects_shared_clock_tree=1
+may_affect_other_outputs=1
+directly_modifies_other_output_channels=0
+profile_state=PLANNED_ONLY
+board_verified=0
 ```
 
 `configured_out0_hz` 只是配置目标，不是 measured frequency。
@@ -80,11 +92,28 @@ power-down bit、IO_UPDATE 需求及 readback mask。
 依赖本板假设的内容只有：板载 VCXO 标称频率为 122.88 MHz，以及该差分 VCXO 已连接
 到 AD9528 OSC/VCXO input。因尚未测量 OUT0，`122880000` 只能称为 configured target。
 
-## 4. 其它输出影响
+## 4. 前置条件与其它输出影响
 
-计划不写 OUT1/OUT3/OUT12/OUT13，也不重写全 channel power-down mask。`0x0501`
-只清除 channel 0 bit，`0x0500` 只修改 PLL1/PLL2 power-down bits。由于不执行全局
-SYNC，其他输出不会因本 dry-run 计划产生相位重对齐。
+dry-run 从真实硬件只读检查以下前置条件：
+
+| 条件 | 实测/计划值 | 结果 |
+|---|---|---|
+| SPI identity | `05/03/56` | valid |
+| board VCXO | `122880000 Hz differential` | 仅原理图和手册假设 |
+| OUT0 LDO | `(0x0503 & 0x01)==1`，实测 `0xFF` | satisfied |
+| OUT0 channel | `(0x0501 & 0x01)==0`，实测 `0x00` | satisfied |
+| chip enabled | `(0x0500 & 0x01)==0`，实测 `0x10` | satisfied |
+| clock distribution enabled | `(0x0500 & 0x02)==0` | satisfied |
+| PLL1 lock | 不要求 | `requires_pll1_lock=0` |
+| PLL2 lock | 不要求 | `requires_pll2_lock=0` |
+
+计划不直接写 OUT1～OUT13 的 channel register，但 `0x0108`、`0x0109` 和 `0x0500`
+属于共享 VCXO/PLL1/PLL2 clock-tree 资源。因此必须标记
+`may_affect_other_outputs=1`；不能根据当前其他输出尚未工作就声明绝对无影响。
+
+未来 apply 阶段的计划验收条件（本轮不执行）是：masked readback 匹配、OUT0 source
+为 VCXO、divider=1、LVDS、channel/LDO/clock distribution enabled、PLL1/PLL2
+power-down、VCXO status valid。配置目标为 122.88 MHz，实测频率仍为 UNKNOWN。
 
 ## 5. Apply 与 rollback 状态
 
@@ -122,16 +151,17 @@ clock_tree_initialized=0 out0_runtime_valid=0
 最终 plan 返回：
 
 ```text
-OK AD9528_PROFILE_PLAN profile=VCXO_122P88 out0_hz=122880000
-writes=7 io_update=1 sync=0 affects_other_outputs=0
-tx=reg=0108/old=00/mask=05/value=01/new=01/readback_mask=05/readback_expected=01,
-reg=0109/old=00/mask=38/value=38/new=38/readback_mask=38/readback_expected=38,
-reg=0300/old=00/mask=e0/value=20/new=20/readback_mask=e0/readback_expected=20,
-reg=0301/old=00/mask=c0/value=00/new=00/readback_mask=c0/readback_expected=00,
-reg=0302/old=04/mask=ff/value=00/new=00/readback_mask=ff/readback_expected=00,
-reg=0501/old=00/mask=01/value=00/new=00/readback_mask=01/readback_expected=00,
-reg=0500/old=10/mask=0c/value=0c/new=1c/readback_mask=0c/readback_expected=0c
+OK AD9528_PROFILE_PLAN profile=VCXO_122P88
+profile_state=PLANNED_ONLY configured_out0_hz=122880000
+runtime_active_likely=0 measured_out0_hz=UNKNOWN writes=7
+requires_io_update=1 requires_sync=0 requires_pll1_lock=0 requires_pll2_lock=0
+affects_out0=1 affects_shared_clock_tree=1 may_affect_other_outputs=1
+directly_modifies_other_output_channels=0 board_verified=0
 ```
+
+七项 transaction 改为用索引命令分别读取，响应包含
+`reg/old/mask/value/new/readback_mask/readback_expected/field/shared_resource`。拆分目的
+是避免把摘要、前置/后置条件和七项解释压入同一个 UDP 包；所有索引命令仍只读。
 
 plan 后 `rate status` 仍为 500M，`gt_drp_written/mmcm_drp_written` 和对应 done 均为 0；
 普通 GT rate executor 未被触发。源代码检查确认 planner 仅通过
