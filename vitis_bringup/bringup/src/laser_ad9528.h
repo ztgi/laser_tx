@@ -4,6 +4,28 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#define LASER_AD9528_PROFILE_PLAN_MAX_WRITES 8U
+
+typedef struct {
+    uint16_t reg;
+    uint8_t old_value;
+    uint8_t mask;
+    uint8_t value;
+    uint8_t new_value;
+    uint8_t readback_mask;
+    uint8_t readback_value;
+} LaserAd9528RegisterPlan;
+
+typedef struct {
+    const char *profile_name;
+    uint32_t configured_out0_hz;
+    uint8_t write_count;
+    uint8_t requires_io_update;
+    uint8_t requires_sync;
+    uint8_t affects_other_outputs;
+    LaserAd9528RegisterPlan writes[LASER_AD9528_PROFILE_PLAN_MAX_WRITES];
+} LaserAd9528ClockProfilePlan;
+
 typedef struct {
     uint32_t chip_id_raw;
     uint32_t pll1_ctrl_raw;
@@ -19,6 +41,15 @@ typedef struct {
     uint8_t status1_raw;
     uint8_t status_pin_enable_raw;
     uint16_t readback_raw;
+    uint8_t reg0200_raw;
+    uint8_t reg0201_raw;
+    uint8_t reg0205_raw;
+    uint8_t reg0206_raw;
+    uint8_t reg0209_raw;
+    uint8_t reg032a_raw;
+    uint8_t reg032d_raw;
+    uint8_t reg0503_raw;
+    uint8_t reg0504_raw;
     uint8_t pll1_ref_mode;
     uint8_t pll1_feedback_source_vcxo;
     uint8_t pll1_bypass_likely;
@@ -52,5 +83,11 @@ uint16_t laser_ad9528_last_read_error_reg(void);
 void laser_ad9528_print_runtime_state(const LaserAd9528RuntimeState *state);
 int32_t laser_ad9528_format_runtime_status(char *buffer, size_t buffer_size,
                                             const LaserAd9528RuntimeState *state);
+int32_t laser_ad9528_format_default_image(char *buffer, size_t buffer_size,
+                                           const LaserAd9528RuntimeState *state);
+int32_t laser_ad9528_plan_clock_profile(const char *profile_name,
+                                         LaserAd9528ClockProfilePlan *plan);
+int32_t laser_ad9528_format_clock_profile_plan(
+    char *buffer, size_t buffer_size, const LaserAd9528ClockProfilePlan *plan);
 
 #endif

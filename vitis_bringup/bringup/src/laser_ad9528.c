@@ -1,6 +1,7 @@
 #include "laser_ad9528.h"
 #include "laser_hw.h"
 #include <stdio.h>
+#include <string.h>
 #include "xspips.h"
 #include "xil_printf.h"
 #include "xstatus.h"
@@ -31,6 +32,32 @@ static uint8_t ad9528_last_vendor_id;
 #define AD9528_STATUS1_REG            0x0506U
 #define AD9528_STATUS_PIN_ENABLE_REG  0x0507U
 #define AD9528_READBACK_LAST_REG      0x0509U
+#define AD9528_PLL2_CP_REG             0x0200U
+#define AD9528_PLL2_FB_DIV_REG         0x0201U
+#define AD9528_PLL2_LOOP_FILTER0_REG   0x0205U
+#define AD9528_PLL2_LOOP_FILTER1_REG   0x0206U
+#define AD9528_PLL2_AUX_REG            0x0209U
+#define AD9528_CHANNEL_SYNC_REG        0x032AU
+#define AD9528_SYSREF_RESAMPLE0_REG    0x032DU
+#define AD9528_RESERVED_0503_REG       0x0503U
+#define AD9528_RESERVED_0504_REG       0x0504U
+
+#define AD9528_PLL1_CTRL0_REG          0x0108U
+#define AD9528_PLL1_CTRL1_REG          0x0109U
+#define AD9528_OUT0_CTRL_REG           0x0300U
+#define AD9528_OUT0_DRIVER_REG         0x0301U
+#define AD9528_OUT0_DIVIDER_REG        0x0302U
+#define AD9528_CHANNEL_PD0_REG         0x0501U
+
+#define AD9528_PLL1_OSC_IN_DIFF_EN     0x01U
+#define AD9528_PLL1_BYPASS_BITS        0x38U
+#define AD9528_OUT_SOURCE_MASK         0xE0U
+#define AD9528_OUT_SOURCE_VCXO         0x20U
+#define AD9528_OUT_DRIVER_MASK         0xC0U
+#define AD9528_OUT_DRIVER_LVDS         0x00U
+#define AD9528_OUT_DIVIDER_1           0x00U
+#define AD9528_PD_PLL1_PLL2_MASK       0x0CU
+#define AD9528_PD_PLL1_PLL2            0x0CU
 
 #define AD9528_PLL1_FEEDBACK_BYPASS_EN (1UL << 13)
 #define AD9528_PLL1_REFB_BYPASS_EN     (1UL << 12)
@@ -293,6 +320,15 @@ int32_t laser_ad9528_dump_runtime_state(LaserAd9528RuntimeState *state)
     AD9528_DUMP_READ(AD9528_STATUS1_REG, 1U, status1_raw);
     AD9528_DUMP_READ(AD9528_STATUS_PIN_ENABLE_REG, 1U, status_pin_enable_raw);
     AD9528_DUMP_READ(AD9528_READBACK_LAST_REG, 2U, readback_raw);
+    AD9528_DUMP_READ(AD9528_PLL2_CP_REG, 1U, reg0200_raw);
+    AD9528_DUMP_READ(AD9528_PLL2_FB_DIV_REG, 1U, reg0201_raw);
+    AD9528_DUMP_READ(AD9528_PLL2_LOOP_FILTER0_REG, 1U, reg0205_raw);
+    AD9528_DUMP_READ(AD9528_PLL2_LOOP_FILTER1_REG, 1U, reg0206_raw);
+    AD9528_DUMP_READ(AD9528_PLL2_AUX_REG, 1U, reg0209_raw);
+    AD9528_DUMP_READ(AD9528_CHANNEL_SYNC_REG, 1U, reg032a_raw);
+    AD9528_DUMP_READ(AD9528_SYSREF_RESAMPLE0_REG, 1U, reg032d_raw);
+    AD9528_DUMP_READ(AD9528_RESERVED_0503_REG, 1U, reg0503_raw);
+    AD9528_DUMP_READ(AD9528_RESERVED_0504_REG, 1U, reg0504_raw);
 #undef AD9528_DUMP_READ
 
     state->pll1_bypass_likely =
@@ -365,6 +401,16 @@ void laser_ad9528_print_runtime_state(const LaserAd9528RuntimeState *state)
                (unsigned int)state->status1_raw,
                (unsigned int)state->status_pin_enable_raw,
                (unsigned int)state->readback_raw);
+    xil_printf("AD9528 default image supplement: 0200=%02x 0201=%02x 0205=%02x 0206=%02x 0209=%02x 032a=%02x 032d=%02x 0503=%02x 0504=%02x clock_tree_initialized=0 out0_runtime_valid=0\r\n",
+               (unsigned int)state->reg0200_raw,
+               (unsigned int)state->reg0201_raw,
+               (unsigned int)state->reg0205_raw,
+               (unsigned int)state->reg0206_raw,
+               (unsigned int)state->reg0209_raw,
+               (unsigned int)state->reg032a_raw,
+               (unsigned int)state->reg032d_raw,
+               (unsigned int)state->reg0503_raw,
+               (unsigned int)state->reg0504_raw);
     xil_printf("AD9528 parsed: pll1_ref_mode=%u pll1_feedback_vcxo=%u pll1_bypass_likely=%u pll2_direct_vcxo_likely=%u pll1_lock=%u pll2_lock=%u calibrating=%u doubler=%u out0_source=%u out0_div=%u out0_driver=%u out0_cfg_enabled=%u\r\n",
                (unsigned int)state->pll1_ref_mode,
                (unsigned int)state->pll1_feedback_source_vcxo,
@@ -415,4 +461,145 @@ int32_t laser_ad9528_format_runtime_status(char *buffer, size_t buffer_size,
                        (unsigned int)state->out0_config_enabled);
     }
     return XST_SUCCESS;
+}
+
+int32_t laser_ad9528_format_default_image(char *buffer, size_t buffer_size,
+                                           const LaserAd9528RuntimeState *state)
+{
+    if (buffer == 0 || buffer_size == 0U || state == 0) {
+        return XST_INVALID_PARAM;
+    }
+    (void)snprintf(buffer, buffer_size,
+                   "OK AD9528_DEFAULT_IMAGE reg0200=%02x reg0201=%02x reg0205=%02x reg0206=%02x reg0209=%02x reg032a=%02x reg032d=%02x reg0503=%02x reg0504=%02x clock_tree_initialized=0 out0_runtime_valid=0",
+                   (unsigned int)state->reg0200_raw,
+                   (unsigned int)state->reg0201_raw,
+                   (unsigned int)state->reg0205_raw,
+                   (unsigned int)state->reg0206_raw,
+                   (unsigned int)state->reg0209_raw,
+                   (unsigned int)state->reg032a_raw,
+                   (unsigned int)state->reg032d_raw,
+                   (unsigned int)state->reg0503_raw,
+                   (unsigned int)state->reg0504_raw);
+    return XST_SUCCESS;
+}
+
+static int32_t ad9528_add_plan_write(LaserAd9528ClockProfilePlan *plan,
+                                     uint16_t reg, uint8_t mask,
+                                     uint8_t requested_value)
+{
+    LaserAd9528RegisterPlan *entry;
+    uint8_t old_value;
+    int32_t status;
+
+    if (plan->write_count >= LASER_AD9528_PROFILE_PLAN_MAX_WRITES) {
+        return XST_FAILURE;
+    }
+    status = laser_ad9528_read(reg, &old_value);
+    if (status != XST_SUCCESS) {
+        return status;
+    }
+    entry = &plan->writes[plan->write_count++];
+    entry->reg = reg;
+    entry->old_value = old_value;
+    entry->mask = mask;
+    entry->value = requested_value;
+    entry->new_value = (uint8_t)((old_value & (uint8_t)~mask) |
+                                 (requested_value & mask));
+    entry->readback_mask = mask;
+    entry->readback_value = (uint8_t)(entry->new_value & mask);
+    return XST_SUCCESS;
+}
+
+static int ad9528_profile_name_is_vcxo_122p88(const char *name)
+{
+    static const char expected[] = "VCXO_122P88";
+    size_t i;
+
+    for (i = 0U; expected[i] != '\0' && name[i] != '\0'; ++i) {
+        char actual = name[i];
+        if (actual >= 'a' && actual <= 'z') {
+            actual = (char)(actual - ('a' - 'A'));
+        }
+        if (actual != expected[i]) {
+            return 0;
+        }
+    }
+    return expected[i] == '\0' && name[i] == '\0';
+}
+
+int32_t laser_ad9528_plan_clock_profile(const char *profile_name,
+                                         LaserAd9528ClockProfilePlan *plan)
+{
+    int32_t status;
+
+    if (profile_name == 0 || plan == 0) {
+        return XST_INVALID_PARAM;
+    }
+    if (!ad9528_profile_name_is_vcxo_122p88(profile_name)) {
+        return XST_NO_FEATURE;
+    }
+    *plan = (LaserAd9528ClockProfilePlan){0};
+    plan->profile_name = "VCXO_122P88";
+    plan->configured_out0_hz = AD9528_REFERENCE_VCXO_HZ;
+    plan->requires_io_update = 1U;
+    plan->requires_sync = 0U;
+    plan->affects_other_outputs = 0U;
+
+#define AD9528_PLAN_WRITE(reg, mask, value) \
+    do { \
+        status = ad9528_add_plan_write(plan, (reg), (mask), (value)); \
+        if (status != XST_SUCCESS) { return status; } \
+    } while (0)
+    AD9528_PLAN_WRITE(AD9528_PLL1_CTRL0_REG, 0x05U,
+                      AD9528_PLL1_OSC_IN_DIFF_EN);
+    AD9528_PLAN_WRITE(AD9528_PLL1_CTRL1_REG, AD9528_PLL1_BYPASS_BITS,
+                      AD9528_PLL1_BYPASS_BITS);
+    AD9528_PLAN_WRITE(AD9528_OUT0_CTRL_REG, AD9528_OUT_SOURCE_MASK,
+                      AD9528_OUT_SOURCE_VCXO);
+    AD9528_PLAN_WRITE(AD9528_OUT0_DRIVER_REG, AD9528_OUT_DRIVER_MASK,
+                      AD9528_OUT_DRIVER_LVDS);
+    AD9528_PLAN_WRITE(AD9528_OUT0_DIVIDER_REG, 0xFFU,
+                      AD9528_OUT_DIVIDER_1);
+    AD9528_PLAN_WRITE(AD9528_CHANNEL_PD0_REG, 0x01U, 0x00U);
+    AD9528_PLAN_WRITE(AD9528_GLOBAL_PD_REG, AD9528_PD_PLL1_PLL2_MASK,
+                      AD9528_PD_PLL1_PLL2);
+#undef AD9528_PLAN_WRITE
+    return XST_SUCCESS;
+}
+
+int32_t laser_ad9528_format_clock_profile_plan(
+    char *buffer, size_t buffer_size, const LaserAd9528ClockProfilePlan *plan)
+{
+    size_t used;
+    uint8_t i;
+
+    if (buffer == 0 || buffer_size == 0U || plan == 0) {
+        return XST_INVALID_PARAM;
+    }
+    used = (size_t)snprintf(buffer, buffer_size,
+                            "OK AD9528_PROFILE_PLAN profile=%s out0_hz=%lu writes=%u io_update=%u sync=%u affects_other_outputs=%u tx=",
+                            plan->profile_name,
+                            (unsigned long)plan->configured_out0_hz,
+                            (unsigned int)plan->write_count,
+                            (unsigned int)plan->requires_io_update,
+                            (unsigned int)plan->requires_sync,
+                            (unsigned int)plan->affects_other_outputs);
+    for (i = 0U; i < plan->write_count && used < buffer_size; ++i) {
+        const LaserAd9528RegisterPlan *entry = &plan->writes[i];
+        int written = snprintf(buffer + used, buffer_size - used,
+                               "%sreg=%04x/old=%02x/mask=%02x/value=%02x/new=%02x/readback_mask=%02x/readback_expected=%02x",
+                               i == 0U ? "" : ",",
+                               (unsigned int)entry->reg,
+                               (unsigned int)entry->old_value,
+                               (unsigned int)entry->mask,
+                               (unsigned int)entry->value,
+                               (unsigned int)entry->new_value,
+                               (unsigned int)entry->readback_mask,
+                               (unsigned int)entry->readback_value);
+        if (written < 0) {
+            return XST_FAILURE;
+        }
+        used += (size_t)written;
+    }
+    return used < buffer_size ? XST_SUCCESS : XST_FAILURE;
 }

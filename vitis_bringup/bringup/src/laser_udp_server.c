@@ -42,7 +42,7 @@
 #define LASER_UDP_GATEWAY2 1U
 #define LASER_UDP_GATEWAY3 1U
 #define LASER_UDP_MAX_PAYLOAD 384U
-#define LASER_UDP_MAX_RESPONSE 512U
+#define LASER_UDP_MAX_RESPONSE 1024U
 #define LASER_UDP_INPUT_HEARTBEAT_LOOPS 1000000U
 #define LASER_RATE_QUIESCE_WAIT_ITERATIONS 1000U
 #define LASER_RATE_SWITCH_POLL_ITERATIONS 200000U
@@ -601,6 +601,33 @@ static void handle_udp_command(LaserGpio *gpio,
         LaserAd9528RuntimeState state;
         int32_t ad9528_status;
 
+        if (subcommand != NULL && token_equals(subcommand, "PROFILE")) {
+            char *action = next_token(&cursor);
+            char *profile = next_token(&cursor);
+            LaserAd9528ClockProfilePlan plan;
+
+            if (action == NULL || profile == NULL || command_has_extra_arg(&cursor) ||
+                !token_equals(action, "PLAN")) {
+                (void)snprintf(response, response_size,
+                               "ERR AD9528_PROFILE_PLAN_ARGS");
+                return;
+            }
+            ad9528_status = laser_ad9528_plan_clock_profile(profile, &plan);
+            if (ad9528_status == XST_NO_FEATURE) {
+                (void)snprintf(response, response_size,
+                               "ERROR AD9528_PROFILE_UNSUPPORTED profile=%s",
+                               profile);
+                return;
+            }
+            if (ad9528_status != XST_SUCCESS ||
+                laser_ad9528_format_clock_profile_plan(response, response_size,
+                                                        &plan) != XST_SUCCESS) {
+                (void)snprintf(response, response_size,
+                               "ERROR AD9528_PROFILE_PLAN status=%ld",
+                               (long)ad9528_status);
+            }
+            return;
+        }
         if (subcommand == NULL || command_has_extra_arg(&cursor) ||
             (!token_equals(subcommand, "STATUS") && !token_equals(subcommand, "DUMP"))) {
             (void)snprintf(response, response_size, "ERR AD9528_COMMAND");
@@ -628,6 +655,9 @@ static void handle_udp_command(LaserGpio *gpio,
         }
         if (token_equals(subcommand, "DUMP")) {
             laser_ad9528_print_runtime_state(&state);
+            (void)laser_ad9528_format_default_image(response, response_size,
+                                                     &state);
+            return;
         }
         (void)laser_ad9528_format_runtime_status(response, response_size, &state);
         return;
