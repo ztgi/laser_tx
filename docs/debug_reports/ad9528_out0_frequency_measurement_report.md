@@ -1,77 +1,180 @@
-# AD9528 OUT0 实际频率测量路径报告
+# AD9528 OUT0 实际频率 ILA 测量路径实现报告
 
 ## 1. 修改摘要
 
-新增隔离 Vivado 可实现性脚本 `scripts/verify_ad9528_out0_odiv2_measurement_path.tcl`。它在内存工程中验证：
+本阶段将 AD9528 OUT0 的 Bank110 差分输入接入主工程的只读频率测量路径：
 
 ```text
 AA8/AA7 (Bank110 MGTREFCLK0)
 -> IBUFDS_GTE2.ODIV2
 -> BUFG
--> 保持的自由运行计数器
+-> 32-bit 自由运行计数器
+-> 源域寄存 Gray code
+-> 2FF Gray CDC
+-> 50MHz gt_ctrl_clk 域 1ms delta
+-> 独立 AXI/FCLK ILA
 ```
 
-该脚本不打开或保存主工程，不实例化 Bank110/Bank111 GTX 数据通道，不接入现有 SFP+ GT，也不生成 bitstream。
+测量逻辑不反馈功能路径，未把 `IBUFDS_GTE2.O` 接入 Bank111 GT，也未修改 GT profile、RATE_ID、supported list、CPLL/QPLL/MMCM DRP 或普通 `rate set` 行为。
 
 ## 2. 修改前问题
 
-寄存器条件推导不能证明 OUT0 实际正在输出正确频率。锁定信号也不能证明 FPGA_REF0_CLK 的真实频率、输出 enable 状态、板级信号完整性或 OUT0 与寄存器假设一致。
+此前只有 AD9528 candidate 寄存器 readback，可证明配置值已经写入，却不能证明 OUT0 引脚实际存在 122.88MHz 时钟。隔离 route probe 也没有形成可下载主工程 bit/LTX 和 ILA 观测链路，因此 `measured_out0_hz` 必须保持 UNKNOWN。
 
 ## 3. 修改后结构
 
-隔离 probe 仅把 `IBUFDS_GTE2` 的公开 `ODIV2` 输出送入 BUFG 并保留计数器。`ODIV2` 是专用 MGT 输入 buffer 的分频 fabric-side 输出；设计不将 MGTREFCLK 经普通组合逻辑反向驱动或使用 `CLOCK_DEDICATED_ROUTE FALSE`。
+### 3.1 输入和专用时钟路径
 
-未来实际测量需要在独立测试镜像中加入已知 FCLK 参考窗口、同步计数器和可读观测接口；本阶段没有将这些接口接入主工程或板卡。
+顶层新增 `ad9528_ref0_clk_p/n`，分别约束到 AA8/AA7。差分输入使用 `IBUFDS_GTE2`；`ODIV2` 经 BUFG 形成 fabric 测量时钟，直通 `O` 只接未使用网，不接 Bank111。未使用普通 IBUFDS，也未设置 `CLOCK_DEDICATED_ROUTE FALSE`。
+
+根据 7-series `IBUFDS_GTE2` 语义，ODIV2 为输入频率的二分频。candidate 配置为 OUT0=122.88MHz 时，预期 ODIV2=61.44MHz。
+
+### 3.2 计数和 CDC
+
+ODIV2 域运行 32-bit 自由计数器，并在源域寄存下一计数值对应的 Gray code，避免组合 XOR 毛刺直接进入 CDC。Gray bus 经带 `ASYNC_REG` 属性的两级寄存器同步到 50MHz `gt_ctrl_clk` 域，再解码为二进制。
+
+`gt_ctrl_clk` 域每 50,000 周期取一次 delta，窗口为 1ms。第一次窗口只用于建立基线，从第二个完整窗口开始置 `ad9528_measure_valid_axi=1`。
+
+### 3.3 测量判定
+
+预期计数和初始窗口为：
+
+| 项目 | 数值 |
+| --- | ---: |
+| OUT0 配置目标 | 122,880,000Hz |
+| ODIV2 预期 | 61,440,000Hz |
+| gt_ctrl_clk | 50,000,000Hz |
+| 测量窗口 | 1ms（50,000周期） |
+| 预期 delta | 61,440 |
+| 初始有效窗口 | 60,000～62,900 |
+
+RTL 不执行频率除法；ILA 直接显示 ODIV2 delta，OUT0 频率按两倍换算。
+
+### 3.4 ILA
+
+通过 implementation pre-hook 插入独立 `ila_ad9528_out0_measure`，不修改 BD 内原有 ILA。ILA 时钟保持稳定的 `gt_ctrl_clk`，深度 2048，probe 为：
+
+| Probe | 信号 | 位宽 |
+| --- | --- | ---: |
+| probe0 | `ad9528_odiv2_alive_axi` | 1 |
+| probe1 | `ad9528_odiv2_toggle_axi` | 1 |
+| probe2 | `ad9528_odiv2_count_axi` | 32 |
+| probe3 | `ad9528_odiv2_in_range_axi` | 1 |
+| probe4 | `ad9528_measure_valid_axi` | 1 |
 
 ## 4. 修改前后差异表
 
 | 项目 | 修改前 | 修改后 | 影响 |
-| --- | --- | --- |
-| OUT0 频率测量路径 | 无实现性证据 | 隔离 IBUFDS_GTE2/ODIV2/BUFG probe | 不影响主工程 |
-| Bank111 SFP GTX | 现有路径 | 未触及 | 功能不变 |
-| Bank110 GTX channel | 未使用 | 未实例化 | 不占用通道 |
-| bit/LTX | 无 | 未生成 | 未上板 |
+| --- | --- | --- | --- |
+| Bank110 OUT0 输入 | 主工程未接入 | AA8/AA7 顶层差分输入 | 新增只读输入 |
+| 时钟 buffer | 无 | IBUFDS_GTE2 ODIV2 + BUFG | 专用合法路径 |
+| 频率测量 | 无 | 32-bit Gray CDC、1ms delta | 只读 debug |
+| CDC | 无主工程路径 | 源域寄存 Gray + 2FF | AXI/FCLK 域观测 |
+| ILA | 无 OUT0 计数 probe | 独立 5-probe ILA | 原 BD ILA 不变 |
+| Bank111 GT refclk | 原有 125MHz结构 | 未修改 | 功能不变 |
+| GT profile / rate | 现有11档 | 未修改 | 功能不变 |
+| pipeline/接口延迟 | 不适用 | 功能数据路径未增加 pipeline | 无功能影响 |
 
-## 5. 功能等价性说明
+## 5. 接口、BD、时钟与板级一致性
 
-Expected system behavior unchanged。该 Tcl 只创建 in-memory Vivado 工程，所有临时 HDL/XDC/日志写入 `reports/ad9528_runtime/isolated_out0_measurement_path/`。主工程 RTL、BD、XDC、GT wrapper、AD9528 寄存器、Vitis platform 和 UDP rate 命令均未由该 probe 修改。
+- 新增顶层输入：`ad9528_ref0_clk_p/n`；没有删除、重命名或改变其他端口。
+- `report_io` 确认 P/N 分别为 AA8/AA7、`MGTREFCLK0P_110/MGTREFCLK0N_110`。
+- 未设置普通 IO `IOSTANDARD`，由专用 MGT reference-clock input primitive 接收。
+- BD 未修改，HDL wrapper 未重新生成，AXI 地址映射未修改。
+- XSA / Platform / BSP dependency unchanged。
+- Clock/reset behavior changed intentionally：仅新增独立 ODIV2 测量时钟域；功能 GT 时钟、复位和速率执行器不变。
+- 新增时钟只与 `gt_ctrl_clk` 通过明确 Gray CDC 相交；pre-hook 对这两个具体时钟域设置 asynchronous clock group，没有添加宽泛 false path。
 
-## 6. 测试与验证
+## 6. 功能等价性说明
+
+Expected system behavior unchanged。该结论基于代码结构检查和 Vivado build：测量结果只连接 debug ILA，不参与 GT refclk 选择、reset、DRP、rate controller、TX data/valid 或 Vitis 状态路径。
+
+- 数据/valid 对齐：未修改；
+- start/end、trigger、reset sequence：未修改；
+- rate state/current/target：未修改；
+- CPLL/QPLL 和 MMCM：未修改；
+- GPIO/AXI/UDP：未修改；
+- Bank111 GT 输入结构：实现检查未发现新增 `GTNORTHREFCLK0` 网络。
+
+## 7. Build、实现和调试核查
 
 执行：
 
 ```text
-vivado -mode batch -source scripts/verify_ad9528_out0_odiv2_measurement_path.tcl
+vivado -mode batch -source scripts/run_ad9528_out0_measurement_build.tcl
 ```
 
-已获得：
+结果：
 
-- synthesis 完成；
-- `IBUFDS_GTE2`、`BUFG` 与保持计数器在综合网表中存在；
-- `place_design completed successfully`；
-- `route_design` 前置 DRC：0 errors。
+- `synth_1`: complete；
+- `impl_1`: `write_bitstream Complete!`；
+- bitstream 和 debug probes 成功生成；
+- route status：0 routing errors；
+- DRC：0 errors，未出现 UCIO-1、NSTD-1、Bank/VCCO 或 MGT refclk routing error；
+- `IBUFDS_GTE2=u_ad9528_out0_ibufds_gte2`；
+- `ODIV2_BUFG=u_ad9528_out0_odiv2_bufg`；
+- `ila_ad9528_out0_measure` 为 implemented/inserted，时钟为 `gt_ctrl_clk`；
+- build 中仍有既有/工具生成的 PDCN-1569 和 RTSTAT-10 warnings，本阶段未将其误写为 AD9528 路由错误。
 
-`route_design` 长时间停在 Phase 1 Build RT Design，未产生错误或完成结果；已终止该仅用于探测的孤立 Vivado 进程。因此不能声明完整 routing、clock-network report、timing 或可下载测试 bitstream 通过。
+本地生成物：
 
-Oscilloscope hardware validation was not run。FPGA_REF0_CLK 实测频率为 UNKNOWN。
+```text
+D:/FPGA_Learn/laser_tx/laser_tx.runs/impl_1/laser_tx_board_top.bit
+D:/FPGA_Learn/laser_tx/laser_tx.runs/impl_1/laser_tx_board_top.ltx
+```
 
-## 7. QoR / timing 对比
+bit/LTX 不提交 Git。
 
-| Metric | 结果 | 说明 |
-| --- | --- | --- |
-| synthesis | 完成 | 孤立 probe |
-| placement | 完成 | 孤立 probe |
-| route precondition DRC | 0 errors | 仅 route 前检查 |
-| route_design | 未完成 | Phase 1 长时间无进展后中止 |
-| timing summary | 未获得 | 不可宣称通过 |
-| 主工程 QoR | 未运行 | 主工程未改 |
+## 8. QoR / timing
 
-Timing/QoR result not confirmed yet; rerun synthesis/implementation is required。
+| Metric | 首轮（CDC未分组） | 最终 | 说明 |
+| --- | ---: | ---: | --- |
+| Setup WNS | -4.531ns | 7.029ns | 首轮唯一违例为异步 ODIV2→FCLK CDC |
+| Setup TNS | -144.550ns | 0.000ns | 最终通过 |
+| Setup failing endpoints | 33 | 0 | 最终通过 |
+| Hold WHS | 0.054ns | 0.044ns | 通过 |
+| Hold THS | 0.000ns | 0.000ns | 通过 |
+| LUT | 未作为正式基线 | 23,927 | 当前实现 |
+| FF | 未作为正式基线 | 23,290 | 当前实现 |
+| IBUFDS_GTE2 | 1个GT基线输入 | 2 | 新增Bank110测量输入 |
+| BUFG | 6 | 7 | 新增ODIV2 BUFG |
 
-## 8. 风险与后续建议
+首轮负 WNS 来自把异步 Gray CDC 当同步路径分析；最终只对 ODIV2 与 FCLK 两个具体域设置异步关系，域内路径继续正常计时。当前 122.88MHz 输入约束为本 candidate 的目标约束，不代表以后任意 OUT0 profile 的最终约束。
 
-1. 当前没有可读取的硬件测量计数，也没有示波器结果；`measured_out0_hz=UNKNOWN`。
-2. 不允许因为 probe 的 synthesis/placement 完成就假定 OUT0 已存在或为任意频率。
-3. 后续应优先取得可用 Vitis/Vivado 批处理环境，并在独立测试设计中引入已知 PS FCLK 计时窗口和只读观测通道；若该路径最终不能 route，不使用宽泛时钟例外绕过。
-4. 只有 register-derived 与 measured OUT0 频率一致，且 PLL2 lock/OUT0 enable 均可确认后，才能生成 `reports/ad9528_runtime/ad9528_runtime_image.json` 并重新做 runtime-constrained candidate 枚举。
+## 9. 上板验证步骤
 
+1. 下载本轮匹配的 bit/LTX；
+2. 下载当前 `bringup.elf`；
+3. 打开 `ila_ad9528_out0_measure`；
+4. 执行 `ad9528 candidate set vcxo_122p88`；
+5. 等待至少两个1ms窗口后抓取 ILA；
+6. 预期 `alive=1`、`measure_valid=1`、count约61440、`in_range=1`；
+7. 执行 `ad9528 candidate restore` 并再次抓取；
+8. 恢复后不应继续稳定保持在61.44MHz有效窗口；
+9. 回归 `rate set 625 / 4000 / 10000 / 1000`。
+
+## 10. 修改文件
+
+| 文件 | 修改 |
+| --- | --- |
+| `rtl/laser_tx_board_top.v` | Bank110输入、IBUFDS_GTE2/BUFG、Gray CDC计数器 |
+| `constraints/laser_tx_board_io.xdc` | AA8/AA7和122.88MHz输入约束 |
+| `scripts/add_ad9528_out0_measurement_ila.tcl` | 插入独立5-probe ILA |
+| `scripts/gt_profile0_impl_pre.tcl` | 精确CDC分组并调用ILA插入脚本 |
+| `scripts/run_ad9528_out0_measurement_build.tcl` | clean build和报告输出 |
+| `docs/debug_reports/ad9528_out0_frequency_measurement_report.md` | 本报告 |
+
+## 11. 风险与边界
+
+Oscilloscope hardware validation was not run。ILA hardware validation was not run。
+
+因此当前只能声明测量路径 build、routing、DRC、timing 和 bit/LTX 生成通过，不能声明：
+
+- OUT0 已实测为122.88MHz；
+- ODIV2 上板计数已经约61440；
+- candidate 已成为 `board_verified`；
+- `measured_out0_hz` 已知；
+- OUT0 已接入 Bank111 GT；
+- 新的 GT line-rate profile 已支持。
+
+下一步必须由用户用 ILA 完成 candidate set/restore 两个状态的计数截图。只有实际 ODIV2 计数与预期一致，才能进入测量值回读或 Bank110→Bank111 GTNORTHREFCLK0 的后续独立阶段。

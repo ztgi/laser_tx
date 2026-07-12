@@ -37,6 +37,11 @@ module laser_tx_board_top (
     output wire        eom_out_0,
     output wire        soa_gate_out_0,
 
+    // AD9528 OUT0 measurement-only MGT reference-clock input in Bank 110.
+    // The direct O output is deliberately not connected to the Bank 111 GT.
+    input  wire        ad9528_ref0_clk_p,
+    input  wire        ad9528_ref0_clk_n,
+
     // Single optical TX lane.  These are GTX dedicated pins, not GPIO.
     input  wire        gt_refclk125_p,
     input  wire        gt_refclk125_n,
@@ -99,6 +104,106 @@ module laser_tx_board_top (
     wire [15:0] dbg_gt_drp_readback_value;
     wire        dbg_txoutclk_alive_axi;
     wire [31:0] dbg_timeout_count;
+
+    localparam integer AD9528_MEASURE_CYCLES = 50000;
+    localparam [31:0] AD9528_ODIV2_COUNT_MIN = 32'd60000;
+    localparam [31:0] AD9528_ODIV2_COUNT_MAX = 32'd62900;
+
+    wire ad9528_out0_gt_refclk_unused;
+    wire ad9528_out0_odiv2_raw;
+    wire ad9528_out0_odiv2_clk;
+    reg [31:0] ad9528_odiv2_counter = 32'd0;
+    reg [31:0] ad9528_odiv2_counter_gray = 32'd0;
+    wire [31:0] ad9528_odiv2_counter_next =
+        ad9528_odiv2_counter + 1'b1;
+    (* ASYNC_REG = "TRUE" *) reg [31:0] ad9528_odiv2_gray_meta_axi;
+    (* ASYNC_REG = "TRUE" *) reg [31:0] ad9528_odiv2_gray_sync_axi;
+    reg [31:0] ad9528_odiv2_counter_bin_axi;
+    reg [31:0] ad9528_odiv2_counter_prev_axi;
+    reg [15:0] ad9528_measure_window_count_axi;
+    reg ad9528_measure_window_primed_axi;
+    (* ASYNC_REG = "TRUE" *) reg ad9528_odiv2_toggle_meta_axi;
+    (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg ad9528_odiv2_toggle_axi;
+    (* mark_debug = "true" *) reg ad9528_odiv2_alive_axi;
+    (* mark_debug = "true" *) reg [31:0] ad9528_odiv2_count_axi;
+    (* mark_debug = "true" *) reg ad9528_odiv2_in_range_axi;
+    (* mark_debug = "true" *) reg ad9528_measure_valid_axi;
+    wire [31:0] ad9528_odiv2_delta_axi =
+        ad9528_odiv2_counter_bin_axi - ad9528_odiv2_counter_prev_axi;
+
+    function [31:0] ad9528_gray_to_bin;
+        input [31:0] gray;
+        integer i;
+        begin
+            ad9528_gray_to_bin[31] = gray[31];
+            for (i = 30; i >= 0; i = i - 1)
+                ad9528_gray_to_bin[i] = ad9528_gray_to_bin[i+1] ^ gray[i];
+        end
+    endfunction
+
+    (* DONT_TOUCH = "TRUE" *) IBUFDS_GTE2 u_ad9528_out0_ibufds_gte2 (
+        .I     (ad9528_ref0_clk_p),
+        .IB    (ad9528_ref0_clk_n),
+        .CEB   (1'b0),
+        .O     (ad9528_out0_gt_refclk_unused),
+        .ODIV2 (ad9528_out0_odiv2_raw)
+    );
+
+    (* DONT_TOUCH = "TRUE" *) BUFG u_ad9528_out0_odiv2_bufg (
+        .I (ad9528_out0_odiv2_raw),
+        .O (ad9528_out0_odiv2_clk)
+    );
+
+    // Free-running source-domain counter. Only Gray code crosses into the
+    // stable 50 MHz gt_ctrl_clk/PS-FCLK domain.
+    always @(posedge ad9528_out0_odiv2_clk) begin
+        ad9528_odiv2_counter <= ad9528_odiv2_counter_next;
+        ad9528_odiv2_counter_gray <=
+            ad9528_odiv2_counter_next ^ (ad9528_odiv2_counter_next >> 1);
+    end
+
+    always @(posedge gt_ctrl_clk) begin
+        if (gt_ctrl_rst) begin
+            ad9528_odiv2_gray_meta_axi      <= 32'd0;
+            ad9528_odiv2_gray_sync_axi      <= 32'd0;
+            ad9528_odiv2_counter_bin_axi    <= 32'd0;
+            ad9528_odiv2_counter_prev_axi   <= 32'd0;
+            ad9528_measure_window_count_axi <= 16'd0;
+            ad9528_measure_window_primed_axi <= 1'b0;
+            ad9528_odiv2_toggle_meta_axi    <= 1'b0;
+            ad9528_odiv2_toggle_axi         <= 1'b0;
+            ad9528_odiv2_alive_axi          <= 1'b0;
+            ad9528_odiv2_count_axi          <= 32'd0;
+            ad9528_odiv2_in_range_axi       <= 1'b0;
+            ad9528_measure_valid_axi        <= 1'b0;
+        end else begin
+            ad9528_odiv2_gray_meta_axi   <= ad9528_odiv2_counter_gray;
+            ad9528_odiv2_gray_sync_axi   <= ad9528_odiv2_gray_meta_axi;
+            ad9528_odiv2_counter_bin_axi <=
+                ad9528_gray_to_bin(ad9528_odiv2_gray_sync_axi);
+            ad9528_odiv2_toggle_meta_axi <= ad9528_odiv2_counter[10];
+            ad9528_odiv2_toggle_axi      <= ad9528_odiv2_toggle_meta_axi;
+
+            if (ad9528_measure_window_count_axi == AD9528_MEASURE_CYCLES - 1) begin
+                ad9528_measure_window_count_axi <= 16'd0;
+                ad9528_odiv2_counter_prev_axi <= ad9528_odiv2_counter_bin_axi;
+                ad9528_odiv2_count_axi <= ad9528_odiv2_delta_axi;
+                ad9528_odiv2_alive_axi <= (ad9528_odiv2_delta_axi != 32'd0);
+                ad9528_measure_valid_axi <= ad9528_measure_window_primed_axi;
+                if (ad9528_measure_window_primed_axi) begin
+                    ad9528_odiv2_in_range_axi <=
+                        (ad9528_odiv2_delta_axi >= AD9528_ODIV2_COUNT_MIN) &&
+                        (ad9528_odiv2_delta_axi <= AD9528_ODIV2_COUNT_MAX);
+                end else begin
+                    ad9528_odiv2_in_range_axi <= 1'b0;
+                end
+                ad9528_measure_window_primed_axi <= 1'b1;
+            end else begin
+                ad9528_measure_window_count_axi <=
+                    ad9528_measure_window_count_axi + 1'b1;
+            end
+        end
+    end
 
     system_wrapper u_system_wrapper (
         .DDR_addr          (DDR_addr),

@@ -169,6 +169,18 @@ set_clock_groups -asynchronous \
     -group [list $txoutclk_clock $txusrclk_clock $txusrclk2_clock]
 puts "INFO: Applied asynchronous clock groups: $axi_clock <-> [list $txoutclk_clock $txusrclk_clock $txusrclk2_clock]"
 
+# The AD9528 OUT0 ODIV2 monitor crosses into gt_ctrl_clk through an explicit
+# Gray-counter synchronizer.  Constrain only these two clock domains as
+# asynchronous; synchronous paths inside either domain remain timed.
+set ad9528_measure_clock [get_clocks -quiet ad9528_out0_odiv2_raw]
+if {[llength $ad9528_measure_clock] != 1} {
+    error "AD9528 measurement CDC constraint failed: expected one ODIV2 clock; got '$ad9528_measure_clock'."
+}
+set_clock_groups -asynchronous \
+    -group $axi_clock \
+    -group $ad9528_measure_clock
+puts "INFO: Applied AD9528 measurement asynchronous clock group: $axi_clock <-> $ad9528_measure_clock"
+
 # Keep Hardware Manager bring-up independent of the GT TX user clock.  The
 # debug hub must run from the stable PS FCLK / gt_ctrl_clk domain so it remains
 # visible even when GT TXOUTCLK/MMCM/TXUSRCLK2 are not yet locked.
@@ -192,3 +204,7 @@ set_property C_CLK_INPUT_FREQ_HZ 50000000 $dbg_hub_core
 set_property C_ENABLE_CLK_DIVIDER false $dbg_hub_core
 set_property C_USER_SCAN_CHAIN 1 $dbg_hub_core
 puts "INFO: dbg_hub/clk forced to AXI/FCLK net: $dbg_hub_clk_net"
+
+# Add the independent AD9528 OUT0 measurement ILA without changing the BD ILA.
+source [file join [file dirname [file normalize [info script]]] \
+    add_ad9528_out0_measurement_ila.tcl]
