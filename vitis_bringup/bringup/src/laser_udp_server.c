@@ -601,6 +601,55 @@ static void handle_udp_command(LaserGpio *gpio,
         LaserAd9528RuntimeState state;
         int32_t ad9528_status;
 
+        if (subcommand != NULL && token_equals(subcommand, "CANDIDATE")) {
+            char *action = next_token(&cursor);
+            LaserAd9528CandidateStatus candidate_status;
+            const char *prefix;
+
+            if (action == NULL) {
+                (void)snprintf(response, response_size,
+                               "ERR AD9528_CANDIDATE_COMMAND");
+                return;
+            }
+            if (token_equals(action, "SET")) {
+                char *profile = next_token(&cursor);
+                if (profile == NULL || command_has_extra_arg(&cursor)) {
+                    (void)snprintf(response, response_size,
+                                   "ERR AD9528_CANDIDATE_SET_ARGS");
+                    return;
+                }
+                ad9528_status = laser_ad9528_candidate_set(profile);
+                laser_ad9528_get_candidate_status(&candidate_status);
+                prefix = (ad9528_status == XST_SUCCESS) ?
+                    "OK AD9528_CANDIDATE_SET" :
+                    "ERROR AD9528_CANDIDATE_SET";
+                (void)laser_ad9528_format_candidate_status(
+                    response, response_size, &candidate_status, prefix);
+                return;
+            }
+            if (token_equals(action, "STATUS") &&
+                !command_has_extra_arg(&cursor)) {
+                laser_ad9528_get_candidate_status(&candidate_status);
+                (void)laser_ad9528_format_candidate_status(
+                    response, response_size, &candidate_status,
+                    "OK AD9528_CANDIDATE_STATUS");
+                return;
+            }
+            if (token_equals(action, "RESTORE") &&
+                !command_has_extra_arg(&cursor)) {
+                ad9528_status = laser_ad9528_candidate_restore();
+                laser_ad9528_get_candidate_status(&candidate_status);
+                prefix = (ad9528_status == XST_SUCCESS) ?
+                    "OK AD9528_CANDIDATE_RESTORE snapshot_restored=1" :
+                    "ERROR AD9528_CANDIDATE_RESTORE snapshot_restored=0";
+                (void)laser_ad9528_format_candidate_status(
+                    response, response_size, &candidate_status, prefix);
+                return;
+            }
+            (void)snprintf(response, response_size,
+                           "ERR AD9528_CANDIDATE_COMMAND");
+            return;
+        }
         if (subcommand != NULL && token_equals(subcommand, "PROFILE")) {
             char *action = next_token(&cursor);
             char *profile = next_token(&cursor);
@@ -872,7 +921,7 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed 125MHz CPLL/QPLL profile selection, GT/MMCM reconfiguration, PLL/reset/lock handling and TXUSRCLK2 frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|profile plan|candidate set/status/restore WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);

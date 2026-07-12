@@ -38,6 +38,53 @@ typedef struct {
     LaserAd9528RegisterPlan writes[LASER_AD9528_PROFILE_PLAN_MAX_WRITES];
 } LaserAd9528ClockProfilePlan;
 
+typedef enum {
+    LASER_AD9528_CANDIDATE_IDLE = 0,
+    LASER_AD9528_CANDIDATE_PRECHECK,
+    LASER_AD9528_CANDIDATE_SNAPSHOT,
+    LASER_AD9528_CANDIDATE_PROGRAM,
+    LASER_AD9528_CANDIDATE_BUFFER_READBACK,
+    LASER_AD9528_CANDIDATE_IO_UPDATE,
+    LASER_AD9528_CANDIDATE_POST_READBACK,
+    LASER_AD9528_CANDIDATE_READY_UNMEASURED,
+    LASER_AD9528_CANDIDATE_ROLLBACK,
+    LASER_AD9528_CANDIDATE_RESTORED,
+    LASER_AD9528_CANDIDATE_ERROR
+} LaserAd9528CandidateState;
+
+typedef enum {
+    LASER_AD9528_CANDIDATE_ERROR_NONE = 0,
+    LASER_AD9528_CANDIDATE_ERROR_BUSY,
+    LASER_AD9528_CANDIDATE_ERROR_UNSUPPORTED_PROFILE,
+    LASER_AD9528_CANDIDATE_ERROR_IDENTITY_MISMATCH,
+    LASER_AD9528_CANDIDATE_ERROR_PRECONDITION_MISMATCH,
+    LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+    LASER_AD9528_CANDIDATE_ERROR_SPI_WRITE,
+    LASER_AD9528_CANDIDATE_ERROR_BUFFER_READBACK,
+    LASER_AD9528_CANDIDATE_ERROR_IO_UPDATE,
+    LASER_AD9528_CANDIDATE_ERROR_POST_READBACK,
+    LASER_AD9528_CANDIDATE_ERROR_VCXO_STATUS,
+    LASER_AD9528_CANDIDATE_ERROR_ROLLBACK_FAILED,
+    LASER_AD9528_CANDIDATE_ERROR_NO_SNAPSHOT
+} LaserAd9528CandidateError;
+
+typedef struct {
+    LaserAd9528CandidateState state;
+    LaserAd9528CandidateError last_error;
+    uint32_t configured_out0_hz;
+    uint8_t runtime_active_likely;
+    uint8_t vcxo_status_ok;
+    uint8_t readback_ok;
+    uint8_t snapshot_valid;
+    uint8_t rollback_attempted;
+    uint8_t rollback_success;
+    uint8_t config_writes;
+    uint8_t io_update_writes;
+    uint16_t failed_reg;
+    uint8_t failed_expected;
+    uint8_t failed_actual;
+} LaserAd9528CandidateStatus;
+
 typedef struct {
     uint32_t chip_id_raw;
     uint32_t pll1_ctrl_raw;
@@ -104,5 +151,13 @@ int32_t laser_ad9528_format_clock_profile_plan(
 int32_t laser_ad9528_format_clock_profile_plan_transaction(
     char *buffer, size_t buffer_size, const LaserAd9528ClockProfilePlan *plan,
     uint32_t transaction_index);
+int32_t laser_ad9528_candidate_set(const char *profile_name);
+int32_t laser_ad9528_candidate_restore(void);
+void laser_ad9528_get_candidate_status(LaserAd9528CandidateStatus *status);
+const char *laser_ad9528_candidate_state_name(LaserAd9528CandidateState state);
+const char *laser_ad9528_candidate_error_name(LaserAd9528CandidateError error);
+int32_t laser_ad9528_format_candidate_status(
+    char *buffer, size_t buffer_size, const LaserAd9528CandidateStatus *status,
+    const char *response_prefix);
 
 #endif
