@@ -25,9 +25,9 @@ ad9528 candidate restore
 IDLE
 -> PRECHECK
 -> SNAPSHOT
--> PROGRAM <-> BUFFER_READBACK
+-> PROGRAM (连续7项buffered write，只检查SPI返回值)
 -> IO_UPDATE
--> POST_READBACK
+-> POST_READBACK (统一读取7项active值)
 -> READY_UNMEASURED
 
 任一写后错误
@@ -75,7 +75,12 @@ rollback；一旦进入配置写阶段，即使 SPI write 返回失败也按“�
 new = (current & ~mask) | (value & mask)
 ```
 
-随后立即读回并比较 masked value。不会用固定完整字节覆盖 mask 外字段。
+写入过程中只检查SPI transaction返回值，不在IO_UPDATE前要求读回new值。AD9528这些
+配置寄存器是buffered register，IO_UPDATE前读回仍可能是active旧值；旧实现因此在
+`0x0108`错误报告`BUFFER_READBACK_MISMATCH expected=0x01 actual=0x00`。
+
+修复后不会用固定完整字节覆盖mask外字段，并且只在IO_UPDATE后统一执行masked
+post-readback。
 
 ## 6. 快照与 IO_UPDATE
 
@@ -83,7 +88,7 @@ new = (current & ~mask) | (value & mask)
 `snapshot_valid=1`。同时保存此前 candidate state 和
 `configured_out0_hz`。
 
-七项 buffer readback 全部通过后，仅向 `0x000F` 写一次 `0x01`，并等待 10 ms。
+七项SPI write全部返回成功后，仅向 `0x000F` 写一次 `0x01`，并等待10 ms。
 该 IO_UPDATE 不计入 `config_writes=7`，单独记录 `io_update_writes=1`。不执行
 SYNC、RESET、SYSREF_REQ 或 PLL calibration。
 
@@ -111,13 +116,33 @@ board_verified=0
 
 ## 8. Rollback 与手动 Restore
 
-rollback按快照恢复七个完整原始字节，每项读回完整字节，然后执行一次IO_UPDATE，
-等待后再次读回。任一恢复写、读或IO_UPDATE失败均标记 `ROLLBACK_FAILED`，不会把
+rollback按快照连续恢复七个完整原始字节，执行一次IO_UPDATE，等待后再统一读取并
+比较完整字节。任一恢复写、读或IO_UPDATE失败均标记 `ROLLBACK_FAILED`，不会把
 candidate标成READY。
 
-手动 `restore` 只允许在 `snapshot_valid=1` 且candidate已应用时执行。成功返回
+手动 `restore` 只允许在 `applied_snapshot_valid=1` 且candidate已应用时执行。成功返回
 `state=RESTORED`、`snapshot_restored=1`、`readback_ok=1`、
 `io_update_writes=1`。
+
+自动rollback完成后设置`applied_snapshot_valid=0`。此时手动restore返回
+`NO_ACTIVE_CANDIDATE`，不会再用`snapshot_valid=1`暗示仍存在可恢复的active
+candidate。
+
+## 8.1 一次性TRACE
+
+candidate set与rollback在UART输出明确阶段标记；底层SPI函数继续打印实际三字节
+TX/RX：
+
+```text
+TRACE AD9528_CANDIDATE WRITE ...
+AD9528 SPI WRITE reg=... TX=... RX=...
+TRACE AD9528_CANDIDATE IO_UPDATE ...
+TRACE AD9528_CANDIDATE POST_READ ...
+AD9528 SPI READ reg=... TX=... RX=...
+```
+
+如果IO_UPDATE后`0x0108`仍读到`0x00`，应保存上述真实帧并停止推测，不继续改变
+寄存器计划。
 
 ## 9. UDP与错误码
 
@@ -143,10 +168,12 @@ PL RTL未修改，因此未运行Vivado synthesis/implementation，未生成bit/
 ## 11. 硬件验证状态
 
 ```text
-Candidate apply hardware test was not run.
+Initial candidate apply reached the first buffered write and then rolled back.
+Corrected buffered-register sequence has not yet been rerun on hardware.
 OUT0 frequency measurement was not run.
 ```
 
-代码提交后停止。下一步由用户下载新ELF，依次执行set/status、保存日志、测量频率、
-restore，并回归现有GT速率。未取得这些证据前不能声明OUT0为实测122.88 MHz。
-
+初次上板证据为：`0x0108`写后、IO_UPDATE前读回active旧值`0x00`，旧代码误报
+`BUFFER_READBACK_MISMATCH`；自动rollback成功。修复版代码提交后停止。下一步由用户
+下载新ELF，依次执行set/status、保存TRACE、测量频率、restore，并回归现有GT速率。
+未取得这些证据前不能声明OUT0为实测122.88 MHz。

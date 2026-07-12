@@ -708,18 +708,18 @@ static int32_t ad9528_candidate_rollback(
     ad9528_candidate.status.rollback_success = 0U;
 
     for (i = 0U; i < plan->write_count; ++i) {
+        xil_printf("TRACE AD9528_CANDIDATE ROLLBACK_WRITE index=%u reg=0x%04x value=0x%02x\r\n",
+                   (unsigned int)i,
+                   (unsigned int)plan->writes[i].reg,
+                   (unsigned int)ad9528_candidate.snapshot[i]);
         status = laser_ad9528_write(plan->writes[i].reg,
                                     ad9528_candidate.snapshot[i]);
         if (status != XST_SUCCESS) {
             rollback_ok = 0U;
-            continue;
-        }
-        status = laser_ad9528_read(plan->writes[i].reg, &readback);
-        if (status != XST_SUCCESS ||
-            readback != ad9528_candidate.snapshot[i]) {
-            rollback_ok = 0U;
         }
     }
+    xil_printf("TRACE AD9528_CANDIDATE ROLLBACK_IO_UPDATE reg=0x%04x value=0x%02x\r\n",
+               AD9528_IO_UPDATE_REG, AD9528_IO_UPDATE_ENABLE);
     status = laser_ad9528_write(AD9528_IO_UPDATE_REG,
                                 AD9528_IO_UPDATE_ENABLE);
     if (status != XST_SUCCESS) {
@@ -729,6 +729,9 @@ static int32_t ad9528_candidate_rollback(
     }
     usleep(10000U);
     for (i = 0U; i < plan->write_count; ++i) {
+        xil_printf("TRACE AD9528_CANDIDATE ROLLBACK_POST_READ index=%u reg=0x%04x\r\n",
+                   (unsigned int)i,
+                   (unsigned int)plan->writes[i].reg);
         status = laser_ad9528_read(plan->writes[i].reg, &readback);
         if (status != XST_SUCCESS ||
             readback != ad9528_candidate.snapshot[i]) {
@@ -741,6 +744,7 @@ static int32_t ad9528_candidate_rollback(
         ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_ERROR;
         ad9528_candidate.status.rollback_success = 0U;
         ad9528_candidate.applied = 0U;
+        ad9528_candidate.status.snapshot_valid = 0U;
         return XST_FAILURE;
     }
     ad9528_candidate.status.rollback_success = 1U;
@@ -748,6 +752,7 @@ static int32_t ad9528_candidate_rollback(
         ad9528_candidate.snapshot_configured_out0_hz;
     ad9528_candidate.status.runtime_active_likely = 0U;
     ad9528_candidate.applied = 0U;
+    ad9528_candidate.status.snapshot_valid = 0U;
     if (final_restored_state) {
         ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_RESTORED;
         ad9528_candidate.status.last_error =
@@ -915,6 +920,13 @@ int32_t laser_ad9528_candidate_set(const char *profile_name)
         }
         new_value = (uint8_t)((current & (uint8_t)~plan.writes[i].mask) |
                               (plan.writes[i].value & plan.writes[i].mask));
+        xil_printf("TRACE AD9528_CANDIDATE WRITE index=%u reg=0x%04x current=0x%02x mask=0x%02x value=0x%02x new=0x%02x\r\n",
+                   (unsigned int)i,
+                   (unsigned int)plan.writes[i].reg,
+                   (unsigned int)current,
+                   (unsigned int)plan.writes[i].mask,
+                   (unsigned int)plan.writes[i].value,
+                   (unsigned int)new_value);
         /* A failed SPI return cannot prove that no device write occurred. */
         writes_started = 1U;
         status = laser_ad9528_write(plan.writes[i].reg, new_value);
@@ -924,21 +936,11 @@ int32_t laser_ad9528_candidate_set(const char *profile_name)
             goto rollback;
         }
         ad9528_candidate.status.config_writes++;
-        ad9528_candidate.status.state =
-            LASER_AD9528_CANDIDATE_BUFFER_READBACK;
-        status = laser_ad9528_read(plan.writes[i].reg, &readback);
-        if (status != XST_SUCCESS ||
-            (readback & plan.writes[i].readback_mask) !=
-            (plan.writes[i].readback_value & plan.writes[i].readback_mask)) {
-            ad9528_candidate_set_failure(
-                LASER_AD9528_CANDIDATE_ERROR_BUFFER_READBACK,
-                plan.writes[i].reg, plan.writes[i].readback_value, readback);
-            goto rollback;
-        }
-        ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_PROGRAM;
     }
 
     ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_IO_UPDATE;
+    xil_printf("TRACE AD9528_CANDIDATE IO_UPDATE reg=0x%04x value=0x%02x\r\n",
+               AD9528_IO_UPDATE_REG, AD9528_IO_UPDATE_ENABLE);
     status = laser_ad9528_write(AD9528_IO_UPDATE_REG,
                                 AD9528_IO_UPDATE_ENABLE);
     if (status != XST_SUCCESS) {
@@ -952,6 +954,11 @@ int32_t laser_ad9528_candidate_set(const char *profile_name)
 
     ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_POST_READBACK;
     for (i = 0U; i < plan.write_count; ++i) {
+        xil_printf("TRACE AD9528_CANDIDATE POST_READ index=%u reg=0x%04x expected_masked=0x%02x mask=0x%02x\r\n",
+                   (unsigned int)i,
+                   (unsigned int)plan.writes[i].reg,
+                   (unsigned int)plan.writes[i].readback_value,
+                   (unsigned int)plan.writes[i].readback_mask);
         status = laser_ad9528_read(plan.writes[i].reg, &readback);
         if (status != XST_SUCCESS ||
             (readback & plan.writes[i].readback_mask) !=
@@ -1031,7 +1038,8 @@ int32_t laser_ad9528_candidate_restore(void)
     }
     if (!ad9528_candidate.status.snapshot_valid || !ad9528_candidate.applied) {
         ad9528_candidate_set_failure(
-            LASER_AD9528_CANDIDATE_ERROR_NO_SNAPSHOT, 0U, 0U, 0U);
+            LASER_AD9528_CANDIDATE_ERROR_NO_ACTIVE_CANDIDATE,
+            0U, 0U, 0U);
         return XST_FAILURE;
     }
     status = laser_ad9528_plan_clock_profile("VCXO_122P88", &plan);
@@ -1090,7 +1098,7 @@ const char *laser_ad9528_candidate_error_name(LaserAd9528CandidateError error)
     case LASER_AD9528_CANDIDATE_ERROR_POST_READBACK: return "POST_READBACK_MISMATCH";
     case LASER_AD9528_CANDIDATE_ERROR_VCXO_STATUS: return "VCXO_STATUS_INVALID";
     case LASER_AD9528_CANDIDATE_ERROR_ROLLBACK_FAILED: return "ROLLBACK_FAILED";
-    case LASER_AD9528_CANDIDATE_ERROR_NO_SNAPSHOT: return "NO_APPLIED_SNAPSHOT";
+    case LASER_AD9528_CANDIDATE_ERROR_NO_ACTIVE_CANDIDATE: return "NO_ACTIVE_CANDIDATE";
     default: return "UNKNOWN_ERROR";
     }
 }
@@ -1106,7 +1114,7 @@ int32_t laser_ad9528_format_candidate_status(
     const char *rollback_state = status->rollback_attempted ?
         (status->rollback_success ? "SUCCESS" : "FAILED") : "NOT_ATTEMPTED";
     (void)snprintf(buffer, buffer_size,
-                   "%s profile=VCXO_122P88 state=%s configured_out0_hz=%lu runtime_active_likely=%u measured_out0_hz=UNKNOWN vcxo_status_ok=%u readback_ok=%u snapshot_valid=%u rollback_state=%s rollback_attempted=%u rollback_success=%u last_error=%s failed_reg=0x%04x expected=0x%02x actual=0x%02x config_writes=%u io_update_writes=%u pll1_lock_required=0 pll2_lock_required=0 affects_shared_clock_tree=1 may_affect_other_outputs=1 board_verified=0",
+                   "%s profile=VCXO_122P88 state=%s configured_out0_hz=%lu runtime_active_likely=%u measured_out0_hz=UNKNOWN vcxo_status_ok=%u readback_ok=%u applied_snapshot_valid=%u rollback_state=%s rollback_attempted=%u rollback_success=%u last_error=%s failed_reg=0x%04x expected=0x%02x actual=0x%02x config_writes=%u io_update_writes=%u pll1_lock_required=0 pll2_lock_required=0 affects_shared_clock_tree=1 may_affect_other_outputs=1 board_verified=0",
                    response_prefix,
                    laser_ad9528_candidate_state_name(status->state),
                    (unsigned long)status->configured_out0_hz,
