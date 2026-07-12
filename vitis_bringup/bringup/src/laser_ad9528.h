@@ -41,6 +41,10 @@ int32_t laser_ad9528_spi_init(void);
 int32_t laser_ad9528_write(uint16_t reg, uint8_t data);
 int32_t laser_ad9528_read(uint16_t reg, uint8_t *data);
 int32_t laser_ad9528_read_chip_id(uint32_t *chip_id);
+int32_t laser_ad9528_identify(uint8_t *product_id, uint8_t *revision,
+                              uint8_t *vendor_id);
+void laser_ad9528_get_last_identity(uint8_t *product_id, uint8_t *revision,
+                                    uint8_t *vendor_id);
 int32_t laser_ad9528_basic_check(void);
 int32_t laser_ad9528_apply_rate_profile(uint32_t profile_id);
 int32_t laser_ad9528_dump_runtime_state(LaserAd9528RuntimeState *state);

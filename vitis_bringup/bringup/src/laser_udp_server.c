@@ -608,10 +608,22 @@ static void handle_udp_command(LaserGpio *gpio,
         }
         ad9528_status = laser_ad9528_dump_runtime_state(&state);
         if (ad9528_status != XST_SUCCESS) {
-            (void)snprintf(response, response_size,
-                           "ERROR AD9528_STATUS spi_ok=0 error_code=%ld failed_reg=0x%04x",
-                           (long)ad9528_status,
-                           (unsigned int)laser_ad9528_last_read_error_reg());
+            uint8_t product_id;
+            uint8_t revision;
+            uint8_t vendor_id;
+            laser_ad9528_get_last_identity(&product_id, &revision, &vendor_id);
+            if (ad9528_status == XST_DEVICE_NOT_FOUND) {
+                (void)snprintf(response, response_size,
+                               "ERROR AD9528_STATUS spi_ok=1 error_code=ID_MISMATCH reg0003=0x%02x reg0006=0x%02x reg000c=0x%02x",
+                               (unsigned int)product_id,
+                               (unsigned int)revision,
+                               (unsigned int)vendor_id);
+            } else {
+                (void)snprintf(response, response_size,
+                               "ERROR AD9528_STATUS spi_ok=0 error_code=%ld failed_reg=0x%04x",
+                               (long)ad9528_status,
+                               (unsigned int)laser_ad9528_last_read_error_reg());
+            }
             return;
         }
         if (token_equals(subcommand, "DUMP")) {

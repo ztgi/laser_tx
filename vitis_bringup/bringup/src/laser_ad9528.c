@@ -8,6 +8,9 @@
 static XSpiPs ad9528_spi;
 static int ad9528_initialized;
 static uint16_t ad9528_last_read_error_reg;
+static uint8_t ad9528_last_product_id;
+static uint8_t ad9528_last_revision;
+static uint8_t ad9528_last_vendor_id;
 
 /*
  * These addresses and bitfields are read-only decoding aids copied from the
@@ -40,6 +43,15 @@ static uint16_t ad9528_last_read_error_reg;
 
 #define AD9528_REFERENCE_VCXO_HZ 122880000UL
 
+#define AD9528_SERIAL_PORT_CONFIG_REG 0x0000U
+#define AD9528_SERIAL_PORT_4WIRE       0x18U
+#define AD9528_PRODUCT_ID_REG          0x0003U
+#define AD9528_REVISION_REG            0x0006U
+#define AD9528_VENDOR_ID_REG           0x000CU
+#define AD9528_PRODUCT_ID_EXPECTED     0x05U
+#define AD9528_REVISION_EXPECTED       0x03U
+#define AD9528_VENDOR_ID_EXPECTED      0x56U
+
 int32_t laser_ad9528_spi_init(void)
 {
     XSpiPs_Config *config;
@@ -53,7 +65,10 @@ int32_t laser_ad9528_spi_init(void)
     if (status != XST_SUCCESS) {
         return status;
     }
-    status = XSpiPs_SetOptions(&ad9528_spi, XSPIPS_MASTER_OPTION | XSPIPS_FORCE_SSELECT_OPTION);
+    /* No CPOL/CPHA option bits: SPI mode 0 (CPOL=0, CPHA=0). */
+    status = XSpiPs_SetOptions(&ad9528_spi,
+                               XSPIPS_MASTER_OPTION |
+                               XSPIPS_FORCE_SSELECT_OPTION);
     if (status != XST_SUCCESS) {
         return status;
     }
@@ -66,7 +81,22 @@ int32_t laser_ad9528_spi_init(void)
         return status;
     }
     ad9528_initialized = 1;
-    return XST_SUCCESS;
+
+    /*
+     * AD9528 powers up with the bidirectional serial data path.  This board
+     * has separate SDIO/MOSI and SDO/MISO nets, so enable the dedicated SDO.
+     * Register 0x0000 is the serial-port live register and needs no
+     * IO_UPDATE.  This is the only configuration write performed here.
+     */
+    status = laser_ad9528_write(AD9528_SERIAL_PORT_CONFIG_REG,
+                                AD9528_SERIAL_PORT_4WIRE);
+    if (status != XST_SUCCESS) {
+        ad9528_initialized = 0;
+        return status;
+    }
+    return laser_ad9528_identify(&ad9528_last_product_id,
+                                 &ad9528_last_revision,
+                                 &ad9528_last_vendor_id);
 }
 
 static int32_t ad9528_transfer(uint8_t tx[3], uint8_t rx[3])
@@ -105,7 +135,13 @@ int32_t laser_ad9528_write(uint16_t reg, uint8_t data)
 {
     uint8_t tx[3] = {(uint8_t)((reg >> 8) & 0x7fU), (uint8_t)reg, data};
     uint8_t rx[3] = {0U, 0U, 0U};
-    return ad9528_transfer(tx, rx);
+    int32_t status = ad9528_transfer(tx, rx);
+    xil_printf("AD9528 SPI WRITE reg=0x%04x TX=%02x %02x %02x RX=%02x %02x %02x status=%ld\r\n",
+               (unsigned int)reg,
+               (unsigned int)tx[0], (unsigned int)tx[1], (unsigned int)tx[2],
+               (unsigned int)rx[0], (unsigned int)rx[1], (unsigned int)rx[2],
+               (long)status);
+    return status;
 }
 
 int32_t laser_ad9528_read(uint16_t reg, uint8_t *data)
@@ -117,6 +153,11 @@ int32_t laser_ad9528_read(uint16_t reg, uint8_t *data)
         return XST_INVALID_PARAM;
     }
     status = ad9528_transfer(tx, rx);
+    xil_printf("AD9528 SPI READ  reg=0x%04x TX=%02x %02x %02x RX=%02x %02x %02x status=%ld\r\n",
+               (unsigned int)reg,
+               (unsigned int)tx[0], (unsigned int)tx[1], (unsigned int)tx[2],
+               (unsigned int)rx[0], (unsigned int)rx[1], (unsigned int)rx[2],
+               (long)status);
     if (status == XST_SUCCESS) {
         *data = rx[2];
     }
@@ -125,29 +166,77 @@ int32_t laser_ad9528_read(uint16_t reg, uint8_t *data)
 
 int32_t laser_ad9528_read_chip_id(uint32_t *chip_id)
 {
-    uint8_t id0, id1, id2;
+    uint8_t id3, id4, id5;
     int32_t status;
     if (chip_id == 0) {
         return XST_INVALID_PARAM;
     }
-    status = laser_ad9528_read(0x0000U, &id0);
+    status = laser_ad9528_read(0x0003U, &id3);
     if (status != XST_SUCCESS) return status;
-    status = laser_ad9528_read(0x0001U, &id1);
+    status = laser_ad9528_read(0x0004U, &id4);
     if (status != XST_SUCCESS) return status;
-    status = laser_ad9528_read(0x0002U, &id2);
+    status = laser_ad9528_read(0x0005U, &id5);
     if (status != XST_SUCCESS) return status;
-    *chip_id = ((uint32_t)id0 << 16) | ((uint32_t)id1 << 8) | id2;
+    *chip_id = ((uint32_t)id5 << 16) | ((uint32_t)id4 << 8) | id3;
     return XST_SUCCESS;
+}
+
+int32_t laser_ad9528_identify(uint8_t *product_id, uint8_t *revision,
+                              uint8_t *vendor_id)
+{
+    int32_t status;
+
+    if (product_id == 0 || revision == 0 || vendor_id == 0) {
+        return XST_INVALID_PARAM;
+    }
+    status = laser_ad9528_read(AD9528_PRODUCT_ID_REG, product_id);
+    if (status != XST_SUCCESS) return status;
+    status = laser_ad9528_read(AD9528_REVISION_REG, revision);
+    if (status != XST_SUCCESS) return status;
+    status = laser_ad9528_read(AD9528_VENDOR_ID_REG, vendor_id);
+    if (status != XST_SUCCESS) return status;
+
+    ad9528_last_product_id = *product_id;
+    ad9528_last_revision = *revision;
+    ad9528_last_vendor_id = *vendor_id;
+    xil_printf("AD9528 identity: reg0003=0x%02x reg0006=0x%02x reg000c=0x%02x expected=05/03/56\r\n",
+               (unsigned int)*product_id, (unsigned int)*revision,
+               (unsigned int)*vendor_id);
+    if (*product_id != AD9528_PRODUCT_ID_EXPECTED ||
+        *revision != AD9528_REVISION_EXPECTED ||
+        *vendor_id != AD9528_VENDOR_ID_EXPECTED) {
+        xil_printf("AD9528 identity mismatch: full runtime dump is blocked\r\n");
+        return XST_DEVICE_NOT_FOUND;
+    }
+    return XST_SUCCESS;
+}
+
+void laser_ad9528_get_last_identity(uint8_t *product_id, uint8_t *revision,
+                                    uint8_t *vendor_id)
+{
+    if (product_id != 0) *product_id = ad9528_last_product_id;
+    if (revision != 0) *revision = ad9528_last_revision;
+    if (vendor_id != 0) *vendor_id = ad9528_last_vendor_id;
 }
 
 int32_t laser_ad9528_basic_check(void)
 {
     uint32_t chip_id;
-    int32_t status = laser_ad9528_read_chip_id(&chip_id);
+    uint8_t product_id = 0U;
+    uint8_t revision = 0U;
+    uint8_t vendor_id = 0U;
+    int32_t status = laser_ad9528_identify(&product_id, &revision, &vendor_id);
     if (status == XST_SUCCESS) {
-        xil_printf("AD9528 chip id  : 0x%06lx\r\n", (unsigned long)chip_id);
+        status = laser_ad9528_read_chip_id(&chip_id);
+        if (status == XST_SUCCESS) {
+            xil_printf("AD9528 chip id  : raw[0005:0003]=0x%06lx revision=0x%02x vendor=0x%02x\r\n",
+                       (unsigned long)chip_id, (unsigned int)revision,
+                       (unsigned int)vendor_id);
+        }
     } else {
-        xil_printf("AD9528 readback : failed (%ld)\r\n", (long)status);
+        xil_printf("AD9528 identify : failed (%ld), raw 0003/0006/000c=%02x/%02x/%02x\r\n",
+                   (long)status, (unsigned int)product_id,
+                   (unsigned int)revision, (unsigned int)vendor_id);
     }
     return status;
 }
@@ -166,12 +255,20 @@ int32_t laser_ad9528_dump_runtime_state(LaserAd9528RuntimeState *state)
     uint32_t m1;
     uint32_t r1;
     int32_t status;
+    uint8_t product_id;
+    uint8_t revision;
+    uint8_t vendor_id;
 
     if (state == 0) {
         return XST_INVALID_PARAM;
     }
     if (!ad9528_initialized) {
         return XST_FAILURE;
+    }
+
+    status = laser_ad9528_identify(&product_id, &revision, &vendor_id);
+    if (status != XST_SUCCESS) {
+        return status;
     }
 
     *state = (LaserAd9528RuntimeState){0};
