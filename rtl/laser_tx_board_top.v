@@ -104,6 +104,18 @@ module laser_tx_board_top (
     wire [15:0] dbg_gt_drp_readback_value;
     wire        dbg_txoutclk_alive_axi;
     wire [31:0] dbg_timeout_count;
+    wire [3:0] dynamic_mailbox_control;
+    wire [31:0] dynamic_mailbox_status;
+    wire dynamic_descriptor_bram_en;
+    wire [7:0] dynamic_descriptor_bram_word_addr;
+    wire [31:0] dynamic_descriptor_bram_rdata;
+    wire [3:0] dynamic_descriptor_bram_we;
+    wire [31:0] dynamic_descriptor_bram_wdata;
+    wire dynamic_descriptor_valid;
+    wire [2047:0] dynamic_descriptor_active_words;
+    wire dynamic_refclk_ready_event;
+    wire dynamic_abort_event;
+    wire dynamic_rollback_ready_event;
 
     localparam integer AD9528_MEASURE_GT_CTRL_CLK_HZ = 50000000;
     localparam integer AD9528_MEASURE_WINDOW_US = 1000;
@@ -222,6 +234,26 @@ module laser_tx_board_top (
         end
     end
 
+    // Independent runtime-rate mailbox. Port B reads a transaction shadow
+    // written by PS through the AXI BRAM controller. The reader latches all
+    // 64 descriptor words before acknowledging PREPARE.
+    laser_dynamic_rate_mailbox u_dynamic_rate_mailbox (
+        .clk                       (gt_ctrl_clk),
+        .rst                       (gt_ctrl_rst),
+        .control_toggles           (dynamic_mailbox_control),
+        .status_gpio               (dynamic_mailbox_status),
+        .bram_en                   (dynamic_descriptor_bram_en),
+        .bram_word_addr            (dynamic_descriptor_bram_word_addr),
+        .bram_we                   (dynamic_descriptor_bram_we),
+        .bram_wdata                (dynamic_descriptor_bram_wdata),
+        .bram_rdata                (dynamic_descriptor_bram_rdata),
+        .active_descriptor_valid   (dynamic_descriptor_valid),
+        .active_words_flat         (dynamic_descriptor_active_words),
+        .refclk_ready_event        (dynamic_refclk_ready_event),
+        .abort_event               (dynamic_abort_event),
+        .rollback_ready_event      (dynamic_rollback_ready_event)
+    );
+
     system_wrapper u_system_wrapper (
         .DDR_addr          (DDR_addr),
         .DDR_ba            (DDR_ba),
@@ -300,6 +332,15 @@ module laser_tx_board_top (
         .dbg_timeout_count              (dbg_timeout_count),
         .dbg_txusrclk2_alive_axi        (dbg_txusrclk2_alive_axi),
         .dbg_txusrclk2_freq_counter_axi (dbg_txusrclk2_freq_counter_axi),
+        .dynamic_descriptor_bram_portb_addr ({22'd0, dynamic_descriptor_bram_word_addr, 2'b00}),
+        .dynamic_descriptor_bram_portb_clk  (gt_ctrl_clk),
+        .dynamic_descriptor_bram_portb_din  (dynamic_descriptor_bram_wdata),
+        .dynamic_descriptor_bram_portb_dout (dynamic_descriptor_bram_rdata),
+        .dynamic_descriptor_bram_portb_en   (dynamic_descriptor_bram_en),
+        .dynamic_descriptor_bram_portb_rst  (gt_ctrl_rst),
+        .dynamic_descriptor_bram_portb_we   (dynamic_descriptor_bram_we),
+        .dynamic_mailbox_control_out        (dynamic_mailbox_control),
+        .dynamic_mailbox_status_in          (dynamic_mailbox_status),
         .gt_ctrl_clk       (gt_ctrl_clk),
         .gt_ctrl_rst       (gt_ctrl_rst),
         .gt_ready          (gt_ready),

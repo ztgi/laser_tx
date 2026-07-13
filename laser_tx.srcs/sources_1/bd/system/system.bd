@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x877002BA9A5A07E6",
+      "boundary_crc": "0x2F37D7DB907A82AC",
       "device": "xc7z100ffg900-2",
       "gen_directory": "../../../../laser_tx.gen/sources_1/bd/system",
       "name": "system",
@@ -21,7 +21,10 @@
       "ila_laser_tx": "",
       "axi_gpio_gt_status": "",
       "laser_tx_core_0": "",
-      "axi_gpio_ad9528_measure": ""
+      "axi_gpio_ad9528_measure": "",
+      "axi_gpio_dynamic_mailbox": "",
+      "axi_bram_dyn_desc": "",
+      "blk_mem_dyn_desc": ""
     },
     "interface_ports": {
       "DDR": {
@@ -252,6 +255,70 @@
           "SS_T": {
             "physical_name": "SPI_1_0_ss_t",
             "direction": "O"
+          }
+        }
+      },
+      "dynamic_descriptor_bram_portb": {
+        "mode": "Slave",
+        "vlnv_bus_definition": "xilinx.com:interface:bram:1.0",
+        "vlnv": "xilinx.com:interface:bram_rtl:1.0",
+        "parameters": {
+          "MASTER_TYPE": {
+            "value": "BRAM_CTRL"
+          },
+          "MEM_ECC": {
+            "value": "NONE",
+            "value_src": "default"
+          },
+          "MEM_SIZE": {
+            "value": "8192",
+            "value_src": "default"
+          },
+          "MEM_WIDTH": {
+            "value": "32",
+            "value_src": "default"
+          },
+          "READ_LATENCY": {
+            "value": "1",
+            "value_src": "default"
+          }
+        },
+        "port_maps": {
+          "ADDR": {
+            "physical_name": "dynamic_descriptor_bram_portb_addr",
+            "direction": "I",
+            "left": "31",
+            "right": "0"
+          },
+          "CLK": {
+            "physical_name": "dynamic_descriptor_bram_portb_clk",
+            "direction": "I"
+          },
+          "DIN": {
+            "physical_name": "dynamic_descriptor_bram_portb_din",
+            "direction": "I",
+            "left": "31",
+            "right": "0"
+          },
+          "DOUT": {
+            "physical_name": "dynamic_descriptor_bram_portb_dout",
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "EN": {
+            "physical_name": "dynamic_descriptor_bram_portb_en",
+            "direction": "I"
+          },
+          "RST": {
+            "physical_name": "dynamic_descriptor_bram_portb_rst",
+            "direction": "I"
+          },
+          "WE": {
+            "physical_name": "dynamic_descriptor_bram_portb_we",
+            "direction": "I",
+            "left": "3",
+            "right": "0"
           }
         }
       }
@@ -495,6 +562,16 @@
         "right": "0"
       },
       "ad9528_measure_status_in": {
+        "direction": "I",
+        "left": "31",
+        "right": "0"
+      },
+      "dynamic_mailbox_control_out": {
+        "direction": "O",
+        "left": "3",
+        "right": "0"
+      },
+      "dynamic_mailbox_status_in": {
         "direction": "I",
         "left": "31",
         "right": "0"
@@ -1227,7 +1304,7 @@
         },
         "hdl_attributes": {
           "BMM_INFO_PROCESSOR": {
-            "value": "arm > system axi_bram_ctrl_0",
+            "value": "arm > system axi_bram_ctrl_0 system axi_bram_dyn_desc",
             "value_src": "default"
           },
           "KEEP_HIERARCHY": {
@@ -1313,7 +1390,7 @@
         "inst_hier_path": "axi_smc",
         "parameters": {
           "NUM_MI": {
-            "value": "4"
+            "value": "6"
           },
           "NUM_SI": {
             "value": "1"
@@ -1336,7 +1413,9 @@
               "M00_AXI",
               "M01_AXI",
               "M02_AXI",
-              "M03_AXI"
+              "M03_AXI",
+              "M04_AXI",
+              "M05_AXI"
             ]
           },
           "M00_AXI": {
@@ -1439,6 +1518,68 @@
             "parameters": {
               "MAX_BURST_LENGTH": {
                 "value": "1"
+              },
+              "NUM_READ_OUTSTANDING": {
+                "value": "8"
+              },
+              "NUM_READ_THREADS": {
+                "value": "1"
+              },
+              "NUM_WRITE_OUTSTANDING": {
+                "value": "8"
+              },
+              "NUM_WRITE_THREADS": {
+                "value": "1"
+              },
+              "RUSER_BITS_PER_BYTE": {
+                "value": "0"
+              },
+              "SUPPORTS_NARROW_BURST": {
+                "value": "0"
+              },
+              "WUSER_BITS_PER_BYTE": {
+                "value": "0"
+              }
+            }
+          },
+          "M04_AXI": {
+            "mode": "Master",
+            "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
+            "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
+            "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "1"
+              },
+              "NUM_READ_OUTSTANDING": {
+                "value": "8"
+              },
+              "NUM_READ_THREADS": {
+                "value": "1"
+              },
+              "NUM_WRITE_OUTSTANDING": {
+                "value": "8"
+              },
+              "NUM_WRITE_THREADS": {
+                "value": "1"
+              },
+              "RUSER_BITS_PER_BYTE": {
+                "value": "0"
+              },
+              "SUPPORTS_NARROW_BURST": {
+                "value": "0"
+              },
+              "WUSER_BITS_PER_BYTE": {
+                "value": "0"
+              }
+            }
+          },
+          "M05_AXI": {
+            "mode": "Master",
+            "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
+            "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
+            "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "16"
               },
               "NUM_READ_OUTSTANDING": {
                 "value": "8"
@@ -1946,13 +2087,104 @@
             "value": "1"
           }
         }
+      },
+      "axi_gpio_dynamic_mailbox": {
+        "vlnv": "xilinx.com:ip:axi_gpio:2.0",
+        "xci_name": "system_axi_gpio_dynamic_mailbox_0",
+        "xci_path": "ip\\system_axi_gpio_dynamic_mailbox_0\\system_axi_gpio_dynamic_mailbox_0.xci",
+        "inst_hier_path": "axi_gpio_dynamic_mailbox",
+        "parameters": {
+          "C_ALL_INPUTS": {
+            "value": "0"
+          },
+          "C_ALL_INPUTS_2": {
+            "value": "1"
+          },
+          "C_ALL_OUTPUTS": {
+            "value": "1"
+          },
+          "C_GPIO2_WIDTH": {
+            "value": "32"
+          },
+          "C_GPIO_WIDTH": {
+            "value": "4"
+          },
+          "C_IS_DUAL": {
+            "value": "1"
+          }
+        }
+      },
+      "axi_bram_dyn_desc": {
+        "vlnv": "xilinx.com:ip:axi_bram_ctrl:4.1",
+        "xci_name": "system_axi_bram_dyn_desc_0",
+        "xci_path": "ip\\system_axi_bram_dyn_desc_0\\system_axi_bram_dyn_desc_0.xci",
+        "inst_hier_path": "axi_bram_dyn_desc",
+        "parameters": {
+          "DATA_WIDTH": {
+            "value": "32"
+          },
+          "SINGLE_PORT_BRAM": {
+            "value": "0"
+          }
+        },
+        "hdl_attributes": {
+          "BMM_INFO_ADDRESS_SPACE": {
+            "value": "byte  0x42000000 32 > system blk_mem_dyn_desc",
+            "value_src": "default"
+          },
+          "KEEP_HIERARCHY": {
+            "value": "yes",
+            "value_src": "default"
+          }
+        }
+      },
+      "blk_mem_dyn_desc": {
+        "vlnv": "xilinx.com:ip:blk_mem_gen:8.4",
+        "xci_name": "system_blk_mem_dyn_desc_0",
+        "xci_path": "ip\\system_blk_mem_dyn_desc_0\\system_blk_mem_dyn_desc_0.xci",
+        "inst_hier_path": "blk_mem_dyn_desc",
+        "parameters": {
+          "Enable_B": {
+            "value": "Use_ENB_Pin"
+          },
+          "Memory_Type": {
+            "value": "True_Dual_Port_RAM"
+          },
+          "Read_Width_A": {
+            "value": "32"
+          },
+          "Read_Width_B": {
+            "value": "32"
+          },
+          "Register_PortB_Output_of_Memory_Primitives": {
+            "value": "false"
+          },
+          "Write_Width_A": {
+            "value": "32"
+          },
+          "Write_Width_B": {
+            "value": "32"
+          }
+        }
       }
     },
     "interface_nets": {
+      "BRAM_PORTB_0_1": {
+        "interface_ports": [
+          "dynamic_descriptor_bram_portb",
+          "blk_mem_dyn_desc/BRAM_PORTB"
+        ]
+      },
       "axi_bram_ctrl_0_BRAM_PORTA": {
         "interface_ports": [
           "blk_mem_gen_0/BRAM_PORTA",
           "axi_bram_ctrl_0/BRAM_PORTA"
+        ]
+      },
+      "axi_bram_dyn_desc_BRAM_PORTA": {
+        "interface_ports": [
+          "axi_bram_dyn_desc/BRAM_PORTA",
+          "blk_mem_dyn_desc/BRAM_PORTA"
         ]
       },
       "axi_smc_M00_AXI": {
@@ -1977,6 +2209,18 @@
         "interface_ports": [
           "axi_smc/M03_AXI",
           "axi_gpio_ad9528_measure/S_AXI"
+        ]
+      },
+      "axi_smc_M04_AXI": {
+        "interface_ports": [
+          "axi_smc/M04_AXI",
+          "axi_gpio_dynamic_mailbox/S_AXI"
+        ]
+      },
+      "axi_smc_M05_AXI": {
+        "interface_ports": [
+          "axi_smc/M05_AXI",
+          "axi_bram_dyn_desc/S_AXI"
         ]
       },
       "laser_tx_core_0_BRAM_PORTB": {
@@ -2029,6 +2273,12 @@
           "ila_laser_axi_cfg/probe0",
           "gpio_ctrl_to_gt",
           "laser_tx_core_0/gpio_ctrl"
+        ]
+      },
+      "axi_gpio_dynamic_mailbox_gpio_io_o": {
+        "ports": [
+          "axi_gpio_dynamic_mailbox/gpio_io_o",
+          "dynamic_mailbox_control_out"
         ]
       },
       "dbg_apply_enable_blocked_1": {
@@ -2295,6 +2545,12 @@
           "ila_laser_axi_cfg/probe20"
         ]
       },
+      "dynamic_mailbox_status_in_1": {
+        "ports": [
+          "dynamic_mailbox_status_in",
+          "axi_gpio_dynamic_mailbox/gpio2_io_i"
+        ]
+      },
       "gt_ready_1": {
         "ports": [
           "gt_ready",
@@ -2447,7 +2703,9 @@
           "axi_gpio_gt_status/s_axi_aclk",
           "gt_ctrl_clk",
           "laser_tx_core_0/axi_clk",
-          "axi_gpio_ad9528_measure/s_axi_aclk"
+          "axi_gpio_ad9528_measure/s_axi_aclk",
+          "axi_gpio_dynamic_mailbox/s_axi_aclk",
+          "axi_bram_dyn_desc/s_axi_aclk"
         ]
       },
       "processing_system7_0_FCLK_RESET0_N": {
@@ -2464,7 +2722,9 @@
           "axi_gpio_0/s_axi_aresetn",
           "axi_gpio_gt_status/s_axi_aresetn",
           "laser_tx_core_0/axi_rstn",
-          "axi_gpio_ad9528_measure/s_axi_aresetn"
+          "axi_gpio_ad9528_measure/s_axi_aresetn",
+          "axi_gpio_dynamic_mailbox/s_axi_aresetn",
+          "axi_bram_dyn_desc/s_axi_aresetn"
         ]
       },
       "rst_ps7_0_50M_peripheral_reset": {
@@ -2497,6 +2757,11 @@
                 "offset": "0x40000000",
                 "range": "8K"
               },
+              "SEG_axi_bram_dyn_desc_Mem0": {
+                "address_block": "/axi_bram_dyn_desc/S_AXI/Mem0",
+                "offset": "0x42000000",
+                "range": "4K"
+              },
               "SEG_axi_gpio_0_Reg": {
                 "address_block": "/axi_gpio_0/S_AXI/Reg",
                 "offset": "0x41200000",
@@ -2505,6 +2770,11 @@
               "SEG_axi_gpio_ad9528_measure_Reg": {
                 "address_block": "/axi_gpio_ad9528_measure/S_AXI/Reg",
                 "offset": "0x40030000",
+                "range": "64K"
+              },
+              "SEG_axi_gpio_dynamic_mailbox_Reg": {
+                "address_block": "/axi_gpio_dynamic_mailbox/S_AXI/Reg",
+                "offset": "0x40040000",
                 "range": "64K"
               },
               "SEG_axi_gpio_gt_status_Reg": {

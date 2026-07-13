@@ -1,7 +1,7 @@
 //Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2022.2 (win64) Build 3671981 Fri Oct 14 05:00:03 MDT 2022
-//Date        : Mon Jul 13 14:13:27 2026
+//Date        : Tue Jul 14 00:25:32 2026
 //Host        : LAPTOP-ITN6KOP9 running 64-bit major release  (build 9200)
 //Command     : generate_target system_wrapper.bd
 //Design      : system_wrapper
@@ -85,6 +85,15 @@ module system_wrapper
     dbg_txresetdone_sync,
     dbg_txusrclk2_alive_axi,
     dbg_txusrclk2_freq_counter_axi,
+    dynamic_descriptor_bram_portb_addr,
+    dynamic_descriptor_bram_portb_clk,
+    dynamic_descriptor_bram_portb_din,
+    dynamic_descriptor_bram_portb_dout,
+    dynamic_descriptor_bram_portb_en,
+    dynamic_descriptor_bram_portb_rst,
+    dynamic_descriptor_bram_portb_we,
+    dynamic_mailbox_control_out,
+    dynamic_mailbox_status_in,
     eom_out_0,
     gpio_ctrl_to_gt,
     gpio_status_to_gt,
@@ -172,6 +181,15 @@ module system_wrapper
   input dbg_txresetdone_sync;
   input dbg_txusrclk2_alive_axi;
   input [31:0]dbg_txusrclk2_freq_counter_axi;
+  input [31:0]dynamic_descriptor_bram_portb_addr;
+  input dynamic_descriptor_bram_portb_clk;
+  input [31:0]dynamic_descriptor_bram_portb_din;
+  output [31:0]dynamic_descriptor_bram_portb_dout;
+  input dynamic_descriptor_bram_portb_en;
+  input dynamic_descriptor_bram_portb_rst;
+  input [3:0]dynamic_descriptor_bram_portb_we;
+  output [3:0]dynamic_mailbox_control_out;
+  input [31:0]dynamic_mailbox_status_in;
   output eom_out_0;
   output [31:0]gpio_ctrl_to_gt;
   output [31:0]gpio_status_to_gt;
@@ -272,6 +290,15 @@ module system_wrapper
   wire dbg_txresetdone_sync;
   wire dbg_txusrclk2_alive_axi;
   wire [31:0]dbg_txusrclk2_freq_counter_axi;
+  wire [31:0]dynamic_descriptor_bram_portb_addr;
+  wire dynamic_descriptor_bram_portb_clk;
+  wire [31:0]dynamic_descriptor_bram_portb_din;
+  wire [31:0]dynamic_descriptor_bram_portb_dout;
+  wire dynamic_descriptor_bram_portb_en;
+  wire dynamic_descriptor_bram_portb_rst;
+  wire [3:0]dynamic_descriptor_bram_portb_we;
+  wire [3:0]dynamic_mailbox_control_out;
+  wire [31:0]dynamic_mailbox_status_in;
   wire eom_out_0;
   wire [31:0]gpio_ctrl_to_gt;
   wire [31:0]gpio_status_to_gt;
@@ -389,6 +416,15 @@ module system_wrapper
         .dbg_txresetdone_sync(dbg_txresetdone_sync),
         .dbg_txusrclk2_alive_axi(dbg_txusrclk2_alive_axi),
         .dbg_txusrclk2_freq_counter_axi(dbg_txusrclk2_freq_counter_axi),
+        .dynamic_descriptor_bram_portb_addr(dynamic_descriptor_bram_portb_addr),
+        .dynamic_descriptor_bram_portb_clk(dynamic_descriptor_bram_portb_clk),
+        .dynamic_descriptor_bram_portb_din(dynamic_descriptor_bram_portb_din),
+        .dynamic_descriptor_bram_portb_dout(dynamic_descriptor_bram_portb_dout),
+        .dynamic_descriptor_bram_portb_en(dynamic_descriptor_bram_portb_en),
+        .dynamic_descriptor_bram_portb_rst(dynamic_descriptor_bram_portb_rst),
+        .dynamic_descriptor_bram_portb_we(dynamic_descriptor_bram_portb_we),
+        .dynamic_mailbox_control_out(dynamic_mailbox_control_out),
+        .dynamic_mailbox_status_in(dynamic_mailbox_status_in),
         .eom_out_0(eom_out_0),
         .gpio_ctrl_to_gt(gpio_ctrl_to_gt),
         .gpio_status_to_gt(gpio_status_to_gt),
