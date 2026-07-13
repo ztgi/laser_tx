@@ -190,8 +190,8 @@ def sequence_plan() -> dict[str, object]:
             "io_update_1",
             "write_0x0203_calibrate_bit",
             "io_update_2",
-            "poll_0x0508_IS_CALIBRATING_clear",
-            "poll_0x0508_PLL2_LOCKED_and_PLL2_OK",
+            "poll_0x0508_0x0509_readback_word_IS_CALIBRATING_clear",
+            "poll_0x0508_0x0509_readback_word_PLL2_LOCKED_and_PLL2_OK",
             "channel_sync_only_if_shared_output_audit_proves_safe",
             "post_readback",
             "frequency_measurement",
@@ -241,6 +241,14 @@ def generate(output_dir: Path) -> None:
         "requires_sync": None,
         "shared_clock_tree_accepted": False,
         "safe_to_implement": False,
+        "full_dump": {
+            "trigger": "UDP ad9528 dump full",
+            "udp_response": "SUMMARY_ONLY",
+            "register_data_sink": "UART AD9528_REG lines",
+            "ranges": ["0000-000F", "0100-010A", "0200-0208",
+                       "0300-032E", "0400-0403", "0500-0509"],
+            "precondition_note": "APPLICATION_ALREADY_WROTE_0x0000_0x18_FOR_4WIRE_SDO"
+        },
     }
     (output_dir / "pll2_test0_register_plan.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

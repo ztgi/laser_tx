@@ -17,8 +17,8 @@
     "io_update_1",
     "write_0x0203_calibrate_bit",
     "io_update_2",
-    "poll_0x0508_IS_CALIBRATING_clear",
-    "poll_0x0508_PLL2_LOCKED_and_PLL2_OK",
+    "poll_0x0508_0x0509_readback_word_IS_CALIBRATING_clear",
+    "poll_0x0508_0x0509_readback_word_PLL2_LOCKED_and_PLL2_OK",
     "channel_sync_only_if_shared_output_audit_proves_safe",
     "post_readback",
     "frequency_measurement"

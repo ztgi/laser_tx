@@ -772,7 +772,7 @@ static void handle_udp_command(LaserGpio *gpio,
                 ad9528_status = laser_ad9528_dump_full_readonly();
                 if (ad9528_status == XST_SUCCESS) {
                     (void)snprintf(response, response_size,
-                                   "OK AD9528_DUMP_FULL readonly=1 uart_format=AD9528_REG ranges=0000-000f,0100-010a,0200-0208,0300-032e,0400-0403,0500-0508");
+                                   "OK AD9528_DUMP_FULL readonly=1 uart_format=AD9528_REG ranges=0000-000f,0100-010a,0200-0208,0300-032e,0400-0403,0500-0509");
                 } else {
                     (void)snprintf(response, response_size,
                                    "ERROR AD9528_DUMP_FULL readonly=1 status=%ld failed_reg=0x%04x",

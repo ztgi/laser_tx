@@ -1,6 +1,20 @@
 {
   "candidate_name": "PLL2_TEST0_OUT0_124P8_CPLL_998P4",
   "expected_odiv2_count_1ms": 62400,
+  "full_dump": {
+    "precondition_note": "APPLICATION_ALREADY_WROTE_0x0000_0x18_FOR_4WIRE_SDO",
+    "ranges": [
+      "0000-000F",
+      "0100-010A",
+      "0200-0208",
+      "0300-032E",
+      "0400-0403",
+      "0500-0509"
+    ],
+    "register_data_sink": "UART AD9528_REG lines",
+    "trigger": "UDP ad9528 dump full",
+    "udp_response": "SUMMARY_ONLY"
+  },
   "math": {
     "calibration_divider": 260,
     "doubler": 1,

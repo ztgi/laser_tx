@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+REPO = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 
 import audit_ad9528_pll2_test0_register_image as audit
@@ -69,6 +70,22 @@ class Pll2Test0RegisterAuditTest(unittest.TestCase):
             audit.generate(Path(directory))
             gate = json.loads((Path(directory) / "pll2_test0_gate_result.json").read_text())
             self.assertEqual(gate["result"], audit.FINAL_GATE)
+
+    def test_20_full_dump_includes_readback_high_byte(self):
+        with tempfile.TemporaryDirectory() as directory:
+            audit.generate(Path(directory))
+            plan = json.loads((Path(directory) / "pll2_test0_register_plan.json").read_text())
+            self.assertIn("0500-0509", plan["full_dump"]["ranges"])
+            self.assertEqual(plan["full_dump"]["udp_response"], "SUMMARY_ONLY")
+            self.assertEqual(plan["full_dump"]["register_data_sink"],
+                             "UART AD9528_REG lines")
+
+    def test_21_vitis_full_dump_range_and_protocol_text(self):
+        driver = (REPO / "vitis_bringup/bringup/src/laser_ad9528.c").read_text()
+        udp = (REPO / "vitis_bringup/bringup/src/laser_udp_server.c").read_text()
+        self.assertIn("{0x0500U, 0x0509U}", driver)
+        self.assertNotIn("{0x0500U, 0x0508U}", driver)
+        self.assertIn("0500-0509", udp)
 
 
 if __name__ == "__main__":

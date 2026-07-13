@@ -391,7 +391,7 @@ int32_t laser_ad9528_dump_full_readonly(void)
         {0x0200U, 0x0208U},
         {0x0300U, 0x032EU},
         {0x0400U, 0x0403U},
-        {0x0500U, 0x0508U}
+        {0x0500U, 0x0509U}
     };
     uint8_t product_id = 0U;
     uint8_t revision = 0U;
@@ -408,7 +408,7 @@ int32_t laser_ad9528_dump_full_readonly(void)
     }
 
     ad9528_last_read_error_reg = 0U;
-    xil_printf("AD9528_FULL_DUMP_BEGIN readonly=1 ranges=0000-000f,0100-010a,0200-0208,0300-032e,0400-0403,0500-0508\r\n");
+    xil_printf("AD9528_FULL_DUMP_BEGIN readonly=1 ranges=0000-000f,0100-010a,0200-0208,0300-032e,0400-0403,0500-0509\r\n");
     for (range_index = 0U;
          range_index < (uint32_t)(sizeof(ranges) / sizeof(ranges[0]));
          ++range_index) {

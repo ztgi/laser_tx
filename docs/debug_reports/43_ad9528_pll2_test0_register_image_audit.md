@@ -80,7 +80,7 @@ ADI no-OS 的可追溯顺序为：写 PLL2/common/output/power → IO_UPDATE →
 
 ## 11. Lock/status 判定
 
-0x0508/0509 readback 中：bit8=`IS_CALIBRATING`、bit7=`PLL2_OK`、bit1=`PLL2_LOCKED`。`PLL2_LOCKED` 与 `PLL2_OK` 不是同一状态；未来 executor 必须分别检查。当前 timeout/poll interval 尚无本板实测依据，仍为 UNKNOWN。
+0x0508/0x0509 两字节 readback 中：bit8=`IS_CALIBRATING` 位于 0x0509，bit7=`PLL2_OK`、bit1=`PLL2_LOCKED` 位于低字节。`PLL2_LOCKED` 与 `PLL2_OK` 不是同一状态；未来 executor 必须分别检查。当前 timeout/poll interval 尚无本板实测依据，仍为 UNKNOWN。
 
 ## 12. IO_UPDATE 次数
 
@@ -120,15 +120,17 @@ python -m py_compile scripts/enumerate_ad9528_gt_refclk_candidates.py scripts/au
 python -m unittest scripts.tests.test_ad9528_fine_step_test0 scripts.tests.test_ad9528_pll2_test0_register_audit
 ```
 
-30 项通过。覆盖数学公式、编码范围、calibration divider gate、地址唯一性、UNKNOWN gate、shared output gate、SYNC 未确认、禁止 initializer 和确定性输出。
+本轮小范围修正后，两组测试合计 32 项通过。覆盖数学公式、编码范围、calibration divider gate、地址唯一性、UNKNOWN gate、shared output gate、SYNC 未确认、禁止 initializer、确定性输出、0x0509 范围和 UDP 协议文字。
 
 ## 18. Vitis/UDP 修改
 
-现有 `ad9528 dump` 覆盖不足，新增 `ad9528 dump full`。它只读取 0000..000F、0100..010A、0200..0208、0300..032E、0400..0403、0500..0508，并输出 `AD9528_REG addr=... value=...`。没有新增 PLL2 写 helper 或 candidate set。
+现有 `ad9528 dump` 覆盖不足，新增 `ad9528 dump full`。它由 UDP 命令触发，UDP 只返回范围和结果摘要；完整寄存器数据通过 UART 输出为 `AD9528_REG addr=... value=...`。读取范围为 0000..000F、0100..010A、0200..0208、0300..032E、0400..0403、0500..0509，因而覆盖 0x0508/0x0509 两字节 readback。没有新增 PLL2 写 helper 或 candidate set。
 
 ## 19. ELF 构建
 
-Vitis 2022.2 ARM toolchain clean compile 后，managed makefile 因既有 `laser_ad9528_measure.c` 未列入对象而首次链接失败；以同一 toolchain 将该既有文件作为额外对象后链接通过。最终：text=175871、data=3448、bss=3201088。XSA/Platform/BSP 未变化。
+原 workspace 当时由 Vitis GUI 占用，外部 XSCT 对该 workspace 执行 `app clean` 会返回 `Invalid Workspace`。为避免终止用户 GUI，使用隔离 Vitis workspace 导入当前 application；Vitis managed builder 重新扫描 `src/` 后，自动把 `laser_ad9528_measure.c` 加入生成的 `C_SRCS`，并把 `laser_ad9528_measure.o/.d` 加入 `OBJS/C_DEPS`。随后使用该自动生成 makefile 执行真正的 `make clean && make all`，没有传入 `USER_OBJS`，也没有手工补对象，clean managed build 通过。
+
+最终 ELF：`reports/vitis_managed_build_workspace/bringup/Debug/bringup.elf`；text=175871、data=3448、bss=3201088。隔离 workspace 只引用当前既有 BSP include/lib；XSA/Platform/BSP 内容未变化，生成 workspace 和 ELF 不提交 Git。
 
 ## 20. 最终 gate
 
@@ -140,13 +142,13 @@ NO_PROVEN_PLL2_REGISTER_IMAGE
 
 ## 21. 需要用户采集的只读 dump
 
-分别在以下状态执行 `ad9528 dump full` 并保存 UART 原文：
+分别在以下状态通过 UDP 执行 `ad9528 dump full`，并保存 UART 中的完整 `AD9528_REG` 原文：
 
-1. 上电且未执行 candidate；
+1. 应用启动且未执行 candidate；
 2. `ad9528 candidate set vcxo_122p88` 后；
 3. `ad9528 candidate restore` 后。
 
-命令本身不写 AD9528，但 SPI 初始化仍会按现有设计写 0000=18 以启用四线 SDO；这不是 PLL2/clock-tree 写入。
+“应用启动且未执行 candidate”不等于芯片绝对无软件干预的原始上电镜像：SPI 初始化已经按现有设计写入 0000=18 以启用四线 SDO。`ad9528 dump full` 命令本身不写 AD9528，该 serial-port 写入也不是 PLL2/clock-tree 写入。
 
 ## 22. 下一阶段条件与边界
 

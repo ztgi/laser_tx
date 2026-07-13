@@ -74,7 +74,9 @@ UART 以如下格式输出：
 AD9528_REG addr=0x0200 value=0xXX
 ```
 
-覆盖 0000..000F、0100..010A、0200..0208、0300..032E、0400..0403、0500..0508。命令只执行 SPI read，不执行 IO_UPDATE、SYNC、RESET，不改变 candidate/snapshot。后续应分别保存：上电未 set、VCXO candidate set 后、restore 后三份完整 dump。
+覆盖 0000..000F、0100..010A、0200..0208、0300..032E、0400..0403、0500..0509；最后一段包含 0x0508/0x0509 两字节 readback。命令由 UDP 触发，UDP 只返回摘要，完整 `AD9528_REG` 行输出在 UART。命令本身只执行 SPI read，不执行 IO_UPDATE、SYNC、RESET，不改变 candidate/snapshot。
+
+这里的“上电未 set”不是芯片绝对无软件干预的原始上电状态：应用启动时已经按现有四线 SPI 设计写入 `0x0000=0x18` 以启用独立 SDO。后续应分别保存：应用启动且未执行 candidate、VCXO candidate set 后、restore 后三份完整 dump。
 
 ## 7. 实现路径边界
 
