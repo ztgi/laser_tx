@@ -35,6 +35,16 @@
 
 `12d3b71` 对应文档记录 625M/4000M 已完成初步上板验证并提升为正式 supported profile；更早的固定 125MHz CPLL/QPLL 档位证据见各编号报告。本次归档重新构建 bit/LTX/XSA/ELF，但没有重新执行整套板级回归，因此“本次重建产物的 hardware regression”仍标记为未执行。
 
+本 bundle 的归档状态固定为：
+
+```text
+validation_state=BUILD_ONLY
+board_verified=false
+board_test_planned=false
+```
+
+它只作为归档与紧急回退参考，不再安排本包的板级烧写、ILA 或 UDP 回归；后续正常上板操作统一使用 `current_ad9528_measurement`。
+
 ## 尚未验证
 
 - 本次重建包的重新上板冒烟/全档循环；

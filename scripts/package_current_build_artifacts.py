@@ -63,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-module", required=True)
     parser.add_argument("--implementation-run", required=True)
     parser.add_argument("--hardware-validation-state", required=True)
+    parser.add_argument("--board-verified", choices=("true", "false"), required=True)
+    parser.add_argument("--board-test-planned", choices=("true", "false"), required=True)
     parser.add_argument("--bit-ltx-same-implementation", choices=("true", "false"), required=True)
     parser.add_argument("--elf-built-from-bundle-xsa", choices=("true", "false"), required=True)
     parser.add_argument("--setup-wns-ns", type=float)
@@ -182,6 +184,8 @@ def main() -> int:
         "top_module": args.top_module,
         "implementation_run": args.implementation_run,
         "hardware_validation_state": args.hardware_validation_state,
+        "board_verified": args.board_verified == "true",
+        "board_test_planned": args.board_test_planned == "true",
         "files": copied_entries,
         "reports": report_entries,
         "bit_ltx_same_implementation": args.bit_ltx_same_implementation == "true",

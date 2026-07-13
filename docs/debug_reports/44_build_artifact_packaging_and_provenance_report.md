@@ -87,7 +87,7 @@ ZIP：`artifacts/builds/rollback_fixed_refclk_baseline_12d3b71.zip`
 | LTX | `reports/rollback_fixed_refclk_source_12d3b71/laser_tx.runs/impl_1/laser_tx_board_top.ltx` | `7EF40409EA0EECAE8F9C7BE86E3BC1B3778465F581AC9E5EFCA5EEC88610011E` |
 | XSA | `reports/rollback_fixed_refclk_baseline_rebuild/laser_tx_board_top_fixed_125m_baseline.xsa` | `72623D1C82150C23299307ECD5F7AF5F0E0F5DC1C9828099C40D1C49074053EA` |
 | ELF | `reports/rollback_fixed_refclk_vitis_clean_workspace/bringup_baseline/Debug/bringup_baseline.elf` | `43BC1992A6A9434ECD51DAC3EA663169CB4403C07BD96B2C875E0E20EC643B78` |
-| ZIP | `artifacts/builds/rollback_fixed_refclk_baseline_12d3b71.zip` | `FE0990161ABA065BDCF0B100C0798D48CDEC94F63615B9FC39600D0961345147` |
+| ZIP | `artifacts/builds/rollback_fixed_refclk_baseline_12d3b71.zip` | `7E352D6FAE07259A66B2D6009CB7CD9FE15C9B7837B45B5F7CC3EB5A7DBA888E` |
 
 逐项重算 bundle 哈希和 ZIP 内容检查均无失败。两套 bit、LTX、XSA、ELF 的 SHA-256 均不同，不是同一文件的重复包装。
 
@@ -166,7 +166,7 @@ XSA / Platform / BSP dependency unchanged（对各自 bundle 内部而言）
 ## 10. 硬件验证边界
 
 - Measurement：AD9528 OUT0 candidate 已有 FPGA 内部计数和 UDP 软件回读证据，约 122.872～122.874MHz；外部示波器/频率计尚未验证。
-- Rollback：历史 `12d3b71` 文档包含固定 125MHz profile 的阶段性上板证据；本次重建后的 bit/LTX/XSA/ELF 尚未重新执行板级冒烟或全档循环。
+- Rollback：历史 `12d3b71` 文档包含固定 125MHz profile 的阶段性上板证据，但本次重建 bundle 固定标记为 `BUILD_ONLY / board_verified=false / board_test_planned=false`，仅作归档和回退参考，不再安排板级冒烟、ILA 或 UDP 回归。
 - 两套产物均不能证明外部光口 BER、眼图或长期稳定性。
 
 ## 11. 回退烧写顺序
@@ -201,7 +201,7 @@ bit/LTX/XSA/ELF/ZIP、Vivado/Vitis workspace 和生成报告未提交 Git。
 
 ## 14. 风险与后续建议
 
-1. 使用 rollback bundle 前应做一次板级 `PING`、`rate list/status` 和代表性 CPLL/QPLL 档位冒烟；
+1. 当前及后续正常上板操作统一使用 `current_ad9528_measurement`；rollback bundle 不再安排上板验证；
 2. current measurement 包仍需外部仪器确认 OUT0；
 3. rollback 隔离 worktree 的 XPR/BD/XCI metadata dirty 是生成副作用，不应合并回主工程；
 4. 后续若任何功能源码、XSA 或 implementation 改变，必须生成新 bundle 名称/commit 后缀，不得覆盖本包；

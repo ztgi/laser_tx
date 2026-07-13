@@ -12,20 +12,22 @@
   "hardware_git_commit": "51005ec",
   "software_git_commit": "2eb6b64",
   "packaging_git_branch": "feature/build-artifact-provenance-packaging",
-  "packaging_git_commit": "8f38b713e51b9eb8dfa04a5e5fbc9293f9c1737e",
+  "packaging_git_commit": "eb9097449402e33fd3066d0b0822e5cae705733d",
   "packaging_git_dirty": true,
   "packaging_dirty_files": [
-    "M .gitignore",
-    "?? artifacts/",
-    "?? scripts/artifact_bundle_readmes/",
-    "?? scripts/build_rollback_fixed_refclk_baseline.tcl",
-    "?? scripts/package_current_build_artifacts.py"
+    "D artifacts/builds/rollback_fixed_refclk_baseline/README.md",
+    " D artifacts/builds/rollback_fixed_refclk_baseline/manifest.json",
+    " M docs/debug_reports/44_build_artifact_packaging_and_provenance_report.md",
+    " M scripts/artifact_bundle_readmes/rollback_fixed_refclk_baseline.md",
+    " M scripts/package_current_build_artifacts.py"
   ],
   "vivado_version": "2022.2",
   "vitis_version": "2022.2",
   "top_module": "laser_tx_board_top",
   "implementation_run": "impl_1",
-  "hardware_validation_state": "REBUILT_FROM_HISTORICALLY_BOARD_VALIDATED_SOURCE_HARDWARE_REGRESSION_NOT_RERUN",
+  "hardware_validation_state": "BUILD_ONLY",
+  "board_verified": false,
+  "board_test_planned": false,
   "files": [
     {
       "type": "bit",
@@ -116,6 +118,6 @@
     "XSA embedded bit SHA-256 equals the selected rollback impl_1 bit SHA-256.",
     "Rollback ELF uses application sources from 12d3b71; current measurement sources intentionally reject the older XSA because the measurement AXI GPIO is absent.",
     "Managed makefile build completed with USER_OBJS empty; no manual object injection.",
-    "No AD9528 measurement counter, no PLL2 TEST0 write, no AD9528-to-GTNORTHREFCLK connection, and 3000M remains blocked."
+    "Archive-only rollback reference; no board test is planned."
   ]
 }
