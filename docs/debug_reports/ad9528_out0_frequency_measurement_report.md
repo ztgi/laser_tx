@@ -141,17 +141,63 @@ bit/LTX 不提交 Git。
 
 首轮负 WNS 来自把异步 Gray CDC 当同步路径分析；最终只对 ODIV2 与 FCLK 两个具体域设置异步关系，域内路径继续正常计时。当前 122.88MHz 输入约束为本 candidate 的目标约束，不代表以后任意 OUT0 profile 的最终约束。
 
-## 9. 上板验证步骤
+## 9. 上板测量结果
 
-1. 下载本轮匹配的 bit/LTX；
-2. 下载当前 `bringup.elf`；
-3. 打开 `ila_ad9528_out0_measure`；
-4. 执行 `ad9528 candidate set vcxo_122p88`；
-5. 等待至少两个1ms窗口后抓取 ILA；
-6. 预期 `alive=1`、`measure_valid=1`、count约61440、`in_range=1`；
-7. 执行 `ad9528 candidate restore` 并再次抓取；
-8. 恢复后不应继续稳定保持在61.44MHz有效窗口；
-9. 回归 `rate set 625 / 4000 / 10000 / 1000`。
+用户已在 2026-07-13 执行：
+
+```text
+ad9528 candidate set vcxo_122p88
+```
+
+UDP返回：
+
+```text
+OK AD9528_CANDIDATE_SET profile=VCXO_122P88
+state=READY_UNMEASURED
+configured_out0_hz=122880000
+runtime_active_likely=1
+measured_out0_hz=UNKNOWN
+vcxo_status_ok=1
+readback_ok=1
+config_writes=7
+io_update_writes=1
+board_verified=0
+```
+
+该结果说明 candidate 的七项寄存器写入、IO_UPDATE、masked readback 和 VCXO status 均已通过。但 ILA 中 `ad9528_odiv2_count_axi` 显示为：
+
+```text
+82883
+```
+
+按当前 RTL 的 1ms 统计窗口换算：
+
+| 项目 | 预期 | 实测/推算 | 说明 |
+| --- | ---: | ---: | --- |
+| ODIV2 count | 61,440 | 82,883 | 未落入 60,000～62,900 窗口 |
+| ODIV2 frequency | 61.44MHz | 82.883MHz | 假设窗口为1ms |
+| OUT0 frequency | 122.88MHz | 165.766MHz | 假设 ODIV2=OUT0/2 |
+
+因此，本轮上板结果不是 `OUT0=122.88MHz` 的通过证据。它只证明：AD9528 candidate 写入状态已经到达 `READY_UNMEASURED`，同时 FPGA 侧确实通过 Bank110 `IBUFDS_GTE2.ODIV2` 观测到了一个持续时钟，但该时钟频率与 `VCXO_122P88` 目标不一致。
+
+当前必须保持：
+
+```text
+measured_out0_hz=UNKNOWN
+board_verified=0
+```
+
+不得将该 candidate 接入 Bank111 GT，也不得将其作为 GT 细步进参考时钟来源。
+
+## 9.1 失败定位建议
+
+下一步不应修改 GT profile 或 Bank111 参考时钟。建议先补三项最小证据：
+
+1. 在同一 ILA 窗口确认 `ad9528_measure_valid_axi=1`、`ad9528_odiv2_alive_axi=1`、`ad9528_odiv2_in_range_axi=0`，并确认 count 是否稳定在约 82883。
+2. 执行 `ad9528 candidate restore` 后再次抓取 ILA，确认 count 是否离开约 82883；如果 restore 后仍稳定为 82883，说明当前 OUT0 测量点可能没有被该 candidate profile 控制，或OUT0原本已有其它时钟源。
+3. 在 candidate set 后保存 `ad9528 dump` 中 `0x0108/0x0109/0x0300/0x0301/0x0302/0x0500/0x0501/0x0503/0x0508/0x0509` 的真实值，用于复核 source/divider/power/status 位域。
+
+若 82883 稳定复现，后续应优先复核 AD9528 OUT0 source encoding、divider encoding、VCXO input/source path 和 `IBUFDS_GTE2.ODIV2` 换算关系。不能仅凭 `configured_out0_hz=122880000` 继续推进。
 
 ## 10. 修改文件
 
@@ -166,9 +212,9 @@ bit/LTX 不提交 Git。
 
 ## 11. 风险与边界
 
-Oscilloscope hardware validation was not run。ILA hardware validation was not run。
+Oscilloscope hardware validation was not run。ILA measurement was run, but did not match the expected 122.88MHz candidate result。
 
-因此当前只能声明测量路径 build、routing、DRC、timing 和 bit/LTX 生成通过，不能声明：
+因此当前只能声明测量路径 build、routing、DRC、timing 和 bit/LTX 生成通过，且 ILA 已观测到一个与预期不一致的 OUT0/ODIV2 时钟。不能声明：
 
 - OUT0 已实测为122.88MHz；
 - ODIV2 上板计数已经约61440；
@@ -177,4 +223,4 @@ Oscilloscope hardware validation was not run。ILA hardware validation was not r
 - OUT0 已接入 Bank111 GT；
 - 新的 GT line-rate profile 已支持。
 
-下一步必须由用户用 ILA 完成 candidate set/restore 两个状态的计数截图。只有实际 ODIV2 计数与预期一致，才能进入测量值回读或 Bank110→Bank111 GTNORTHREFCLK0 的后续独立阶段。
+下一步必须先闭环 82883 这一异常计数的来源。只有实际 ODIV2 计数与预期一致，或重新定义并验证正确的 AD9528 OUT0 profile 后，才能进入测量值回读或 Bank110→Bank111 GTNORTHREFCLK0 的后续独立阶段。
