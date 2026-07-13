@@ -192,6 +192,10 @@ board_verified=0
 | ODIV2 frequency | 61.44MHz | 61.437MHz | 假设窗口为1ms |
 | OUT0 frequency | 122.88MHz | 122.874MHz | 假设 ODIV2=OUT0/2 |
 
+![AD9528 OUT0 ODIV2稳态频率计数](../images/dynamic_rate/ad9528_ou0_freq_measure/ila.png)
+
+图中 `ad9528_measure_valid_axi=1`、`ad9528_odiv2_alive_axi=1`、`ad9528_odiv2_count_axi=61437`、`ad9528_odiv2_in_range_axi=1`，说明测量窗口有效且 ODIV2 稳态计数落入预设范围。
+
 因此，82883 不应被解释为最终稳态频率。更合理的解释是：第一次抓取窗口发生在 AD9528 IO_UPDATE 后的时钟切换/分频器稳定过程附近，1ms delta 窗口可能跨越了过渡状态，因此得到一个非稳态计数。等待数秒后，ODIV2 计数回到约 61440，说明当前 `VCXO_122P88` candidate 在稳态下已经通过 ILA 计数支持 OUT0 约为 122.88MHz。
 
 当前必须保持：
@@ -262,6 +266,48 @@ out0_hz=UNKNOWN
 
 如果 set 状态下这些寄存器与计划值一致，且 ILA count 稳定约 61437～61440，则可把本阶段结论收口为：AD9528 OUT0 VCXO 122.88MHz candidate 已完成 ILA 频率验证。若 set 状态下寄存器没有进入计划值，则问题应回到 candidate apply/IO_UPDATE/readback 路径。
 
+## 9.3 Set 状态寄存器回读
+
+用户已补充 candidate set 状态下的完整 dump。SPI identity 仍正确：
+
+```text
+0x0003 = 0x05
+0x0006 = 0x03
+0x000C = 0x56
+```
+
+关键寄存器与计划值一致：
+
+| Register | Set状态值 | 计划意义 |
+| --- | ---: | --- |
+| `0x0108` | `0x01` | 使能差分 OSC/VCXO input |
+| `0x0109` | `0x38` | PLL1 REFA/REFB/feedback bypass bits |
+| `0x010A` | `0x00` | PLL1 ctrl保持默认 |
+| `0x0300` | `0x20` | OUT0 source = VCXO |
+| `0x0301` | `0x00` | OUT0 driver = LVDS |
+| `0x0302` | `0x00` | OUT0 divider = 1 |
+| `0x0500` | `0x1C` | PLL1/PLL2 power-down bits置位，保留原bit4 |
+| `0x0501` | `0x00` | OUT0 channel未power-down |
+| `0x0503` | `0xFF` | OUT0 LDO status有效 |
+| `0x0508` | `0x30` | VCXO status bit有效，保留原bit4 |
+| `0x0509` | `0x08` | readback status高字节 |
+
+软件解析结果为：
+
+```text
+pll1_bypass_likely=1
+pll2_direct_vcxo_likely=1
+pll1_lock=0
+pll2_lock=0
+out0_source=1
+out0_div=1
+out0_driver=0
+out0_cfg_enabled=1
+out0_hz=UNKNOWN
+```
+
+由于 set 状态寄存器与计划值一致，并且 ILA 稳态计数为 61437，本阶段可以把硬件证据收口为：AD9528 OUT0 VCXO 122.88MHz candidate 的寄存器配置和 FPGA侧 ODIV2频率观测一致。`out0_hz=UNKNOWN` 仍只是当前软件解析没有把 ILA测量值回填到 AD9528 status，不代表频率证据缺失。
+
 ## 10. 修改文件
 
 | 文件 | 修改 |
@@ -285,4 +331,4 @@ Oscilloscope hardware validation was not run。ILA measurement was run: early ca
 - OUT0 已接入 Bank111 GT；
 - 新的 GT line-rate profile 已支持。
 
-下一步应补 set 状态下的寄存器 dump 和稳定 ILA 截图。如果这些证据一致，再进入“把 ILA 测量值回读到软件状态”或“Bank110→Bank111 GTNORTHREFCLK0 接入”的后续独立阶段。
+下一步可进入“把 ILA 测量值回读到软件状态”或“Bank110→Bank111 GTNORTHREFCLK0 接入”的后续独立阶段；两者仍应拆成独立任务。
