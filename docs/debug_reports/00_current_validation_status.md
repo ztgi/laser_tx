@@ -29,6 +29,8 @@
 - 已解析 97 字节 application-initialized full dump，并完成 125.44 MHz / 124.416 MHz 两套完整寄存器计划对比；
 - 两候选 calibration divider 均可编码，但 charge-pump、loop-filter、共享 PLL2 输出及 global SYNC 许可未闭环，最终 gate 仍为 `NO_SAFE_PLL2_TEST0_CANDIDATE`；
 - 124.416 MHz 候选只作为下一轮参数闭环优先对象，尚未生成执行入口、未写 AD9528、未上板。
+- 已新增显式 `ad9528 candidate set pll2_test0` measurement-only executor 并通过 Vitis clean build；它只在 ADRV9009/JESD 停止、共享 PLL2 输出影响实验室临时接受的条件下使用；
+- executor 使用完整 ADI reference configuration、禁止 CHANNEL_SYNC、要求 calibration/PLL2 lock/连续3个测量窗口并自动 rollback；尚未上板，`pll2_functionally_measured=0`、`board_verified=0`。
 
 ## 1. 当前分层状态表
 

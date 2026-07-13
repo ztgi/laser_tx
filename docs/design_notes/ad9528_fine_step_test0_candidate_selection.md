@@ -90,3 +90,5 @@ AD9528_REG addr=0x0200 value=0xXX
 AD9528 OUT0 实验路径与正式 fixed-125M profile 相互独立。候选不会进入正式 planner，不覆盖现有 11 档，不改变 3000M BLOCKED，不连接 Bank110 到 Bank111。下一步只能先根据真实 full dump 重新选择一组 calibration divider 合法的 PLL2 参数，再完成 register-image 与共享输出审计。
 
 完整 dump 已证明 OUT0..OUT11 当前消费 PLL2 或 PLL2 retimed SYSREF，OUT12/13 消费 PLL1/VCXO，且 14 路 channel 全部 enabled、SYNC ignore mask 全为 0。因此下一步不能再把共享输出风险写成纯 UNKNOWN；必须取得共享时钟树影响许可，并确认本板 charge-pump/loop-filter 参数后，才可考虑实现 B 候选。
+
+后续实验任务已在“ADRV9009/JESD 停止、共享 PLL2 输出影响仅限实验室临时接受、必须 restore”的明确条件下，为 B 候选增加 measurement-only executor。它使用一套完整 ADI reference configuration，不执行全局 SYNC，不加入正式 profile；build 结果和上板停止点见 `../debug_reports/46_ad9528_pll2_test0_measurement_only_executor_report.md`。在取得真实 calibration/lock/三窗口/restore 证据前，`board_verified=0` 和生产级 `NO_SAFE_PLL2_TEST0_CANDIDATE` 边界不变。

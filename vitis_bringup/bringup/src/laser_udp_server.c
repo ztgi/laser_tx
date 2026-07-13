@@ -682,6 +682,11 @@ static void handle_udp_command(LaserGpio *gpio,
                 }
                 ad9528_status = laser_ad9528_candidate_set(profile);
                 if (ad9528_status == XST_SUCCESS) {
+                    laser_ad9528_get_candidate_status(&candidate_status);
+                }
+                if (ad9528_status == XST_SUCCESS &&
+                    candidate_status.state !=
+                        LASER_AD9528_CANDIDATE_READY_MEASURED) {
                     (void)laser_ad9528_measure_mark_transition();
                 }
                 laser_ad9528_get_candidate_status(&candidate_status);

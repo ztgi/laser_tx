@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define LASER_AD9528_PROFILE_PLAN_MAX_WRITES 8U
+#define LASER_AD9528_PROFILE_PLAN_MAX_WRITES 20U
 
 typedef struct {
     uint16_t reg;
@@ -45,8 +45,12 @@ typedef enum {
     LASER_AD9528_CANDIDATE_PROGRAM,
     LASER_AD9528_CANDIDATE_BUFFER_READBACK,
     LASER_AD9528_CANDIDATE_IO_UPDATE,
+    LASER_AD9528_CANDIDATE_CALIBRATING,
+    LASER_AD9528_CANDIDATE_WAIT_PLL2_LOCK,
     LASER_AD9528_CANDIDATE_POST_READBACK,
+    LASER_AD9528_CANDIDATE_MEASURING,
     LASER_AD9528_CANDIDATE_READY_UNMEASURED,
+    LASER_AD9528_CANDIDATE_READY_MEASURED,
     LASER_AD9528_CANDIDATE_ROLLBACK,
     LASER_AD9528_CANDIDATE_RESTORED,
     LASER_AD9528_CANDIDATE_ERROR
@@ -64,11 +68,16 @@ typedef enum {
     LASER_AD9528_CANDIDATE_ERROR_IO_UPDATE,
     LASER_AD9528_CANDIDATE_ERROR_POST_READBACK,
     LASER_AD9528_CANDIDATE_ERROR_VCXO_STATUS,
+    LASER_AD9528_CANDIDATE_ERROR_CALIBRATION_TIMEOUT,
+    LASER_AD9528_CANDIDATE_ERROR_PLL2_LOCK_TIMEOUT,
+    LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_TIMEOUT,
+    LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_OUT_OF_RANGE,
     LASER_AD9528_CANDIDATE_ERROR_ROLLBACK_FAILED,
     LASER_AD9528_CANDIDATE_ERROR_NO_ACTIVE_CANDIDATE
 } LaserAd9528CandidateError;
 
 typedef struct {
+    const char *profile_name;
     LaserAd9528CandidateState state;
     LaserAd9528CandidateError last_error;
     uint32_t configured_out0_hz;
@@ -80,6 +89,10 @@ typedef struct {
     uint8_t rollback_success;
     uint8_t config_writes;
     uint8_t io_update_writes;
+    uint8_t pll2_functionally_measured;
+    uint8_t measurement_windows;
+    uint8_t measurement_preferred_tolerance;
+    uint32_t measured_odiv2_count;
     uint16_t failed_reg;
     uint8_t failed_expected;
     uint8_t failed_actual;

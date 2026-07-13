@@ -187,6 +187,9 @@ ad9528_out0_frequency_measurement_report.md
 ../design_notes/ad9528_fine_step_test0_candidate_selection.md
 43_ad9528_pll2_test0_register_image_audit.md
 45_ad9528_pll2_test0_dual_candidate_register_plan.md
+46_ad9528_pll2_test0_measurement_only_executor_report.md
 ```
 
 其中 43 号报告记录旧 124.8 MHz 候选因 calibration divider=260 被否决；45 号报告使用完整运行镜像比较新的 125.44/124.416 MHz 候选，并给出当前 `NO_SAFE_PLL2_TEST0_CANDIDATE` gate。后者不代表 PLL2 candidate 已实现或上板。
+
+46 号报告记录在明确实验室隔离条件下新增的 124.416 MHz measurement-only executor。该报告的 build 通过不等价于 PLL2 已完成上板测频；只有后续 calibration、lock、三窗口和 restore 证据齐全时，才能设置独立的 `pll2_functionally_measured=1`，仍不能设置正式 `board_verified=1`。

@@ -1,4 +1,5 @@
 #include "laser_ad9528.h"
+#include "laser_ad9528_measure.h"
 #include "laser_hw.h"
 #include <stdio.h>
 #include <string.h>
@@ -68,6 +69,22 @@ static uint8_t ad9528_last_vendor_id;
 #define AD9528_READBACK_PLL2_LOCKED    (1U << 1)
 #define AD9528_READBACK_PLL1_LOCKED    (1U << 0)
 #define AD9528_PD_OUT_CLOCKS           (1U << 1)
+#define AD9528_READBACK_VCXO_OK        (1U << 5)
+#define AD9528_READBACK_PLL2_OK        (1U << 7)
+
+#define AD9528_PLL2_TEST0_PROFILE_NAME "PLL2_TEST0"
+#define AD9528_PLL2_TEST0_OUT0_HZ      124416000UL
+#define AD9528_PLL2_TEST0_COUNT         62208U
+#define AD9528_PLL2_TEST0_COUNT_MIN     61586U
+#define AD9528_PLL2_TEST0_COUNT_MAX     62830U
+#define AD9528_PLL2_TEST0_PREFERRED_MIN 61897U
+#define AD9528_PLL2_TEST0_PREFERRED_MAX 62519U
+#define AD9528_PLL2_TEST0_WINDOWS       3U
+#define AD9528_PLL2_TEST0_COMMON_WRITES 12U
+#define AD9528_PLL2_CAL_TIMEOUT_US      500000U
+#define AD9528_PLL2_LOCK_TIMEOUT_US     500000U
+#define AD9528_PLL2_MEASURE_TIMEOUT_US  2000000U
+#define AD9528_PLL2_POLL_US             1000U
 
 #define AD9528_REFERENCE_VCXO_HZ 122880000UL
 
@@ -576,6 +593,29 @@ static int ad9528_profile_name_is_vcxo_122p88(const char *name)
     static const char expected[] = "VCXO_122P88";
     size_t i;
 
+    if (name == 0) {
+        return 0;
+    }
+    for (i = 0U; expected[i] != '\0' && name[i] != '\0'; ++i) {
+        char actual = name[i];
+        if (actual >= 'a' && actual <= 'z') {
+            actual = (char)(actual - ('a' - 'A'));
+        }
+        if (actual != expected[i]) {
+            return 0;
+        }
+    }
+    return expected[i] == '\0' && name[i] == '\0';
+}
+
+static int ad9528_profile_name_is_pll2_test0(const char *name)
+{
+    static const char expected[] = AD9528_PLL2_TEST0_PROFILE_NAME;
+    size_t i;
+
+    if (name == 0) {
+        return 0;
+    }
     for (i = 0U; expected[i] != '\0' && name[i] != '\0'; ++i) {
         char actual = name[i];
         if (actual >= 'a' && actual <= 'z') {
@@ -602,12 +642,15 @@ int32_t laser_ad9528_plan_clock_profile(const char *profile_name,
     if (profile_name == 0 || plan == 0) {
         return XST_INVALID_PARAM;
     }
-    if (!ad9528_profile_name_is_vcxo_122p88(profile_name)) {
+    if (!ad9528_profile_name_is_vcxo_122p88(profile_name) &&
+        !ad9528_profile_name_is_pll2_test0(profile_name)) {
         return XST_NO_FEATURE;
     }
     *plan = (LaserAd9528ClockProfilePlan){0};
-    plan->profile_name = "VCXO_122P88";
-    plan->configured_out0_hz = AD9528_REFERENCE_VCXO_HZ;
+    plan->profile_name = ad9528_profile_name_is_pll2_test0(profile_name) ?
+        AD9528_PLL2_TEST0_PROFILE_NAME : "VCXO_122P88";
+    plan->configured_out0_hz = ad9528_profile_name_is_pll2_test0(profile_name) ?
+        AD9528_PLL2_TEST0_OUT0_HZ : AD9528_REFERENCE_VCXO_HZ;
     plan->requires_io_update = 1U;
     plan->requires_sync = 0U;
     plan->affects_out0 = 1U;
@@ -615,7 +658,7 @@ int32_t laser_ad9528_plan_clock_profile(const char *profile_name,
     plan->may_affect_other_outputs = 1U;
     plan->directly_modifies_other_output_channels = 0U;
     plan->requires_pll1_lock = 0U;
-    plan->requires_pll2_lock = 0U;
+    plan->requires_pll2_lock = ad9528_profile_name_is_pll2_test0(profile_name) ? 1U : 0U;
 
     status = laser_ad9528_identify(&product_id, &revision, &vendor_id);
     if (status != XST_SUCCESS) {
@@ -645,20 +688,52 @@ int32_t laser_ad9528_plan_clock_profile(const char *profile_name,
     AD9528_PLAN_WRITE(AD9528_PLL1_CTRL1_REG, AD9528_PLL1_BYPASS_BITS,
                       AD9528_PLL1_BYPASS_BITS,
                       "PLL1_REFA_REFB_FEEDBACK_BYPASS", 1U);
-    AD9528_PLAN_WRITE(AD9528_OUT0_CTRL_REG, AD9528_OUT_SOURCE_MASK,
-                      AD9528_OUT_SOURCE_VCXO,
-                      "OUT0_SOURCE_VCXO", 0U);
-    AD9528_PLAN_WRITE(AD9528_OUT0_DRIVER_REG, AD9528_OUT_DRIVER_MASK,
-                      AD9528_OUT_DRIVER_LVDS,
-                      "OUT0_DRIVER_LVDS", 0U);
-    AD9528_PLAN_WRITE(AD9528_OUT0_DIVIDER_REG, 0xFFU,
-                      AD9528_OUT_DIVIDER_1,
-                      "OUT0_DIVIDE_BY_1", 0U);
-    AD9528_PLAN_WRITE(AD9528_CHANNEL_PD0_REG, 0x01U, 0x00U,
-                      "OUT0_CHANNEL_POWER_UP", 0U);
-    AD9528_PLAN_WRITE(AD9528_GLOBAL_PD_REG, AD9528_PD_PLL1_PLL2_MASK,
-                      AD9528_PD_PLL1_PLL2,
-                      "PLL1_PLL2_GLOBAL_POWER_DOWN", 1U);
+    if (ad9528_profile_name_is_pll2_test0(profile_name)) {
+        /* One complete ADI reference configuration; not claimed optimized. */
+        AD9528_PLAN_WRITE(AD9528_PLL2_CP_REG, 0xFFU, 0xE6U,
+                          "PLL2_CP_805UA_REFERENCE_CONFIGURATION", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_FB_DIV_REG, 0xFFU, 0xFCU,
+                          "PLL2_CAL_DIV_243_A3_B60", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_CTRL_REG, 0xA3U, 0x03U,
+                          "PLL2_DOUBLER_OFF_CP_NORMAL_LOCK_DETECT_ON", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_VCO_CTRL_REG, 0x17U, 0x10U,
+                          "PLL2_R1_PATH_ENABLE_CALIBRATE_CLEAR", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_M1_REG, 0x0FU, 0x03U,
+                          "PLL2_M1_DIVIDE_3", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_LOOP_FILTER0_REG, 0xFFU, 0x3AU,
+                          "PLL2_LOOP_FILTER_REFERENCE_CONFIGURATION", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_LOOP_FILTER1_REG, 0x01U, 0x00U,
+                          "PLL2_RZERO_BYPASS_DISABLED", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_R1_REG, 0x1FU, 0x08U,
+                          "PLL2_R1_DIVIDE_8", 1U);
+        AD9528_PLAN_WRITE(AD9528_PLL2_N2_REG, 0xFFU, 0x50U,
+                          "PLL2_N2_DIVIDE_81_ENCODING", 1U);
+        AD9528_PLAN_WRITE(AD9528_GLOBAL_PD_REG, 0x08U, 0x00U,
+                          "PLL2_POWER_UP", 1U);
+        AD9528_PLAN_WRITE(AD9528_OUT0_CTRL_REG, AD9528_OUT_SOURCE_MASK,
+                          0x00U, "OUT0_SOURCE_PLL2", 0U);
+        AD9528_PLAN_WRITE(AD9528_OUT0_DRIVER_REG, AD9528_OUT_DRIVER_MASK,
+                          AD9528_OUT_DRIVER_LVDS, "OUT0_DRIVER_LVDS", 0U);
+        AD9528_PLAN_WRITE(AD9528_OUT0_DIVIDER_REG, 0xFFU, 0x09U,
+                          "OUT0_DIVIDE_BY_10", 0U);
+        AD9528_PLAN_WRITE(AD9528_CHANNEL_PD0_REG, 0x01U, 0x00U,
+                          "OUT0_CHANNEL_POWER_UP", 0U);
+    } else {
+        AD9528_PLAN_WRITE(AD9528_OUT0_CTRL_REG, AD9528_OUT_SOURCE_MASK,
+                          AD9528_OUT_SOURCE_VCXO,
+                          "OUT0_SOURCE_VCXO", 0U);
+        AD9528_PLAN_WRITE(AD9528_OUT0_DRIVER_REG, AD9528_OUT_DRIVER_MASK,
+                          AD9528_OUT_DRIVER_LVDS,
+                          "OUT0_DRIVER_LVDS", 0U);
+        AD9528_PLAN_WRITE(AD9528_OUT0_DIVIDER_REG, 0xFFU,
+                          AD9528_OUT_DIVIDER_1,
+                          "OUT0_DIVIDE_BY_1", 0U);
+        AD9528_PLAN_WRITE(AD9528_CHANNEL_PD0_REG, 0x01U, 0x00U,
+                          "OUT0_CHANNEL_POWER_UP", 0U);
+        AD9528_PLAN_WRITE(AD9528_GLOBAL_PD_REG, AD9528_PD_PLL1_PLL2_MASK,
+                          AD9528_PD_PLL1_PLL2,
+                          "PLL1_PLL2_GLOBAL_POWER_DOWN", 1U);
+    }
 #undef AD9528_PLAN_WRITE
     return XST_SUCCESS;
 }
@@ -670,7 +745,7 @@ int32_t laser_ad9528_format_clock_profile_plan(
         return XST_INVALID_PARAM;
     }
     (void)snprintf(buffer, buffer_size,
-                   "OK AD9528_PROFILE_PLAN profile=%s profile_state=PLANNED_ONLY configured_out0_hz=%lu runtime_active_likely=0 measured_out0_hz=UNKNOWN writes=%u requires_io_update=%u requires_sync=%u requires_pll1_lock=%u requires_pll2_lock=%u affects_out0=%u affects_shared_clock_tree=%u may_affect_other_outputs=%u directly_modifies_other_output_channels=%u board_verified=0 preconditions=SPI_ID:%u,BOARD_VCXO_HZ:122880000,BOARD_VCXO_SOURCE:DIFFERENTIAL,ASSUMPTION_CONFIDENCE:BOARD_SCHEMATIC_AND_MANUAL_ONLY,OUT0_LDO:%u,OUT0_CHANNEL:%u,CHIP:%u,CLOCK_DISTRIBUTION:%u planned_postconditions=MASKED_READBACK_MATCH,OUT0_SOURCE_VCXO,OUT0_DIV1,OUT0_LVDS,OUT0_CHANNEL_ENABLED,OUT0_LDO_ENABLED,CLOCK_DISTRIBUTION_ENABLED,PLL1_POWER_DOWN,PLL2_POWER_DOWN,VCXO_STATUS_VALID,CONFIGURED_122880000,MEASURED_UNKNOWN",
+                   "OK AD9528_PROFILE_PLAN profile=%s profile_state=PLANNED_ONLY configured_out0_hz=%lu runtime_active_likely=0 measured_out0_hz=UNKNOWN writes=%u requires_io_update=%u requires_sync=%u requires_pll1_lock=%u requires_pll2_lock=%u affects_out0=%u affects_shared_clock_tree=%u may_affect_other_outputs=%u directly_modifies_other_output_channels=%u board_verified=0 preconditions=SPI_ID:%u,BOARD_VCXO_HZ:122880000,BOARD_VCXO_SOURCE:DIFFERENTIAL,OUT0_LDO:%u,OUT0_CHANNEL:%u,CHIP:%u,CLOCK_DISTRIBUTION:%u configuration_class=%s shared_pll2_output_impact=%s",
                    plan->profile_name,
                    (unsigned long)plan->configured_out0_hz,
                    (unsigned int)plan->write_count,
@@ -686,7 +761,11 @@ int32_t laser_ad9528_format_clock_profile_plan(
                    (unsigned int)plan->out0_ldo_enabled,
                    (unsigned int)plan->out0_channel_enabled,
                    (unsigned int)plan->chip_enabled,
-                   (unsigned int)plan->clock_distribution_enabled);
+                   (unsigned int)plan->clock_distribution_enabled,
+                   plan->requires_pll2_lock ? "REFERENCE_CONFIGURATION" :
+                                              "VCXO_DIRECT",
+                   plan->requires_pll2_lock ?
+                       "ACCEPTED_FOR_LAB_TEST_ONLY" : "NOT_APPLICABLE");
     return XST_SUCCESS;
 }
 
@@ -730,10 +809,93 @@ typedef struct {
 
 static LaserAd9528CandidateContext ad9528_candidate = {
     .status = {
+        .profile_name = "NONE",
         .state = LASER_AD9528_CANDIDATE_IDLE,
         .last_error = LASER_AD9528_CANDIDATE_ERROR_NONE
     }
 };
+
+static void ad9528_candidate_set_failure(LaserAd9528CandidateError error,
+                                         uint16_t reg, uint8_t expected,
+                                         uint8_t actual);
+
+static int32_t ad9528_candidate_io_update(void)
+{
+    int32_t status;
+
+    xil_printf("TRACE AD9528_CANDIDATE IO_UPDATE reg=0x%04x value=0x%02x\r\n",
+               AD9528_IO_UPDATE_REG, AD9528_IO_UPDATE_ENABLE);
+    status = laser_ad9528_write(AD9528_IO_UPDATE_REG,
+                                AD9528_IO_UPDATE_ENABLE);
+    if (status == XST_SUCCESS) {
+        ad9528_candidate.status.io_update_writes++;
+    }
+    return status;
+}
+
+static int32_t ad9528_candidate_write_range(
+    const LaserAd9528ClockProfilePlan *plan, uint8_t first, uint8_t last,
+    uint8_t *writes_started)
+{
+    uint8_t i;
+
+    for (i = first; i < last; ++i) {
+        uint8_t current;
+        uint8_t new_value;
+        int32_t status = laser_ad9528_read(plan->writes[i].reg, &current);
+        if (status != XST_SUCCESS) {
+            ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                         plan->writes[i].reg, 0U, 0U);
+            return status;
+        }
+        if (current != ad9528_candidate.snapshot[i]) {
+            ad9528_candidate_set_failure(
+                LASER_AD9528_CANDIDATE_ERROR_PRECONDITION_MISMATCH,
+                plan->writes[i].reg, ad9528_candidate.snapshot[i], current);
+            return XST_FAILURE;
+        }
+        new_value = (uint8_t)((current & (uint8_t)~plan->writes[i].mask) |
+                              (plan->writes[i].value & plan->writes[i].mask));
+        xil_printf("TRACE AD9528_PLL2_TEST0 WRITE index=%u reg=0x%04x current=0x%02x mask=0x%02x value=0x%02x new=0x%02x\r\n",
+                   (unsigned int)i, (unsigned int)plan->writes[i].reg,
+                   (unsigned int)current, (unsigned int)plan->writes[i].mask,
+                   (unsigned int)plan->writes[i].value,
+                   (unsigned int)new_value);
+        *writes_started = 1U;
+        status = laser_ad9528_write(plan->writes[i].reg, new_value);
+        if (status != XST_SUCCESS) {
+            ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_WRITE,
+                                         plan->writes[i].reg, new_value, 0U);
+            return status;
+        }
+        ad9528_candidate.status.config_writes++;
+    }
+    return XST_SUCCESS;
+}
+
+static int32_t ad9528_candidate_verify_range(
+    const LaserAd9528ClockProfilePlan *plan, uint8_t first, uint8_t last)
+{
+    uint8_t i;
+
+    for (i = first; i < last; ++i) {
+        uint8_t readback = 0U;
+        int32_t status = laser_ad9528_read(plan->writes[i].reg, &readback);
+        if (status != XST_SUCCESS) {
+            ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                         plan->writes[i].reg, 0U, 0U);
+            return status;
+        }
+        if ((readback & plan->writes[i].readback_mask) !=
+            (plan->writes[i].readback_value & plan->writes[i].readback_mask)) {
+            ad9528_candidate_set_failure(
+                LASER_AD9528_CANDIDATE_ERROR_POST_READBACK,
+                plan->writes[i].reg, plan->writes[i].readback_value, readback);
+            return XST_FAILURE;
+        }
+    }
+    return XST_SUCCESS;
+}
 
 static void ad9528_candidate_set_failure(LaserAd9528CandidateError error,
                                          uint16_t reg, uint8_t expected,
@@ -744,6 +906,10 @@ static void ad9528_candidate_set_failure(LaserAd9528CandidateError error,
     ad9528_candidate.status.failed_expected = expected;
     ad9528_candidate.status.failed_actual = actual;
     ad9528_candidate.status.runtime_active_likely = 0U;
+    ad9528_candidate.status.pll2_functionally_measured = 0U;
+    ad9528_candidate.status.measurement_windows = 0U;
+    ad9528_candidate.status.measurement_preferred_tolerance = 0U;
+    ad9528_candidate.status.measured_odiv2_count = 0U;
     ad9528_candidate.status.readback_ok = 0U;
     ad9528_candidate.status.vcxo_status_ok = 0U;
     ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_ERROR;
@@ -805,6 +971,10 @@ static int32_t ad9528_candidate_rollback(
     ad9528_candidate.status.configured_out0_hz =
         ad9528_candidate.snapshot_configured_out0_hz;
     ad9528_candidate.status.runtime_active_likely = 0U;
+    ad9528_candidate.status.pll2_functionally_measured = 0U;
+    ad9528_candidate.status.measurement_windows = 0U;
+    ad9528_candidate.status.measurement_preferred_tolerance = 0U;
+    ad9528_candidate.status.measured_odiv2_count = 0U;
     ad9528_candidate.applied = 0U;
     ad9528_candidate.status.snapshot_valid = 0U;
     if (final_restored_state) {
@@ -815,6 +985,292 @@ static int32_t ad9528_candidate_rollback(
         ad9528_candidate.status.vcxo_status_ok = 0U;
     }
     return XST_SUCCESS;
+}
+
+static int32_t laser_ad9528_candidate_set_pll2_test0(void)
+{
+    static const uint8_t expected_old[] = {
+        0x00U, 0x00U,
+        0x00U, 0x04U, 0x03U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+        0x10U,
+        0x00U, 0x00U, 0x04U, 0x00U
+    };
+    LaserAd9528ClockProfilePlan plan;
+    LaserAd9528CandidateError original_error;
+    LaserAd9528Measurement measurement;
+    uint8_t product_id = 0U;
+    uint8_t revision = 0U;
+    uint8_t vendor_id = 0U;
+    uint8_t serial_cfg = 0U;
+    uint8_t readback = 0U;
+    uint8_t i;
+    uint8_t writes_started = 0U;
+    uint8_t calibration_seen = 0U;
+    uint8_t calibration_done = 0U;
+    uint8_t lock_ok = 0U;
+    uint8_t measurement_windows = 0U;
+    uint8_t preferred_all = 1U;
+    uint16_t last_sequence = 0U;
+    uint8_t have_sequence = 0U;
+    uint32_t elapsed;
+    int32_t status;
+
+    if (ad9528_candidate.busy || ad9528_candidate.applied ||
+        ad9528_candidate.status.snapshot_valid) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_BUSY,
+                                     0U, 0U, 0U);
+        return XST_FAILURE;
+    }
+    ad9528_candidate.busy = 1U;
+    ad9528_candidate.status.profile_name = AD9528_PLL2_TEST0_PROFILE_NAME;
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_PRECHECK;
+    ad9528_candidate.status.last_error = LASER_AD9528_CANDIDATE_ERROR_NONE;
+    ad9528_candidate.status.failed_reg = 0U;
+    ad9528_candidate.status.failed_expected = 0U;
+    ad9528_candidate.status.failed_actual = 0U;
+    ad9528_candidate.status.config_writes = 0U;
+    ad9528_candidate.status.io_update_writes = 0U;
+    ad9528_candidate.status.rollback_attempted = 0U;
+    ad9528_candidate.status.rollback_success = 0U;
+    ad9528_candidate.status.pll2_functionally_measured = 0U;
+    ad9528_candidate.status.measurement_windows = 0U;
+    ad9528_candidate.status.measurement_preferred_tolerance = 0U;
+    ad9528_candidate.status.measured_odiv2_count = 0U;
+
+    status = laser_ad9528_identify(&product_id, &revision, &vendor_id);
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(
+            LASER_AD9528_CANDIDATE_ERROR_IDENTITY_MISMATCH,
+            AD9528_PRODUCT_ID_REG, AD9528_PRODUCT_ID_EXPECTED, product_id);
+        goto done;
+    }
+    status = laser_ad9528_read(AD9528_SERIAL_PORT_CONFIG_REG, &serial_cfg);
+    if (status != XST_SUCCESS ||
+        (serial_cfg & AD9528_SERIAL_PORT_4WIRE) != AD9528_SERIAL_PORT_4WIRE) {
+        ad9528_candidate_set_failure(
+            status == XST_SUCCESS ?
+                LASER_AD9528_CANDIDATE_ERROR_PRECONDITION_MISMATCH :
+                LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+            AD9528_SERIAL_PORT_CONFIG_REG, AD9528_SERIAL_PORT_4WIRE,
+            serial_cfg);
+        status = XST_FAILURE;
+        goto done;
+    }
+    status = laser_ad9528_plan_clock_profile(AD9528_PLL2_TEST0_PROFILE_NAME,
+                                              &plan);
+    if (status != XST_SUCCESS || plan.write_count != 16U) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                     laser_ad9528_last_read_error_reg(), 0U, 0U);
+        status = XST_FAILURE;
+        goto done;
+    }
+    for (i = 0U; i < plan.write_count; ++i) {
+        if ((plan.writes[i].old_value & plan.writes[i].mask) !=
+            (expected_old[i] & plan.writes[i].mask)) {
+            ad9528_candidate_set_failure(
+                LASER_AD9528_CANDIDATE_ERROR_PRECONDITION_MISMATCH,
+                plan.writes[i].reg,
+                (uint8_t)(expected_old[i] & plan.writes[i].mask),
+                (uint8_t)(plan.writes[i].old_value & plan.writes[i].mask));
+            status = XST_FAILURE;
+            goto done;
+        }
+    }
+
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_SNAPSHOT;
+    for (i = 0U; i < plan.write_count; ++i) {
+        status = laser_ad9528_read(plan.writes[i].reg,
+                                   &ad9528_candidate.snapshot[i]);
+        if (status != XST_SUCCESS) {
+            ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                         plan.writes[i].reg, 0U, 0U);
+            goto done;
+        }
+    }
+    ad9528_candidate.snapshot_candidate_state = ad9528_candidate.status.state;
+    ad9528_candidate.snapshot_configured_out0_hz = 0U;
+    ad9528_candidate.status.snapshot_valid = 1U;
+
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_PROGRAM;
+    status = ad9528_candidate_write_range(
+        &plan, 0U, AD9528_PLL2_TEST0_COMMON_WRITES, &writes_started);
+    if (status != XST_SUCCESS) goto rollback;
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_IO_UPDATE;
+    status = ad9528_candidate_io_update();
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_IO_UPDATE,
+                                     AD9528_IO_UPDATE_REG,
+                                     AD9528_IO_UPDATE_ENABLE, 0U);
+        goto rollback;
+    }
+    usleep(1000U);
+    status = ad9528_candidate_verify_range(
+        &plan, 0U, AD9528_PLL2_TEST0_COMMON_WRITES);
+    if (status != XST_SUCCESS) goto rollback;
+
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_CALIBRATING;
+    status = laser_ad9528_read(AD9528_PLL2_VCO_CTRL_REG, &readback);
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                     AD9528_PLL2_VCO_CTRL_REG, 0U, 0U);
+        goto rollback;
+    }
+    readback |= 0x01U;
+    writes_started = 1U;
+    status = laser_ad9528_write(AD9528_PLL2_VCO_CTRL_REG, readback);
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_WRITE,
+                                     AD9528_PLL2_VCO_CTRL_REG, readback, 0U);
+        goto rollback;
+    }
+    ad9528_candidate.status.config_writes++;
+    status = ad9528_candidate_io_update();
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_IO_UPDATE,
+                                     AD9528_IO_UPDATE_REG,
+                                     AD9528_IO_UPDATE_ENABLE, 0U);
+        goto rollback;
+    }
+    for (elapsed = 0U; elapsed < AD9528_PLL2_CAL_TIMEOUT_US;
+         elapsed += AD9528_PLL2_POLL_US) {
+        status = laser_ad9528_read(0x0509U, &readback);
+        if (status != XST_SUCCESS) {
+            ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                         0x0509U, 0U, 0U);
+            goto rollback;
+        }
+        if ((readback & 0x01U) != 0U) {
+            calibration_seen = 1U;
+        } else if (calibration_seen) {
+            calibration_done = 1U;
+            break;
+        }
+        usleep(AD9528_PLL2_POLL_US);
+    }
+    if (!calibration_done) {
+        ad9528_candidate_set_failure(
+            LASER_AD9528_CANDIDATE_ERROR_CALIBRATION_TIMEOUT,
+            0x0509U, 0x00U, readback);
+        goto rollback;
+    }
+
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_WAIT_PLL2_LOCK;
+    for (elapsed = 0U; elapsed < AD9528_PLL2_LOCK_TIMEOUT_US;
+         elapsed += AD9528_PLL2_POLL_US) {
+        status = laser_ad9528_read(0x0508U, &readback);
+        if (status != XST_SUCCESS) {
+            ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
+                                         0x0508U, 0U, 0U);
+            goto rollback;
+        }
+        if ((readback & 0xA2U) == 0xA2U) {
+            lock_ok = 1U;
+            break;
+        }
+        usleep(AD9528_PLL2_POLL_US);
+    }
+    if (!lock_ok) {
+        ad9528_candidate_set_failure(
+            LASER_AD9528_CANDIDATE_ERROR_PLL2_LOCK_TIMEOUT,
+            0x0508U, 0xA2U, readback);
+        goto rollback;
+    }
+
+    status = laser_ad9528_measure_mark_transition();
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(
+            LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_TIMEOUT, 0U, 0U, 0U);
+        goto rollback;
+    }
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_PROGRAM;
+    status = ad9528_candidate_write_range(
+        &plan, AD9528_PLL2_TEST0_COMMON_WRITES, plan.write_count,
+        &writes_started);
+    if (status != XST_SUCCESS) goto rollback;
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_IO_UPDATE;
+    status = ad9528_candidate_io_update();
+    if (status != XST_SUCCESS) {
+        ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_IO_UPDATE,
+                                     AD9528_IO_UPDATE_REG,
+                                     AD9528_IO_UPDATE_ENABLE, 0U);
+        goto rollback;
+    }
+    usleep(1000U);
+    status = ad9528_candidate_verify_range(
+        &plan, AD9528_PLL2_TEST0_COMMON_WRITES, plan.write_count);
+    if (status != XST_SUCCESS) goto rollback;
+
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_MEASURING;
+    for (elapsed = 0U; elapsed < AD9528_PLL2_MEASURE_TIMEOUT_US;
+         elapsed += AD9528_PLL2_POLL_US) {
+        status = laser_ad9528_measure_read(&measurement);
+        if (status == XST_SUCCESS && measurement.valid &&
+            (!have_sequence || measurement.sequence != last_sequence)) {
+            have_sequence = 1U;
+            last_sequence = measurement.sequence;
+            if (!measurement.alive) {
+                ad9528_candidate_set_failure(
+                    LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_TIMEOUT,
+                    0U, 1U, 0U);
+                goto rollback;
+            }
+            if (measurement.raw_count < AD9528_PLL2_TEST0_COUNT_MIN ||
+                measurement.raw_count > AD9528_PLL2_TEST0_COUNT_MAX) {
+                ad9528_candidate_set_failure(
+                    LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_OUT_OF_RANGE,
+                    0U, (uint8_t)(AD9528_PLL2_TEST0_COUNT & 0xFFU),
+                    (uint8_t)(measurement.raw_count & 0xFFU));
+                ad9528_candidate.status.measured_odiv2_count =
+                    measurement.raw_count;
+                goto rollback;
+            }
+            if (measurement.raw_count < AD9528_PLL2_TEST0_PREFERRED_MIN ||
+                measurement.raw_count > AD9528_PLL2_TEST0_PREFERRED_MAX) {
+                preferred_all = 0U;
+            }
+            measurement_windows++;
+            ad9528_candidate.status.measured_odiv2_count =
+                measurement.raw_count;
+            ad9528_candidate.status.measurement_windows = measurement_windows;
+            if (measurement_windows >= AD9528_PLL2_TEST0_WINDOWS) {
+                break;
+            }
+        }
+        usleep(AD9528_PLL2_POLL_US);
+    }
+    if (measurement_windows < AD9528_PLL2_TEST0_WINDOWS) {
+        ad9528_candidate_set_failure(
+            LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_TIMEOUT,
+            0U, AD9528_PLL2_TEST0_WINDOWS, measurement_windows);
+        goto rollback;
+    }
+
+    ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_READY_MEASURED;
+    ad9528_candidate.status.configured_out0_hz =
+        AD9528_PLL2_TEST0_OUT0_HZ;
+    ad9528_candidate.status.runtime_active_likely = 1U;
+    ad9528_candidate.status.vcxo_status_ok = 1U;
+    ad9528_candidate.status.readback_ok = 1U;
+    ad9528_candidate.status.pll2_functionally_measured = 1U;
+    ad9528_candidate.status.measurement_preferred_tolerance = preferred_all;
+    ad9528_candidate.status.last_error = LASER_AD9528_CANDIDATE_ERROR_NONE;
+    ad9528_candidate.applied = 1U;
+    status = XST_SUCCESS;
+    goto done;
+
+rollback:
+    original_error = ad9528_candidate.status.last_error;
+    if (writes_started || ad9528_candidate.status.io_update_writes != 0U) {
+        if (ad9528_candidate_rollback(&plan, 0U) == XST_SUCCESS) {
+            (void)laser_ad9528_measure_mark_transition();
+            ad9528_candidate.status.state = LASER_AD9528_CANDIDATE_ERROR;
+            ad9528_candidate.status.last_error = original_error;
+        }
+    }
+    status = XST_FAILURE;
+done:
+    ad9528_candidate.busy = 0U;
+    return status;
 }
 
 int32_t laser_ad9528_candidate_set(const char *profile_name)
@@ -844,6 +1300,9 @@ int32_t laser_ad9528_candidate_set(const char *profile_name)
     if (profile_name == 0) {
         return XST_INVALID_PARAM;
     }
+    if (ad9528_profile_name_is_pll2_test0(profile_name)) {
+        return laser_ad9528_candidate_set_pll2_test0();
+    }
     if (ad9528_candidate.busy) {
         ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_BUSY,
                                      0U, 0U, 0U);
@@ -857,6 +1316,7 @@ int32_t laser_ad9528_candidate_set(const char *profile_name)
     }
 
     ad9528_candidate.busy = 1U;
+    ad9528_candidate.status.profile_name = "VCXO_122P88";
     previous_candidate_state = ad9528_candidate.status.state;
     previous_configured_out0_hz =
         ad9528_candidate.status.configured_out0_hz;
@@ -1096,7 +1556,9 @@ int32_t laser_ad9528_candidate_restore(void)
             0U, 0U, 0U);
         return XST_FAILURE;
     }
-    status = laser_ad9528_plan_clock_profile("VCXO_122P88", &plan);
+    status = laser_ad9528_plan_clock_profile(
+        ad9528_candidate.status.profile_name != 0 ?
+            ad9528_candidate.status.profile_name : "VCXO_122P88", &plan);
     if (status != XST_SUCCESS) {
         ad9528_candidate_set_failure(LASER_AD9528_CANDIDATE_ERROR_SPI_READ,
                                      laser_ad9528_last_read_error_reg(), 0U, 0U);
@@ -1128,8 +1590,12 @@ const char *laser_ad9528_candidate_state_name(LaserAd9528CandidateState state)
     case LASER_AD9528_CANDIDATE_PROGRAM: return "PROGRAM";
     case LASER_AD9528_CANDIDATE_BUFFER_READBACK: return "BUFFER_READBACK";
     case LASER_AD9528_CANDIDATE_IO_UPDATE: return "IO_UPDATE";
+    case LASER_AD9528_CANDIDATE_CALIBRATING: return "CALIBRATING";
+    case LASER_AD9528_CANDIDATE_WAIT_PLL2_LOCK: return "WAIT_PLL2_LOCK";
     case LASER_AD9528_CANDIDATE_POST_READBACK: return "POST_READBACK";
+    case LASER_AD9528_CANDIDATE_MEASURING: return "MEASURING";
     case LASER_AD9528_CANDIDATE_READY_UNMEASURED: return "READY_UNMEASURED";
+    case LASER_AD9528_CANDIDATE_READY_MEASURED: return "READY_MEASURED";
     case LASER_AD9528_CANDIDATE_ROLLBACK: return "ROLLBACK";
     case LASER_AD9528_CANDIDATE_RESTORED: return "RESTORED";
     case LASER_AD9528_CANDIDATE_ERROR: return "ERROR";
@@ -1151,6 +1617,10 @@ const char *laser_ad9528_candidate_error_name(LaserAd9528CandidateError error)
     case LASER_AD9528_CANDIDATE_ERROR_IO_UPDATE: return "IO_UPDATE_FAILED";
     case LASER_AD9528_CANDIDATE_ERROR_POST_READBACK: return "POST_READBACK_MISMATCH";
     case LASER_AD9528_CANDIDATE_ERROR_VCXO_STATUS: return "VCXO_STATUS_INVALID";
+    case LASER_AD9528_CANDIDATE_ERROR_CALIBRATION_TIMEOUT: return "PLL2_CALIBRATION_TIMEOUT";
+    case LASER_AD9528_CANDIDATE_ERROR_PLL2_LOCK_TIMEOUT: return "PLL2_LOCK_TIMEOUT";
+    case LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_TIMEOUT: return "OUT0_MEASUREMENT_TIMEOUT";
+    case LASER_AD9528_CANDIDATE_ERROR_MEASUREMENT_OUT_OF_RANGE: return "OUT0_MEASUREMENT_OUT_OF_RANGE";
     case LASER_AD9528_CANDIDATE_ERROR_ROLLBACK_FAILED: return "ROLLBACK_FAILED";
     case LASER_AD9528_CANDIDATE_ERROR_NO_ACTIVE_CANDIDATE: return "NO_ACTIVE_CANDIDATE";
     default: return "UNKNOWN_ERROR";
@@ -1168,8 +1638,9 @@ int32_t laser_ad9528_format_candidate_status(
     const char *rollback_state = status->rollback_attempted ?
         (status->rollback_success ? "SUCCESS" : "FAILED") : "NOT_ATTEMPTED";
     (void)snprintf(buffer, buffer_size,
-                   "%s profile=VCXO_122P88 state=%s configured_out0_hz=%lu runtime_active_likely=%u vcxo_status_ok=%u readback_ok=%u applied_snapshot_valid=%u rollback_state=%s rollback_attempted=%u rollback_success=%u last_error=%s failed_reg=0x%04x expected=0x%02x actual=0x%02x config_writes=%u io_update_writes=%u pll1_lock_required=0 pll2_lock_required=0 affects_shared_clock_tree=1 may_affect_other_outputs=1 board_verified=0",
+                   "%s profile=%s state=%s configured_out0_hz=%lu runtime_active_likely=%u vcxo_status_ok=%u readback_ok=%u applied_snapshot_valid=%u rollback_state=%s rollback_attempted=%u rollback_success=%u last_error=%s failed_reg=0x%04x expected=0x%02x actual=0x%02x config_writes=%u io_update_writes=%u pll1_lock_required=0 pll2_lock_required=%u affects_shared_clock_tree=1 may_affect_other_outputs=1 shared_pll2_output_impact=%s configuration_class=%s pll2_functionally_measured=%u measurement_windows=%u measured_odiv2_count=%lu preferred_tolerance_pass=%u board_verified=0",
                    response_prefix,
+                   status->profile_name != 0 ? status->profile_name : "NONE",
                    laser_ad9528_candidate_state_name(status->state),
                    (unsigned long)status->configured_out0_hz,
                    (unsigned int)status->runtime_active_likely,
@@ -1184,6 +1655,15 @@ int32_t laser_ad9528_format_candidate_status(
                    (unsigned int)status->failed_expected,
                    (unsigned int)status->failed_actual,
                    (unsigned int)status->config_writes,
-                   (unsigned int)status->io_update_writes);
+                   (unsigned int)status->io_update_writes,
+                   ad9528_profile_name_is_pll2_test0(status->profile_name) ? 1U : 0U,
+                   ad9528_profile_name_is_pll2_test0(status->profile_name) ?
+                       "ACCEPTED_FOR_LAB_TEST_ONLY" : "NOT_APPLICABLE",
+                   ad9528_profile_name_is_pll2_test0(status->profile_name) ?
+                       "REFERENCE_CONFIGURATION" : "VCXO_DIRECT",
+                   (unsigned int)status->pll2_functionally_measured,
+                   (unsigned int)status->measurement_windows,
+                   (unsigned long)status->measured_odiv2_count,
+                   (unsigned int)status->measurement_preferred_tolerance);
     return XST_SUCCESS;
 }
