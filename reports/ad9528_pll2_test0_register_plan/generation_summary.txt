@@ -1,0 +1,9 @@
+AD9528 PLL2 TEST0 dual-candidate register-plan generation
+baseline_register_count=97
+baseline_semantic=APPLICATION_INITIALIZED_BASELINE
+PLL2_TEST0_OUT0_125P44: out0_hz=125440000 vco_hz=4014080000 cal_div=196 count_1ms=62720
+PLL2_TEST0_OUT0_124P416: out0_hz=124416000 vco_hz=3732480000 cal_div=243 count_1ms=62208
+recommended_for_next_closure=PLL2_TEST0_OUT0_124P416
+final_gate=NO_SAFE_PLL2_TEST0_CANDIDATE
+safe_to_implement=false
+executable_initializer_generated=false

@@ -1,0 +1,14 @@
+{
+  "blocking_gates": [
+    "CHARGE_PUMP_BOARD_PROFILE_NOT_CONFIRMED",
+    "GLOBAL_SYNC_IMPACT_NOT_ACCEPTED",
+    "LOOP_FILTER_BOARD_PROFILE_NOT_CONFIRMED",
+    "SHARED_PLL2_OUTPUT_IMPACT_NOT_ACCEPTED"
+  ],
+  "candidate_a_target_error_ppm": 3520,
+  "candidate_b_target_error_ppm": -4672,
+  "reason": "Candidate B has materially larger margin to both AD9528 PLL2 VCO limits; candidate A is closer to the 125 MHz target but only 10.92 MHz below the upper VCO limit.",
+  "recommendation_scope": "LOWER_RISK_FOR_NEXT_PARAMETER_CLOSURE_ONLY",
+  "recommended_candidate": "PLL2_TEST0_OUT0_124P416",
+  "safe_to_implement": false
+}

@@ -1,0 +1,44 @@
+{
+  "ad9528_write_operations": 0,
+  "candidate_results": [
+    {
+      "board_verified": false,
+      "candidate_name": "PLL2_TEST0_OUT0_125P44",
+      "executable_initializer_generated": false,
+      "failed_gates": [
+        "CHARGE_PUMP_BOARD_PROFILE_NOT_CONFIRMED",
+        "LOOP_FILTER_BOARD_PROFILE_NOT_CONFIRMED",
+        "SHARED_PLL2_OUTPUT_IMPACT_NOT_ACCEPTED",
+        "GLOBAL_SYNC_IMPACT_NOT_ACCEPTED"
+      ],
+      "requires_calibration": true,
+      "requires_io_update": true,
+      "requires_sync": true,
+      "result": "NOT_SAFE_TO_IMPLEMENT",
+      "safe_to_implement": false,
+      "sync_safe": false
+    },
+    {
+      "board_verified": false,
+      "candidate_name": "PLL2_TEST0_OUT0_124P416",
+      "executable_initializer_generated": false,
+      "failed_gates": [
+        "CHARGE_PUMP_BOARD_PROFILE_NOT_CONFIRMED",
+        "LOOP_FILTER_BOARD_PROFILE_NOT_CONFIRMED",
+        "SHARED_PLL2_OUTPUT_IMPACT_NOT_ACCEPTED",
+        "GLOBAL_SYNC_IMPACT_NOT_ACCEPTED"
+      ],
+      "requires_calibration": true,
+      "requires_io_update": true,
+      "requires_sync": true,
+      "result": "NOT_SAFE_TO_IMPLEMENT",
+      "safe_to_implement": false,
+      "sync_safe": false
+    }
+  ],
+  "executable_initializer_generated": false,
+  "fixed_3000m_cpll_status": "BLOCKED/NO_LEGAL_VERIFIED_125M_CPLL_PROFILE",
+  "result": "NO_SAFE_PLL2_TEST0_CANDIDATE",
+  "rtl_or_vitis_changes": false,
+  "safe_to_implement": false
+}

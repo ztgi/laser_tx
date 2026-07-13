@@ -1,0 +1,23 @@
+address,baseline_value,target_value,write_mask,readback_mask,expected_readback,field_breakdown,value_source,buffered_or_live,requires_io_update,included_in_snapshot,included_in_restore,confidence
+0x0108,0x00,0x01,0x05,0x05,0x01,VCXO differential receiver enabled and receiver power-down cleared,AD9528_DATASHEET+BOARD_122P88_VCXO,BUFFERED,True,True,True,FIELD_CONFIRMED_BOARD_ASSUMPTION
+0x0109,0x00,0x38,0x38,0x38,0x38,PLL1 bypass/VCXO path enabled for PLL2 reference input,AD9528_DATASHEET+EXISTING_VCXO_CANDIDATE,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x010A,0x00,0x00,0x00,0x00,0x00,Preserve reference control byte,APPLICATION_INITIALIZED_BASELINE,BUFFERED,True,False,False,PRESERVED
+0x0200,0x00,0xE6,0xFF,0xFF,0xE6,PLL2 charge-pump code 230 (805 uA reference at approximately 3.5 uA/LSB),D:/FPGA_Learn/project_gtx/vitis_clean/laser_tx_rate/src/ad9528.c+h,BUFFERED,True,True,True,REFERENCE_ONLY_NOT_BOARD_CONFIRMED
+0x0201,0x04,0xFC,0xFF,0xFF,0xFC,feedback calibration divider=243; A=3; B=60,AD9528_DATASHEET+ADI_DRIVER_ENCODING,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0202,0x03,0x03,0xA3,0xA3,0x03,"lock detector enabled, doubler disabled, charge pump normal mode",AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0203,0x00,0x10,0x17,0x17,0x10,R1 path enabled; calibration bit remains clear in base image and is a later action,AD9528_DATASHEET+ADI_DRIVER_SEQUENCE,BUFFERED,True,True,True,FIELD_AND_SEQUENCE_CONFIRMED
+0x0204,0x00,0x03,0x0F,0x0F,0x03,M1=3; M1 power-down cleared,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0205,0x00,0x3A,0xFF,0xFF,0x3A,"reference loop-filter byte: RPOLE2=900 ohm, RZERO=1850 ohm, CPOLE1=16 pF",D:/FPGA_Learn/project_gtx/vitis_clean/laser_tx_rate/src/ad9528.c+h,BUFFERED,True,True,True,REFERENCE_ONLY_NOT_BOARD_CONFIRMED
+0x0206,0x00,0x00,0x01,0x01,0x00,RZERO bypass disabled,D:/FPGA_Learn/project_gtx/vitis_clean/laser_tx_rate/src/ad9528.c+h,BUFFERED,True,True,True,REFERENCE_ONLY_NOT_BOARD_CONFIRMED
+0x0207,0x00,0x08,0x1F,0x1F,0x08,PLL2 R1 divider=8,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0208,0x00,0x50,0xFF,0xFF,0x50,PLL2 N2 divider encoding=N2-1=80,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0300,0x00,0x00,0xE0,0xE0,0x00,OUT0 source=PLL2/VCO,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0301,0x00,0x00,0xC0,0xC0,0x00,OUT0 driver=LVDS; preserve phase bits,AD9528_DATASHEET+BOARD_SCHEMATIC,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0302,0x04,0x09,0xFF,0xFF,0x09,OUT0 divider encoding=divide-10 minus one,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x032A,0x00,0x00,0x00,0x00,0x00,SYNC is a separate 1->0 action after output-divider change; no static byte write,AD9528_DATASHEET,BUFFERED,True,False,False,SEQUENCE_CONFIRMED_SHARED_IMPACT_OPEN
+0x032B,0x00,0x00,0x00,0x00,0x00,SYNC ignore mask channels 0..7 preserved,APPLICATION_INITIALIZED_BASELINE,BUFFERED,True,False,False,PRESERVED
+0x032C,0x00,0x00,0x00,0x00,0x00,SYNC ignore mask channels 8..13 preserved,APPLICATION_INITIALIZED_BASELINE,BUFFERED,True,False,False,PRESERVED
+0x0500,0x10,0x10,0x08,0x08,0x00,clear PLL2 power-down only,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0501,0x00,0x00,0x01,0x01,0x00,clear OUT0 channel power-down only,AD9528_DATASHEET,BUFFERED,True,True,True,FIELD_CONFIRMED
+0x0508,0x10,0x10,0x00,0xA2,0xA2,"read-only postcondition: VCXO OK, PLL2 feedback OK and PLL2 locked",AD9528_DATASHEET,READ_ONLY,False,False,False,STATUS_CONFIRMED
+0x0509,0x08,0x08,0x00,0x01,0x00,read-only postcondition: calibration in progress bit cleared,AD9528_DATASHEET,READ_ONLY,False,False,False,STATUS_CONFIRMED

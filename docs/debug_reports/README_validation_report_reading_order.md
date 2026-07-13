@@ -186,4 +186,7 @@ ad9528_out0_frequency_measurement_report.md
 ```text
 ../design_notes/ad9528_fine_step_test0_candidate_selection.md
 43_ad9528_pll2_test0_register_image_audit.md
+45_ad9528_pll2_test0_dual_candidate_register_plan.md
 ```
+
+其中 43 号报告记录旧 124.8 MHz 候选因 calibration divider=260 被否决；45 号报告使用完整运行镜像比较新的 125.44/124.416 MHz 候选，并给出当前 `NO_SAFE_PLL2_TEST0_CANDIDATE` gate。后者不代表 PLL2 candidate 已实现或上板。

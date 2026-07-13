@@ -8,6 +8,13 @@
 NO_SAFE_PLL2_TEST0_CANDIDATE
 ```
 
+在完整 97 字节运行镜像到位后，已新增两套 calibration-divider 可编码候选的逐寄存器比较：
+
+- A：125.44 MHz，R1/N2/M1=6/49/4，VCO=4014.08 MHz；
+- B：124.416 MHz，R1/N2/M1=8/81/3，VCO=3732.48 MHz。
+
+两者都没有进入可执行 candidate。B 因 VCO 上下边界余量更均衡，只被推荐为下一轮参数闭环对象；charge-pump、loop-filter、共享 PLL2 输出和 global SYNC 许可仍阻止实现。详见 `../debug_reports/45_ad9528_pll2_test0_dual_candidate_register_plan.md`。
+
 原首选数学候选 `PLL2_TEST0_OUT0_124P8_CPLL_998P4` 已经被更高优先级的 ADI no-OS 驱动约束否决：其 `M1×N2=4×65=260`，而 0x0201 feedback calibration A/B divider 仅接受 16..255（并排除 18、19、23、27）。禁止将 B=65 截断到 6 bit，也不得将该候选生成可执行寄存器表。
 
 ## 2. 数学结果与寄存器可编码性不是同一层
@@ -81,3 +88,5 @@ AD9528_REG addr=0x0200 value=0xXX
 ## 7. 实现路径边界
 
 AD9528 OUT0 实验路径与正式 fixed-125M profile 相互独立。候选不会进入正式 planner，不覆盖现有 11 档，不改变 3000M BLOCKED，不连接 Bank110 到 Bank111。下一步只能先根据真实 full dump 重新选择一组 calibration divider 合法的 PLL2 参数，再完成 register-image 与共享输出审计。
+
+完整 dump 已证明 OUT0..OUT11 当前消费 PLL2 或 PLL2 retimed SYSREF，OUT12/13 消费 PLL1/VCXO，且 14 路 channel 全部 enabled、SYNC ignore mask 全为 0。因此下一步不能再把共享输出风险写成纯 UNKNOWN；必须取得共享时钟树影响许可，并确认本板 charge-pump/loop-filter 参数后，才可考虑实现 B 候选。

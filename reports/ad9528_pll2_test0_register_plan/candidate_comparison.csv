@@ -1,0 +1,3 @@
+candidate_name,vcxo_hz,r1,n2,m1,pfd_hz,vco_hz,vco_lower_margin_hz,vco_upper_margin_hz,calibration_divider,calibration_divider_valid,feedback_ab,out0_div,out0_hz,odiv2_hz,odiv2_count_1ms,theoretical_gt_line_rate_hz,error_ppm_from_1g
+PLL2_TEST0_OUT0_125P44,122880000,6,49,4,20480000,4014080000,564080000,10920000,196,True,0x31,8,125440000,62720000,62720,1003520000,3520
+PLL2_TEST0_OUT0_124P416,122880000,8,81,3,15360000,3732480000,282480000,292520000,243,True,0xFC,10,124416000,62208000,62208,995328000,-4672

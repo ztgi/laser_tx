@@ -26,6 +26,9 @@
 - 原 124.8 MHz 数学候选因 `M1×N2=260` 超过 ADI 0x0201 feedback calibration divider 上限 255，已从候选中排除；
 - 寄存器审计 gate 为 `NO_PROVEN_PLL2_REGISTER_IMAGE`，且共享输出影响仍未确认；
 - 新增只读 `ad9528 dump full`，未新增任何 PLL2 写操作，未修改 RTL、BD/XDC 或 supported rates。
+- 已解析 97 字节 application-initialized full dump，并完成 125.44 MHz / 124.416 MHz 两套完整寄存器计划对比；
+- 两候选 calibration divider 均可编码，但 charge-pump、loop-filter、共享 PLL2 输出及 global SYNC 许可未闭环，最终 gate 仍为 `NO_SAFE_PLL2_TEST0_CANDIDATE`；
+- 124.416 MHz 候选只作为下一轮参数闭环优先对象，尚未生成执行入口、未写 AD9528、未上板。
 
 ## 1. 当前分层状态表
 
