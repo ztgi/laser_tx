@@ -164,7 +164,7 @@ io_update_writes=1
 board_verified=0
 ```
 
-该结果说明 candidate 的七项寄存器写入、IO_UPDATE、masked readback 和 VCXO status 均已通过。但 ILA 中 `ad9528_odiv2_count_axi` 显示为：
+该结果说明 candidate 的七项寄存器写入、IO_UPDATE、masked readback 和 VCXO status 均已通过。第一次较早抓取 ILA 时，`ad9528_odiv2_count_axi` 显示为：
 
 ```text
 82883
@@ -178,7 +178,21 @@ board_verified=0
 | ODIV2 frequency | 61.44MHz | 82.883MHz | 假设窗口为1ms |
 | OUT0 frequency | 122.88MHz | 165.766MHz | 假设 ODIV2=OUT0/2 |
 
-因此，本轮上板结果不是 `OUT0=122.88MHz` 的通过证据。它只证明：AD9528 candidate 写入状态已经到达 `READY_UNMEASURED`，同时 FPGA 侧确实通过 Bank110 `IBUFDS_GTE2.ODIV2` 观测到了一个持续时钟，但该时钟频率与 `VCXO_122P88` 目标不一致。
+随后用户等待数秒后再次抓取，`ad9528_odiv2_count_axi` 回到：
+
+```text
+61437
+```
+
+该值与预期 61440 只差 3 个计数，换算为：
+
+| 项目 | 预期 | 稳定后实测/推算 | 说明 |
+| --- | ---: | ---: | --- |
+| ODIV2 count | 61,440 | 61,437 | 落入 60,000～62,900 窗口 |
+| ODIV2 frequency | 61.44MHz | 61.437MHz | 假设窗口为1ms |
+| OUT0 frequency | 122.88MHz | 122.874MHz | 假设 ODIV2=OUT0/2 |
+
+因此，82883 不应被解释为最终稳态频率。更合理的解释是：第一次抓取窗口发生在 AD9528 IO_UPDATE 后的时钟切换/分频器稳定过程附近，1ms delta 窗口可能跨越了过渡状态，因此得到一个非稳态计数。等待数秒后，ODIV2 计数回到约 61440，说明当前 `VCXO_122P88` candidate 在稳态下已经通过 ILA 计数支持 OUT0 约为 122.88MHz。
 
 当前必须保持：
 
@@ -187,17 +201,17 @@ measured_out0_hz=UNKNOWN
 board_verified=0
 ```
 
-不得将该 candidate 接入 Bank111 GT，也不得将其作为 GT 细步进参考时钟来源。
+这里的 `measured_out0_hz=UNKNOWN` 是指软件状态字段尚未接入 ILA 计数回读，`board_verified=0` 是 candidate 状态机尚未自动升级为正式已验证 profile。工程结论可以写成“ILA 观测到稳态 ODIV2 计数约 61437，支持 OUT0≈122.874MHz”，但还不能自动推进到 Bank111 GT 接入或 GT 细步进 profile。
 
 ## 9.1 失败定位建议
 
 下一步不应修改 GT profile 或 Bank111 参考时钟。建议先补三项最小证据：
 
-1. 在同一 ILA 窗口确认 `ad9528_measure_valid_axi=1`、`ad9528_odiv2_alive_axi=1`、`ad9528_odiv2_in_range_axi=0`，并确认 count 是否稳定在约 82883。
-2. 执行 `ad9528 candidate restore` 后再次抓取 ILA，确认 count 是否离开约 82883；如果 restore 后仍稳定为 82883，说明当前 OUT0 测量点可能没有被该 candidate profile 控制，或OUT0原本已有其它时钟源。
+1. 在同一 ILA 窗口确认 `ad9528_measure_valid_axi=1`、`ad9528_odiv2_alive_axi=1`、`ad9528_odiv2_in_range_axi=1`，并确认 count 稳定在约 61437～61440。
+2. 执行 `ad9528 candidate restore` 后再次抓取 ILA，确认 count 离开约 61440；如果 restore 后仍稳定为 61440，说明当前 OUT0 测量点可能没有被该 candidate profile 控制，或 OUT0 原本已有相同频率时钟源。
 3. 在 candidate set 后保存 `ad9528 dump` 中 `0x0108/0x0109/0x0300/0x0301/0x0302/0x0500/0x0501/0x0503/0x0508/0x0509` 的真实值，用于复核 source/divider/power/status 位域。
 
-若 82883 稳定复现，后续应优先复核 AD9528 OUT0 source encoding、divider encoding、VCXO input/source path 和 `IBUFDS_GTE2.ODIV2` 换算关系。不能仅凭 `configured_out0_hz=122880000` 继续推进。
+若后续仍偶发 82883，但等待后稳定回到约 61440，应把 82883 归类为切换后过渡窗口或捕获时机问题；若 82883 在多个有效窗口中持续复现，才需要重新复核 AD9528 OUT0 source encoding、divider encoding、VCXO input/source path 和 `IBUFDS_GTE2.ODIV2` 换算关系。
 
 ## 9.2 Restore 与默认镜像回读
 
@@ -240,13 +254,13 @@ out0_cfg_enabled=1
 out0_hz=UNKNOWN
 ```
 
-因此，restore 路径和默认镜像恢复是有效的；但这份 dump 是 restore 后状态，不能解释 candidate set 时 `ad9528_odiv2_count_axi=82883` 的原因。下一步需要在 count=82883 的 set 状态下立即保存同一组寄存器，尤其是：
+因此，restore 路径和默认镜像恢复是有效的；但这份 dump 是 restore 后状态，不能解释 candidate set 后早期窗口中 `ad9528_odiv2_count_axi=82883` 的瞬态来源。由于等待数秒后计数回到 61437，set 状态下仍建议保存同一组寄存器，作为稳态 122.88MHz 证据链的一部分，尤其是：
 
 ```text
 0x0108 0x0109 0x0300 0x0301 0x0302 0x0500 0x0501 0x0503 0x0508 0x0509
 ```
 
-如果 set 状态下这些寄存器与计划值一致，但 ILA count 仍稳定约 82883，则需要重新核对 AD9528 OUT0 source/divider 位域或 `ODIV2=OUT0/2` 的当前器件路径假设；如果 set 状态下寄存器没有进入计划值，则问题应回到 candidate apply/IO_UPDATE/readback 路径。
+如果 set 状态下这些寄存器与计划值一致，且 ILA count 稳定约 61437～61440，则可把本阶段结论收口为：AD9528 OUT0 VCXO 122.88MHz candidate 已完成 ILA 频率验证。若 set 状态下寄存器没有进入计划值，则问题应回到 candidate apply/IO_UPDATE/readback 路径。
 
 ## 10. 修改文件
 
@@ -261,15 +275,14 @@ out0_hz=UNKNOWN
 
 ## 11. 风险与边界
 
-Oscilloscope hardware validation was not run。ILA measurement was run, but did not match the expected 122.88MHz candidate result。
+Oscilloscope hardware validation was not run。ILA measurement was run: early capture once showed 82883, but a later stable capture showed 61437, matching the expected 122.88MHz candidate result within the configured window。
 
-因此当前只能声明测量路径 build、routing、DRC、timing 和 bit/LTX 生成通过，且 ILA 已观测到一个与预期不一致的 OUT0/ODIV2 时钟。不能声明：
+因此当前可以声明测量路径 build、routing、DRC、timing 和 bit/LTX 生成通过，且 ILA 稳态计数支持 OUT0≈122.874MHz。仍不能声明：
 
-- OUT0 已实测为122.88MHz；
-- ODIV2 上板计数已经约61440；
+- 示波器实测 OUT0 已完成；
+- 软件 `measured_out0_hz` 字段已经回读真实频率；
 - candidate 已成为 `board_verified`；
-- `measured_out0_hz` 已知；
 - OUT0 已接入 Bank111 GT；
 - 新的 GT line-rate profile 已支持。
 
-下一步必须先闭环 82883 这一异常计数的来源。只有实际 ODIV2 计数与预期一致，或重新定义并验证正确的 AD9528 OUT0 profile 后，才能进入测量值回读或 Bank110→Bank111 GTNORTHREFCLK0 的后续独立阶段。
+下一步应补 set 状态下的寄存器 dump 和稳定 ILA 截图。如果这些证据一致，再进入“把 ILA 测量值回读到软件状态”或“Bank110→Bank111 GTNORTHREFCLK0 接入”的后续独立阶段。
