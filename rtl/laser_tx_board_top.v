@@ -105,7 +105,11 @@ module laser_tx_board_top (
     wire        dbg_txoutclk_alive_axi;
     wire [31:0] dbg_timeout_count;
 
+    localparam integer AD9528_MEASURE_GT_CTRL_CLK_HZ = 50000000;
+    localparam integer AD9528_MEASURE_WINDOW_US = 1000;
     localparam integer AD9528_MEASURE_CYCLES = 50000;
+    localparam integer AD9528_ODIV2_DIVIDE_FACTOR = 2;
+    localparam [3:0] AD9528_MEASURE_FORMAT_VERSION = 4'd1;
     localparam [31:0] AD9528_ODIV2_COUNT_MIN = 32'd60000;
     localparam [31:0] AD9528_ODIV2_COUNT_MAX = 32'd62900;
 
@@ -128,6 +132,16 @@ module laser_tx_board_top (
     (* mark_debug = "true" *) reg [31:0] ad9528_odiv2_count_axi;
     (* mark_debug = "true" *) reg ad9528_odiv2_in_range_axi;
     (* mark_debug = "true" *) reg ad9528_measure_valid_axi;
+    reg [15:0] ad9528_measure_sequence_axi;
+    wire [31:0] ad9528_measure_status_to_ps = {
+        ad9528_measure_sequence_axi,
+        8'd0,
+        AD9528_MEASURE_FORMAT_VERSION,
+        1'b0,
+        ad9528_odiv2_alive_axi,
+        ad9528_odiv2_in_range_axi,
+        ad9528_measure_valid_axi
+    };
     wire [31:0] ad9528_odiv2_delta_axi =
         ad9528_odiv2_counter_bin_axi - ad9528_odiv2_counter_prev_axi;
 
@@ -176,6 +190,7 @@ module laser_tx_board_top (
             ad9528_odiv2_count_axi          <= 32'd0;
             ad9528_odiv2_in_range_axi       <= 1'b0;
             ad9528_measure_valid_axi        <= 1'b0;
+            ad9528_measure_sequence_axi     <= 16'd0;
         end else begin
             ad9528_odiv2_gray_meta_axi   <= ad9528_odiv2_counter_gray;
             ad9528_odiv2_gray_sync_axi   <= ad9528_odiv2_gray_meta_axi;
@@ -190,6 +205,8 @@ module laser_tx_board_top (
                 ad9528_odiv2_count_axi <= ad9528_odiv2_delta_axi;
                 ad9528_odiv2_alive_axi <= (ad9528_odiv2_delta_axi != 32'd0);
                 ad9528_measure_valid_axi <= ad9528_measure_window_primed_axi;
+                ad9528_measure_sequence_axi <=
+                    ad9528_measure_sequence_axi + 1'b1;
                 if (ad9528_measure_window_primed_axi) begin
                     ad9528_odiv2_in_range_axi <=
                         (ad9528_odiv2_delta_axi >= AD9528_ODIV2_COUNT_MIN) &&
@@ -237,6 +254,8 @@ module laser_tx_board_top (
         .acq_trig_out_0    (acq_trig_out_0),
         .eom_out_0         (eom_out_0),
         .soa_gate_out_0    (soa_gate_out_0),
+        .ad9528_measure_count_in  (ad9528_odiv2_count_axi),
+        .ad9528_measure_status_in (ad9528_measure_status_to_ps),
         .dbg_apply_enable_blocked       (dbg_apply_enable_blocked),
         .dbg_current_rate_mbps          (dbg_current_rate_mbps),
         .dbg_gt_drp_busy                (dbg_gt_drp_busy),

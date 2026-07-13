@@ -80,3 +80,12 @@ README_validation_report_reading_order.md
 docs/debug_reports/archive/
 ```
 
+
+## 6. AD9528 OUT0 测量链路补充状态
+
+| 层级 / 功能 | 当前状态 | 证据入口 | 备注 |
+| --- | --- | --- | --- |
+| AD9528 OUT0 ILA 频率测量 | 已有上板稳态证据 | `ad9528_out0_frequency_measurement_report.md` | ODIV2 count=61437，对应 OUT0 约122.874MHz；非示波器证据 |
+| AD9528 OUT0 PS/UDP 回读 | 软件/硬件接口已实现，build与新接口上板状态见41号报告 | `41_ad9528_out0_software_measurement_readback_report.md` | 专用只读 AXI GPIO；不接Bank111，不改变GT profile |
+
+本补充状态优先于本文前部早期 Phase A 描述；历史段落保留用于追溯，当前动态 rate/profile 结论应以最新编号报告和实际 `rate list/status` 为准。

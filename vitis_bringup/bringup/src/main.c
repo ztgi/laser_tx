@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "laser_ad9528.h"
+#include "laser_ad9528_measure.h"
 #include "laser_bram.h"
 #include "laser_config_cases.h"
 #include "laser_gpio.h"
@@ -66,6 +67,7 @@ static int laser_init_control_hw(LaserGpio *gpio)
     xil_printf("GPIO ctrl/status : 0x%08lx\r\n", (unsigned long)LASER_GPIO_BASEADDR);
     xil_printf("BRAM             : 0x%08lx\r\n", (unsigned long)LASER_BRAM_BASEADDR);
     xil_printf("GT status GPIO   : 0x%08lx\r\n", (unsigned long)LASER_GT_STATUS_GPIO_BASEADDR);
+    xil_printf("AD9528 measure   : 0x%08lx\r\n", (unsigned long)LASER_AD9528_MEASURE_GPIO_BASEADDR);
     xil_printf("Runtime rate set : verified 125MHz CPLL/QPLL profiles including 625M and 4000M in UDP mode; no AD9528/refclk/wide-range rate change\r\n");
 
     status = laser_gpio_init(gpio);
@@ -76,6 +78,12 @@ static int laser_init_control_hw(LaserGpio *gpio)
     status = laser_gt_init();
     if (status != XST_SUCCESS) {
         xil_printf("ERROR: GT status GPIO init failed: %d\r\n", status);
+        return XST_FAILURE;
+    }
+
+    status = laser_ad9528_measure_init();
+    if (status != XST_SUCCESS) {
+        xil_printf("ERROR: AD9528 measurement GPIO init failed: %d\r\n", status);
         return XST_FAILURE;
     }
 

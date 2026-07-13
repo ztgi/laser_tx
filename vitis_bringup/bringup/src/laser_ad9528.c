@@ -1114,7 +1114,7 @@ int32_t laser_ad9528_format_candidate_status(
     const char *rollback_state = status->rollback_attempted ?
         (status->rollback_success ? "SUCCESS" : "FAILED") : "NOT_ATTEMPTED";
     (void)snprintf(buffer, buffer_size,
-                   "%s profile=VCXO_122P88 state=%s configured_out0_hz=%lu runtime_active_likely=%u measured_out0_hz=UNKNOWN vcxo_status_ok=%u readback_ok=%u applied_snapshot_valid=%u rollback_state=%s rollback_attempted=%u rollback_success=%u last_error=%s failed_reg=0x%04x expected=0x%02x actual=0x%02x config_writes=%u io_update_writes=%u pll1_lock_required=0 pll2_lock_required=0 affects_shared_clock_tree=1 may_affect_other_outputs=1 board_verified=0",
+                   "%s profile=VCXO_122P88 state=%s configured_out0_hz=%lu runtime_active_likely=%u vcxo_status_ok=%u readback_ok=%u applied_snapshot_valid=%u rollback_state=%s rollback_attempted=%u rollback_success=%u last_error=%s failed_reg=0x%04x expected=0x%02x actual=0x%02x config_writes=%u io_update_writes=%u pll1_lock_required=0 pll2_lock_required=0 affects_shared_clock_tree=1 may_affect_other_outputs=1 board_verified=0",
                    response_prefix,
                    laser_ad9528_candidate_state_name(status->state),
                    (unsigned long)status->configured_out0_hz,

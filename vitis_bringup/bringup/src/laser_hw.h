@@ -84,6 +84,15 @@
 #error "GT status AXI GPIO macro was not generated. Regenerate platform/BSP from laser_tx_board_top_gt_profile0.xsa."
 #endif
 
+#if defined(XPAR_AXI_GPIO_AD9528_MEASURE_DEVICE_ID) && \
+    defined(XPAR_AXI_GPIO_AD9528_MEASURE_BASEADDR) && \
+    defined(XPAR_AXI_GPIO_AD9528_MEASURE_HIGHADDR)
+#define LASER_AD9528_MEASURE_GPIO_DEVICE_ID XPAR_AXI_GPIO_AD9528_MEASURE_DEVICE_ID
+#define LASER_AD9528_MEASURE_GPIO_BASEADDR XPAR_AXI_GPIO_AD9528_MEASURE_BASEADDR
+#define LASER_AD9528_MEASURE_GPIO_HIGHADDR XPAR_AXI_GPIO_AD9528_MEASURE_HIGHADDR
+#else
+#error "AD9528 measurement AXI GPIO macro was not generated. Regenerate platform/BSP from the latest XSA."
+#endif
 #if defined(XPAR_PS7_SPI_1_DEVICE_ID)
 #define LASER_SPI_DEVICE_ID XPAR_PS7_SPI_1_DEVICE_ID
 #elif defined(XPAR_XSPIPS_0_DEVICE_ID)

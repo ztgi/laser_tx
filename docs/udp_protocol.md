@@ -157,3 +157,37 @@ Phase A dry-run rate controller 已实现；
 rate set 500/1000 仅触发 dry-run 状态机，不改变真实速率；
 GTX/MMCM DRP 和真实动态切换仍属于后续阶段。
 ```
+
+## AD9528 OUT0 软件频率回读
+
+> 本文前部保留早期 Phase A dry-run 描述用于追溯；当前 rate planner/profile 状态以最新 integration report 和实际 `rate list/status` 为准。本节命令不修改普通 rate 命令。
+
+新增纯只读命令：
+
+```text
+ad9528 measure status
+```
+
+有效 snapshot 示例格式：
+
+```text
+OK AD9528_MEASURE state=VALID_IN_RANGE valid=1 in_range=1 alive=1 sequence=<n> odiv2_count=61437 measured_odiv2_hz=61437000 measured_out0_hz=122874000 window_us=1000
+```
+
+无有效完整窗口时不返回旧缓存值：
+
+```text
+OK AD9528_MEASURE state=NOT_VALID valid=0 in_range=<0|1> alive=<0|1> sequence=<n> odiv2_count=UNKNOWN measured_odiv2_hz=UNKNOWN measured_out0_hz=UNKNOWN window_us=1000
+```
+
+读取采用 `status_before -> count -> status_after`，sequence 跨窗口变化时最多重试 4 次。format/version 不匹配或读取无法收敛时返回 `ERROR AD9528_MEASURE`。
+
+以下 candidate 命令的原有字段和 apply/restore 语义保持不变，并追加 measurement 字段：
+
+```text
+ad9528 candidate set vcxo_122p88
+ad9528 candidate status
+ad9528 candidate restore
+```
+
+candidate set/restore 成功后，软件等待新的 measurement sequence，避免把切换前 snapshot 当成当前频率。`in_range=0` 只表示该完整窗口不在 60000～62900 的 ODIV2 count 候选范围，不等同于 AD9528 SPI/apply 失败。本接口不修改 AD9528、GT 或 supported rate list，且不会自动把 candidate 标记为 `board_verified`。

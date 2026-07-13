@@ -332,3 +332,13 @@ Oscilloscope hardware validation was not run。ILA measurement was run: early ca
 - 新的 GT line-rate profile 已支持。
 
 下一步可进入“把 ILA 测量值回读到软件状态”或“Bank110→Bank111 GTNORTHREFCLK0 接入”的后续独立阶段；两者仍应拆成独立任务。
+
+## 12. 软件回读集成状态
+
+后续独立分支已实现把既有 `gt_ctrl_clk` 域 1 ms count/flags snapshot 通过专用双通道只读 AXI GPIO 暴露给 PS。软件采用 sequence-before/count/sequence-after 一致性读取，并以 `uint64_t` 换算 ODIV2/OUT0 频率；详细设计与 build 证据见：
+
+```text
+docs/debug_reports/41_ad9528_out0_software_measurement_readback_report.md
+```
+
+本节不改写前述历史 ILA 证据。上一阶段的 61437 是真实 ILA 稳态观测；新增 PS/UDP 回读在未完成新 bit/XSA/ELF 上板验证前仍不得写成硬件通过，candidate 的 `board_verified` 继续保持 0。

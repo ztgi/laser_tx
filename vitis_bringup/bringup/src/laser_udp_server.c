@@ -8,6 +8,7 @@
 #include "sleep.h"
 #include "gt_rate_plan.h"
 #include "laser_ad9528.h"
+#include "laser_ad9528_measure.h"
 #include "laser_bram.h"
 #include "laser_gpio.h"
 #include "laser_gt.h"
@@ -118,6 +119,7 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     xil_printf("GPIO ctrl/status : 0x%08lx\r\n", (unsigned long)LASER_GPIO_BASEADDR);
     xil_printf("BRAM             : 0x%08lx\r\n", (unsigned long)LASER_BRAM_BASEADDR);
     xil_printf("GT status GPIO   : 0x%08lx\r\n", (unsigned long)LASER_GT_STATUS_GPIO_BASEADDR);
+    xil_printf("AD9528 measure   : 0x%08lx\r\n", (unsigned long)LASER_AD9528_MEASURE_GPIO_BASEADDR);
     xil_printf("Runtime rate set : verified 125MHz CPLL/QPLL profiles including 625M and 4000M, no AD9528/refclk/wide-range rate change\r\n");
 
     status = laser_gpio_init(gpio);
@@ -128,6 +130,11 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     status = laser_gt_init();
     if (status != XST_SUCCESS) {
         xil_printf("ERROR: GT status GPIO init failed: %d\r\n", status);
+        return XST_FAILURE;
+    }
+    status = laser_ad9528_measure_init();
+    if (status != XST_SUCCESS) {
+        xil_printf("ERROR: AD9528 measurement GPIO init failed: %d\r\n", status);
         return XST_FAILURE;
     }
     status = laser_ad9528_spi_init();
@@ -563,6 +570,45 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
     (void)snprintf(response, response_size, "ERR RATE_COMMAND");
 }
 
+static void laser_udp_format_candidate_with_measurement(
+    char *response, size_t response_size,
+    const LaserAd9528CandidateStatus *candidate_status,
+    const char *prefix)
+{
+    LaserAd9528Measurement measurement;
+    int measurement_status;
+    size_t used;
+
+    (void)laser_ad9528_format_candidate_status(
+        response, response_size, candidate_status, prefix);
+    used = strlen(response);
+    if (used >= response_size) {
+        return;
+    }
+    measurement_status = laser_ad9528_measure_read(&measurement);
+    if (measurement_status != XST_SUCCESS) {
+        (void)snprintf(response + used, response_size - used,
+                       " measurement_state=%s measurement_valid=0 measurement_in_range=0 measurement_alive=0 measurement_sequence=UNKNOWN measured_odiv2_count=UNKNOWN measured_odiv2_hz=UNKNOWN measured_out0_hz=UNKNOWN",
+                       laser_ad9528_measure_state_name(measurement.state));
+    } else if (!measurement.valid) {
+        (void)snprintf(response + used, response_size - used,
+                       " measurement_state=%s measurement_valid=0 measurement_in_range=%u measurement_alive=%u measurement_sequence=%u measured_odiv2_count=UNKNOWN measured_odiv2_hz=UNKNOWN measured_out0_hz=UNKNOWN",
+                       laser_ad9528_measure_state_name(measurement.state),
+                       (unsigned int)measurement.in_range,
+                       (unsigned int)measurement.alive,
+                       (unsigned int)measurement.sequence);
+    } else {
+        (void)snprintf(response + used, response_size - used,
+                       " measurement_state=%s measurement_valid=1 measurement_in_range=%u measurement_alive=%u measurement_sequence=%u measured_odiv2_count=%lu measured_odiv2_hz=%llu measured_out0_hz=%llu",
+                       laser_ad9528_measure_state_name(measurement.state),
+                       (unsigned int)measurement.in_range,
+                       (unsigned int)measurement.alive,
+                       (unsigned int)measurement.sequence,
+                       (unsigned long)measurement.raw_count,
+                       (unsigned long long)measurement.odiv2_hz,
+                       (unsigned long long)measurement.out0_hz);
+    }
+}
 static void handle_udp_command(LaserGpio *gpio,
                                char *request,
                                char *response,
@@ -601,6 +647,22 @@ static void handle_udp_command(LaserGpio *gpio,
         LaserAd9528RuntimeState state;
         int32_t ad9528_status;
 
+        if (subcommand != NULL && token_equals(subcommand, "MEASURE")) {
+            char *action = next_token(&cursor);
+            LaserAd9528Measurement measurement;
+            int measurement_status;
+
+            if (action == NULL || !token_equals(action, "STATUS") ||
+                command_has_extra_arg(&cursor)) {
+                (void)snprintf(response, response_size,
+                               "ERR AD9528_MEASURE_COMMAND");
+                return;
+            }
+            measurement_status = laser_ad9528_measure_read(&measurement);
+            (void)laser_ad9528_measure_format_udp(
+                response, response_size, &measurement, measurement_status);
+            return;
+        }
         if (subcommand != NULL && token_equals(subcommand, "CANDIDATE")) {
             char *action = next_token(&cursor);
             LaserAd9528CandidateStatus candidate_status;
@@ -619,18 +681,21 @@ static void handle_udp_command(LaserGpio *gpio,
                     return;
                 }
                 ad9528_status = laser_ad9528_candidate_set(profile);
+                if (ad9528_status == XST_SUCCESS) {
+                    (void)laser_ad9528_measure_mark_transition();
+                }
                 laser_ad9528_get_candidate_status(&candidate_status);
                 prefix = (ad9528_status == XST_SUCCESS) ?
                     "OK AD9528_CANDIDATE_SET" :
                     "ERROR AD9528_CANDIDATE_SET";
-                (void)laser_ad9528_format_candidate_status(
+                laser_udp_format_candidate_with_measurement(
                     response, response_size, &candidate_status, prefix);
                 return;
             }
             if (token_equals(action, "STATUS") &&
                 !command_has_extra_arg(&cursor)) {
                 laser_ad9528_get_candidate_status(&candidate_status);
-                (void)laser_ad9528_format_candidate_status(
+                laser_udp_format_candidate_with_measurement(
                     response, response_size, &candidate_status,
                     "OK AD9528_CANDIDATE_STATUS");
                 return;
@@ -638,11 +703,14 @@ static void handle_udp_command(LaserGpio *gpio,
             if (token_equals(action, "RESTORE") &&
                 !command_has_extra_arg(&cursor)) {
                 ad9528_status = laser_ad9528_candidate_restore();
+                if (ad9528_status == XST_SUCCESS) {
+                    (void)laser_ad9528_measure_mark_transition();
+                }
                 laser_ad9528_get_candidate_status(&candidate_status);
                 prefix = (ad9528_status == XST_SUCCESS) ?
                     "OK AD9528_CANDIDATE_RESTORE snapshot_restored=1" :
                     "ERROR AD9528_CANDIDATE_RESTORE snapshot_restored=0";
-                (void)laser_ad9528_format_candidate_status(
+                laser_udp_format_candidate_with_measurement(
                     response, response_size, &candidate_status, prefix);
                 return;
             }
@@ -921,7 +989,7 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed 125MHz CPLL/QPLL profile selection, GT/MMCM reconfiguration, PLL/reset/lock handling and TXUSRCLK2 frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|profile plan|candidate set/status/restore WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);

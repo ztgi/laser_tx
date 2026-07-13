@@ -162,3 +162,12 @@ MMCM DRP：未实现；
 外部光口闭环：未验证；
 1000M static 下外部同步/光口实际输出：仍需进一步上板或示波器/接收链路验证。
 ```
+
+## 10. AD9528 OUT0 测量报告入口
+
+如果关心 AD9528 OUT0 的 FPGA ILA 频率证据和 PS/UDP 软件回读，按以下顺序阅读：
+
+```text
+ad9528_out0_frequency_measurement_report.md
+41_ad9528_out0_software_measurement_readback_report.md
+```

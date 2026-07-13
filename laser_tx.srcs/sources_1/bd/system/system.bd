@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0xCC6219527746649B",
+      "boundary_crc": "0x877002BA9A5A07E6",
       "device": "xc7z100ffg900-2",
       "gen_directory": "../../../../laser_tx.gen/sources_1/bd/system",
       "name": "system",
@@ -20,7 +20,8 @@
       "ila_laser_axi_cfg": "",
       "ila_laser_tx": "",
       "axi_gpio_gt_status": "",
-      "laser_tx_core_0": ""
+      "laser_tx_core_0": "",
+      "axi_gpio_ad9528_measure": ""
     },
     "interface_ports": {
       "DDR": {
@@ -484,6 +485,16 @@
         "direction": "I"
       },
       "dbg_timeout_count": {
+        "direction": "I",
+        "left": "31",
+        "right": "0"
+      },
+      "ad9528_measure_count_in": {
+        "direction": "I",
+        "left": "31",
+        "right": "0"
+      },
+      "ad9528_measure_status_in": {
         "direction": "I",
         "left": "31",
         "right": "0"
@@ -1302,7 +1313,7 @@
         "inst_hier_path": "axi_smc",
         "parameters": {
           "NUM_MI": {
-            "value": "3"
+            "value": "4"
           },
           "NUM_SI": {
             "value": "1"
@@ -1324,7 +1335,8 @@
             "bridges": [
               "M00_AXI",
               "M01_AXI",
-              "M02_AXI"
+              "M02_AXI",
+              "M03_AXI"
             ]
           },
           "M00_AXI": {
@@ -1390,6 +1402,37 @@
             }
           },
           "M02_AXI": {
+            "mode": "Master",
+            "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
+            "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
+            "parameters": {
+              "MAX_BURST_LENGTH": {
+                "value": "1"
+              },
+              "NUM_READ_OUTSTANDING": {
+                "value": "8"
+              },
+              "NUM_READ_THREADS": {
+                "value": "1"
+              },
+              "NUM_WRITE_OUTSTANDING": {
+                "value": "8"
+              },
+              "NUM_WRITE_THREADS": {
+                "value": "1"
+              },
+              "RUSER_BITS_PER_BYTE": {
+                "value": "0"
+              },
+              "SUPPORTS_NARROW_BURST": {
+                "value": "0"
+              },
+              "WUSER_BITS_PER_BYTE": {
+                "value": "0"
+              }
+            }
+          },
+          "M03_AXI": {
             "mode": "Master",
             "vlnv_bus_definition": "xilinx.com:interface:aximm:1.0",
             "vlnv": "xilinx.com:interface:aximm_rtl:1.0",
@@ -1880,6 +1923,29 @@
             "direction": "O"
           }
         }
+      },
+      "axi_gpio_ad9528_measure": {
+        "vlnv": "xilinx.com:ip:axi_gpio:2.0",
+        "xci_name": "system_axi_gpio_ad9528_measure_0",
+        "xci_path": "ip\\system_axi_gpio_ad9528_measure_0\\system_axi_gpio_ad9528_measure_0.xci",
+        "inst_hier_path": "axi_gpio_ad9528_measure",
+        "parameters": {
+          "C_ALL_INPUTS": {
+            "value": "1"
+          },
+          "C_ALL_INPUTS_2": {
+            "value": "1"
+          },
+          "C_GPIO2_WIDTH": {
+            "value": "32"
+          },
+          "C_GPIO_WIDTH": {
+            "value": "32"
+          },
+          "C_IS_DUAL": {
+            "value": "1"
+          }
+        }
       }
     },
     "interface_nets": {
@@ -1905,6 +1971,12 @@
         "interface_ports": [
           "axi_smc/M02_AXI",
           "axi_gpio_gt_status/S_AXI"
+        ]
+      },
+      "axi_smc_M03_AXI": {
+        "interface_ports": [
+          "axi_smc/M03_AXI",
+          "axi_gpio_ad9528_measure/S_AXI"
         ]
       },
       "laser_tx_core_0_BRAM_PORTB": {
@@ -1939,6 +2011,18 @@
       }
     },
     "nets": {
+      "ad9528_measure_count_in_1": {
+        "ports": [
+          "ad9528_measure_count_in",
+          "axi_gpio_ad9528_measure/gpio_io_i"
+        ]
+      },
+      "ad9528_measure_status_in_1": {
+        "ports": [
+          "ad9528_measure_status_in",
+          "axi_gpio_ad9528_measure/gpio2_io_i"
+        ]
+      },
       "axi_gpio_0_gpio_io_o": {
         "ports": [
           "axi_gpio_0/gpio_io_o",
@@ -2362,7 +2446,8 @@
           "ila_laser_axi_cfg/clk",
           "axi_gpio_gt_status/s_axi_aclk",
           "gt_ctrl_clk",
-          "laser_tx_core_0/axi_clk"
+          "laser_tx_core_0/axi_clk",
+          "axi_gpio_ad9528_measure/s_axi_aclk"
         ]
       },
       "processing_system7_0_FCLK_RESET0_N": {
@@ -2378,7 +2463,8 @@
           "axi_smc/aresetn",
           "axi_gpio_0/s_axi_aresetn",
           "axi_gpio_gt_status/s_axi_aresetn",
-          "laser_tx_core_0/axi_rstn"
+          "laser_tx_core_0/axi_rstn",
+          "axi_gpio_ad9528_measure/s_axi_aresetn"
         ]
       },
       "rst_ps7_0_50M_peripheral_reset": {
@@ -2414,6 +2500,11 @@
               "SEG_axi_gpio_0_Reg": {
                 "address_block": "/axi_gpio_0/S_AXI/Reg",
                 "offset": "0x41200000",
+                "range": "64K"
+              },
+              "SEG_axi_gpio_ad9528_measure_Reg": {
+                "address_block": "/axi_gpio_ad9528_measure/S_AXI/Reg",
+                "offset": "0x40030000",
                 "range": "64K"
               },
               "SEG_axi_gpio_gt_status_Reg": {

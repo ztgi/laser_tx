@@ -1,7 +1,7 @@
 //Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2022.2 (win64) Build 3671981 Fri Oct 14 05:00:03 MDT 2022
-//Date        : Fri Jul  3 13:39:50 2026
+//Date        : Mon Jul 13 14:13:27 2026
 //Host        : LAPTOP-ITN6KOP9 running 64-bit major release  (build 9200)
 //Command     : generate_target system_wrapper.bd
 //Design      : system_wrapper
@@ -39,6 +39,8 @@ module system_wrapper
     SPI_1_0_ss_io,
     acq_gate_out_0,
     acq_trig_out_0,
+    ad9528_measure_count_in,
+    ad9528_measure_status_in,
     dbg_apply_enable_blocked,
     dbg_current_rate_mbps,
     dbg_gt0_gttxreset_effective,
@@ -124,6 +126,8 @@ module system_wrapper
   inout SPI_1_0_ss_io;
   output acq_gate_out_0;
   output acq_trig_out_0;
+  input [31:0]ad9528_measure_count_in;
+  input [31:0]ad9528_measure_status_in;
   input dbg_apply_enable_blocked;
   input [15:0]dbg_current_rate_mbps;
   input dbg_gt0_gttxreset_effective;
@@ -222,6 +226,8 @@ module system_wrapper
   wire SPI_1_0_ss_t;
   wire acq_gate_out_0;
   wire acq_trig_out_0;
+  wire [31:0]ad9528_measure_count_in;
+  wire [31:0]ad9528_measure_status_in;
   wire dbg_apply_enable_blocked;
   wire [15:0]dbg_current_rate_mbps;
   wire dbg_gt0_gttxreset_effective;
@@ -337,6 +343,8 @@ module system_wrapper
         .SPI_1_0_ss_t(SPI_1_0_ss_t),
         .acq_gate_out_0(acq_gate_out_0),
         .acq_trig_out_0(acq_trig_out_0),
+        .ad9528_measure_count_in(ad9528_measure_count_in),
+        .ad9528_measure_status_in(ad9528_measure_status_in),
         .dbg_apply_enable_blocked(dbg_apply_enable_blocked),
         .dbg_current_rate_mbps(dbg_current_rate_mbps),
         .dbg_gt0_gttxreset_effective(dbg_gt0_gttxreset_effective),
