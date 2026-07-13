@@ -14,31 +14,39 @@
 
    用于快速了解当前项目验证状态。
 
-2. 如果关心 Profile0 500M：
+2. 如果要烧写当前 AD9528 measurement 版本或回退 fixed-refclk baseline，紧接着阅读：
+
+   ```text
+   44_build_artifact_packaging_and_provenance_report.md
+   ```
+
+   该报告给出两套 bundle 的来源、SHA-256、bit/LTX/XSA/ELF 对应关系、timing/DRC 和回退烧写顺序。禁止跨 bundle 混用产物。
+
+3. 如果关心 Profile0 500M：
 
    ```text
    01_profile0_500m_ila_validation_summary.md
    ```
 
-3. 如果关心 1000M static 是怎么 build 和修 debug 的：
+4. 如果关心 1000M static 是怎么 build 和修 debug 的：
 
    ```text
    02_profile1_1000m_static_build_and_debug_fix.md
    ```
 
-4. 如果关心 1000M static 上板 ILA 结果：
+5. 如果关心 1000M static 上板 ILA 结果：
 
    ```text
    03_profile1_1000m_static_ila_validation_summary.md
    ```
 
-5. 如果准备进入 500M <-> 1000M 动态速率切换设计：
+6. 如果追溯 500M <-> 1000M 动态速率切换的早期设计：
 
    ```text
    04_dynamic_rate_switch_design_plan.md
    ```
 
-6. 如果需要追溯中间失败过程、历史 debug 过程或旧报告：
+7. 如果需要追溯中间失败过程、历史 debug 过程或旧报告：
 
    ```text
    docs/debug_reports/archive/
@@ -56,6 +64,7 @@
 | `03_profile1_1000m_static_ila_validation_summary.md` | 1000M AXI/FCLK ILA 上板截图证据摘要 | 1000M static ILA 阶段性主入口 |
 | `04_dynamic_rate_switch_design_plan.md` | 500M <-> 1000M 动态速率切换设计评审与实施计划 | 仅为计划，不代表 DRP/rate set 已实现 |
 | `05_phaseA_dryrun_rate_controller_report.md` | Phase A dry-run rate controller 实现报告 | 已实现 dry-run 控制面；不代表真实动态切换 |
+| `44_build_artifact_packaging_and_provenance_report.md` | Current measurement 与 rollback fixed-refclk 构建产物溯源 | 当前烧写/回退产物主入口 |
 
 ## 3. 旧报告到新主报告的映射
 

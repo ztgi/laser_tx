@@ -1,0 +1,121 @@
+{
+  "bundle_name": "rollback_fixed_refclk_baseline",
+  "git_branch": "feature/add-625m-4000m-cpll-profiles",
+  "git_commit": "12d3b71",
+  "git_dirty": true,
+  "source_dirty_files": [
+    "M laser_tx.xpr (Vivado generation side effect)",
+    "M laser_tx.srcs/sources_1/bd/system/system.bd (Vivado generation side effect)",
+    "M laser_tx.srcs/sources_1/bd/system/system.bda (Vivado generation side effect)",
+    "M generated BD IP XCI metadata (Vivado generation side effect)"
+  ],
+  "hardware_git_commit": "51005ec",
+  "software_git_commit": "2eb6b64",
+  "packaging_git_branch": "feature/build-artifact-provenance-packaging",
+  "packaging_git_commit": "8f38b713e51b9eb8dfa04a5e5fbc9293f9c1737e",
+  "packaging_git_dirty": true,
+  "packaging_dirty_files": [
+    "M .gitignore",
+    "?? artifacts/",
+    "?? scripts/artifact_bundle_readmes/",
+    "?? scripts/build_rollback_fixed_refclk_baseline.tcl",
+    "?? scripts/package_current_build_artifacts.py"
+  ],
+  "vivado_version": "2022.2",
+  "vitis_version": "2022.2",
+  "top_module": "laser_tx_board_top",
+  "implementation_run": "impl_1",
+  "hardware_validation_state": "REBUILT_FROM_HISTORICALLY_BOARD_VALIDATED_SOURCE_HARDWARE_REGRESSION_NOT_RERUN",
+  "files": [
+    {
+      "type": "bit",
+      "bundle_path": "hardware/laser_tx_fixed_refclk_baseline.bit",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_source_12d3b71\\laser_tx.runs\\impl_1\\laser_tx_board_top.bit",
+      "sha256": "74243B9241E71A43DCA2174F5F0DDAFA3E677238BAACCB61E4D066EC178B5267",
+      "size_bytes": 17416462,
+      "generated_at": "2026-07-13T12:47:39.133211+00:00"
+    },
+    {
+      "type": "ltx",
+      "bundle_path": "hardware/laser_tx_fixed_refclk_baseline.ltx",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_source_12d3b71\\laser_tx.runs\\impl_1\\laser_tx_board_top.ltx",
+      "sha256": "7EF40409EA0EECAE8F9C7BE86E3BC1B3778465F581AC9E5EFCA5EEC88610011E",
+      "size_bytes": 180617,
+      "generated_at": "2026-07-13T12:48:20.470157+00:00"
+    },
+    {
+      "type": "xsa",
+      "bundle_path": "hardware/laser_tx_fixed_refclk_baseline.xsa",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_baseline_rebuild\\laser_tx_board_top_fixed_125m_baseline.xsa",
+      "sha256": "72623D1C82150C23299307ECD5F7AF5F0E0F5DC1C9828099C40D1C49074053EA",
+      "size_bytes": 1197636,
+      "generated_at": "2026-07-13T12:49:24.203614+00:00"
+    },
+    {
+      "type": "elf",
+      "bundle_path": "software/laser_tx_udp_bringup.elf",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_vitis_clean_workspace\\bringup_baseline\\Debug\\bringup_baseline.elf",
+      "sha256": "43BC1992A6A9434ECD51DAC3EA663169CB4403C07BD96B2C875E0E20EC643B78",
+      "size_bytes": 917064,
+      "generated_at": "2026-07-13T13:09:33.626174+00:00"
+    }
+  ],
+  "reports": [
+    {
+      "type": "timing",
+      "bundle_path": "reports/timing_summary.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_baseline_rebuild\\timing_summary.rpt",
+      "sha256": "030490056FDDA8FB1792C63034D09DA8311353334DC285A0213ECADFA33473FC",
+      "size_bytes": 122236,
+      "generated_at": "2026-07-13T12:48:33.628794+00:00"
+    },
+    {
+      "type": "drc",
+      "bundle_path": "reports/drc.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_baseline_rebuild\\drc.rpt",
+      "sha256": "548C22F014D640345A41ED93DF25903733A94D7FB66FAE4CB057D68D6DD73E06",
+      "size_bytes": 5539,
+      "generated_at": "2026-07-13T12:48:56.213298+00:00"
+    },
+    {
+      "type": "route",
+      "bundle_path": "reports/route_status.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_baseline_rebuild\\route_status.rpt",
+      "sha256": "7EAB3DE8AC602DA16B071CDC120CB755FEC3B459655457C957E6F7DD97D54AF8",
+      "size_bytes": 651,
+      "generated_at": "2026-07-13T12:48:42.479394+00:00"
+    },
+    {
+      "type": "debug_cores",
+      "bundle_path": "reports/debug_cores.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_baseline_rebuild\\debug_cores.rpt",
+      "sha256": "D9C6383FF7A1165411D4272856ED28D7C67243F960D1F4E8EA031C849C15558B",
+      "size_bytes": 118922,
+      "generated_at": "2026-07-13T12:48:56.305150+00:00"
+    },
+    {
+      "type": "utilization",
+      "bundle_path": "reports/utilization.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\rollback_fixed_refclk_baseline_rebuild\\utilization.rpt",
+      "sha256": "3E1254E42F842C710600F3ED27EE78207E8E53D253D8B7F63C7A6DAFBD2FFBDC",
+      "size_bytes": 13231,
+      "generated_at": "2026-07-13T12:48:57.653404+00:00"
+    }
+  ],
+  "bit_ltx_same_implementation": true,
+  "elf_built_from_bundle_xsa": true,
+  "timing": {
+    "setup_wns_ns": 7.029,
+    "hold_whs_ns": 0.02,
+    "tns_ns": 0.0,
+    "ths_ns": 0.0
+  },
+  "drc_errors": 0,
+  "route_errors": 0,
+  "notes": [
+    "XSA embedded bit SHA-256 equals the selected rollback impl_1 bit SHA-256.",
+    "Rollback ELF uses application sources from 12d3b71; current measurement sources intentionally reject the older XSA because the measurement AXI GPIO is absent.",
+    "Managed makefile build completed with USER_OBJS empty; no manual object injection.",
+    "No AD9528 measurement counter, no PLL2 TEST0 write, no AD9528-to-GTNORTHREFCLK connection, and 3000M remains blocked."
+  ]
+}

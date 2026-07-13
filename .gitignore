@@ -43,6 +43,9 @@ _p1_1g_vivado/
 *.rpt
 outputs/
 reports/
+artifacts/builds/**/*.elf
+artifacts/builds/**/*.zip
+artifacts/builds/**/*.zip.sha256
 
 # Vitis / Eclipse workspace generated files
 .metadata/

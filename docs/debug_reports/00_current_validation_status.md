@@ -4,6 +4,19 @@
 
 本报告仅整理既有文档和证据，不修改 RTL、BD、XDC、Vitis、build 脚本、bitstream 或 LTX。
 
+## 当前可烧写产物入口（2026-07-13）
+
+已建立两套带 manifest、SHA-256、配套报告和烧写说明的本地产物包：
+
+| Bundle | 用途 | 验证边界 |
+| --- | --- | --- |
+| `artifacts/builds/current_ad9528_measurement/` | AD9528 OUT0 Bank110 FPGA 频率测量及 PS/UDP 回读 | 内部计数/UDP 已上板；外部仪器未验证 |
+| `artifacts/builds/rollback_fixed_refclk_baseline/` | measurement 接入前的固定参考时钟回退 | rebuild/timing/DRC 通过；本次重建包未重新上板 |
+
+完整溯源、哈希、回退顺序和边界见 `44_build_artifact_packaging_and_provenance_report.md`。两套 bit/LTX/ELF 不得交叉混用。
+
+本文后部保留了早期阶段描述用于历史追溯；涉及当前动态 profile、AD9528 和构建产物时，应以最新编号报告为准。
+
 ## AD9528 PLL2 fine-step TEST0 规划状态
 
 - 已完成实现路径感知的只读枚举模型和 host tests；

@@ -1,0 +1,120 @@
+{
+  "bundle_name": "current_ad9528_measurement",
+  "git_branch": "feature/ad9528-pll2-test0-register-image-audit",
+  "git_commit": "8f38b71",
+  "git_dirty": true,
+  "source_dirty_files": [
+    "M .gitignore",
+    "?? artifacts/",
+    "?? scripts/artifact_bundle_readmes/",
+    "?? scripts/build_rollback_fixed_refclk_baseline.tcl",
+    "?? scripts/package_current_build_artifacts.py"
+  ],
+  "hardware_git_commit": "b6ada09",
+  "software_git_commit": "8f38b71",
+  "packaging_git_branch": "feature/build-artifact-provenance-packaging",
+  "packaging_git_commit": "8f38b713e51b9eb8dfa04a5e5fbc9293f9c1737e",
+  "packaging_git_dirty": true,
+  "packaging_dirty_files": [
+    "M .gitignore",
+    "?? scripts/artifact_bundle_readmes/",
+    "?? scripts/build_rollback_fixed_refclk_baseline.tcl",
+    "?? scripts/package_current_build_artifacts.py"
+  ],
+  "vivado_version": "2022.2",
+  "vitis_version": "2022.2",
+  "top_module": "laser_tx_board_top",
+  "implementation_run": "impl_1",
+  "hardware_validation_state": "BOARD_VALIDATED_FPGA_INTERNAL_MEASUREMENT_AND_UDP_READBACK_EXTERNAL_INSTRUMENT_PENDING",
+  "files": [
+    {
+      "type": "bit",
+      "bundle_path": "hardware/laser_tx_ad9528_measurement.bit",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\laser_tx.runs\\impl_1\\laser_tx_board_top.bit",
+      "sha256": "9662E677F4922B551F1885C14B978600EA80A30DAD2E3CB97139D80F7960AF72",
+      "size_bytes": 17416462,
+      "generated_at": "2026-07-13T06:39:39.131393+00:00"
+    },
+    {
+      "type": "ltx",
+      "bundle_path": "hardware/laser_tx_ad9528_measurement.ltx",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\laser_tx.runs\\impl_1\\laser_tx_board_top.ltx",
+      "sha256": "83502C959A01A5EFE79EDF3920A11547EE890C305A706942F123337630C345F0",
+      "size_bytes": 190816,
+      "generated_at": "2026-07-13T06:39:39.665067+00:00"
+    },
+    {
+      "type": "xsa",
+      "bundle_path": "hardware/laser_tx_ad9528_measurement.xsa",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\ad9528_out0_software_readback\\laser_tx_board_top_ad9528_measure.xsa",
+      "sha256": "3AECFA2D0C735623019C20129362D9552E1D5BFCE5D2B82402612055F2D365F8",
+      "size_bytes": 1278750,
+      "generated_at": "2026-07-13T06:41:15.409545+00:00"
+    },
+    {
+      "type": "elf",
+      "bundle_path": "software/laser_tx_udp_bringup.elf",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\artifact_packaging_vitis_clean_workspace\\bringup\\Debug\\bringup.elf",
+      "sha256": "D330B6AC9A8CE69E9EFB2A324A6D007197500554EC0BC46459A0003F53A5DA85",
+      "size_bytes": 962128,
+      "generated_at": "2026-07-13T12:22:07.981123+00:00"
+    }
+  ],
+  "reports": [
+    {
+      "type": "timing",
+      "bundle_path": "reports/timing_summary.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\ad9528_out0_software_readback\\timing_summary.rpt",
+      "sha256": "861E7518776D2F10528E67A8B687422871616664DBE4F3794D4162E0A04C093D",
+      "size_bytes": 138360,
+      "generated_at": "2026-07-13T06:40:34.489875+00:00"
+    },
+    {
+      "type": "drc",
+      "bundle_path": "reports/drc.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\ad9528_out0_software_readback\\drc.rpt",
+      "sha256": "C740957DBCD6EA033C0C47478EC45168C397C9599182FE498A13A29C5484B113",
+      "size_bytes": 5512,
+      "generated_at": "2026-07-13T06:40:48.277605+00:00"
+    },
+    {
+      "type": "route",
+      "bundle_path": "reports/route_status.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\ad9528_out0_software_readback\\route_status.rpt",
+      "sha256": "B7F3480BB2813AD63A94D4019766240CA4E7F5023E32907A5956D01B99A51C22",
+      "size_bytes": 651,
+      "generated_at": "2026-07-13T06:40:41.708334+00:00"
+    },
+    {
+      "type": "debug_cores",
+      "bundle_path": "reports/debug_cores.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\ad9528_out0_software_readback\\debug_cores.rpt",
+      "sha256": "72DBEB00AAAC7658FA8326C22B3505306A25B8A7826CC4C340E3F1E001D02CA8",
+      "size_bytes": 127491,
+      "generated_at": "2026-07-13T06:41:00.937157+00:00"
+    },
+    {
+      "type": "utilization",
+      "bundle_path": "reports/utilization.rpt",
+      "original_path": "D:\\FPGA_Learn\\laser_tx\\reports\\ad9528_out0_software_readback\\utilization.rpt",
+      "sha256": "E607D4B0DF375D727AE1C77DC839E8E8F2978389B350966EB660DE5846E2CBB9",
+      "size_bytes": 13337,
+      "generated_at": "2026-07-13T06:40:35.046875+00:00"
+    }
+  ],
+  "bit_ltx_same_implementation": true,
+  "elf_built_from_bundle_xsa": true,
+  "timing": {
+    "setup_wns_ns": 7.029,
+    "hold_whs_ns": 0.023,
+    "tns_ns": 0.0,
+    "ths_ns": 0.0
+  },
+  "drc_errors": 0,
+  "route_errors": 0,
+  "notes": [
+    "XSA embedded bit SHA-256 equals the selected impl_1 bit SHA-256.",
+    "laser_ad9528_measure.c is present in the managed C_SRCS/OBJS list; USER_OBJS is empty.",
+    "No PLL2 TEST0 write, no AD9528-to-GTNORTHREFCLK connection, and no supported-rate change."
+  ]
+}
