@@ -113,7 +113,7 @@ Functional behavior changed intentionally：新增 PS 只读测量接口和 UDP 
 - Bank111 125 MHz GT 功能 REFCLK 结构未修改；
 - 无 interrupt、DMA、cache-coherency 或 linker script 修改。
 
-上述功能等价结论在上板前仅基于结构检查与 build，不等同于硬件回归。
+上述功能等价结论中的 GT/rate 数据路径未在本轮重新做完整硬件回归；AD9528 软件测量回读路径已完成下述 UDP 上板验证。
 
 ## 8. 静态测试
 
@@ -180,24 +180,123 @@ Vitis 2022.2 GUI workspace 当时处于占用状态，XSCT 无法建立 IDE chan
 
 本轮未修改 linker script、heap、stack、cache/MMU 配置，也未增加大块全局缓冲。`bss` 主要仍由既有应用缓冲构成；建议上板前继续使用当前 linker map/DDR 启动配置。
 
-## 10. 软件命令与预期结果
+## 10. 软件测量回读上板验证
+
+### 10.1 无活动 candidate 时的 restore
+
+首次执行 restore 时，系统中没有可恢复的活动 candidate snapshot：
 
 ```text
 ad9528 candidate restore
-ad9528 measure status
-
-ad9528 candidate set vcxo_122p88
-等待 measurement_sequence 更新
-ad9528 measure status
-ad9528 candidate status
-
-ad9528 candidate restore
-等待 measurement_sequence 更新
-ad9528 measure status
-ad9528 candidate status
+ERROR AD9528_CANDIDATE_RESTORE snapshot_restored=0
+state=ERROR
+last_error=NO_ACTIVE_CANDIDATE
+applied_snapshot_valid=0
 ```
 
-candidate set 稳定后的预期是 count 约 61437～61440、ODIV2 约 61.437～61.440 MHz、OUT0 约 122.874～122.880 MHz，且 valid/alive/in_range 为 1。该数值是基于上一阶段 ILA 证据的预期；新 PS/UDP 回读尚未上板验证。
+该返回符合接口定义：它表示当前没有由 candidate set 保存的活动 snapshot，并非 SPI、测量 GPIO 或 restore 实现故障。随后单独读取测量状态为 `count=0`、`alive=0`、`in_range=0`。
+
+### 10.2 VCXO_122P88 candidate apply
+
+执行：
+
+```text
+ad9528 candidate set vcxo_122p88
+```
+
+返回的关键字段为：
+
+```text
+OK AD9528_CANDIDATE_SET
+state=READY_UNMEASURED
+configured_out0_hz=122880000
+runtime_active_likely=1
+vcxo_status_ok=1
+readback_ok=1
+applied_snapshot_valid=1
+config_writes=7
+io_update_writes=1
+board_verified=0
+measurement_state=NOT_VALID
+measurement_sequence=60416
+```
+
+candidate set 回包中的 `NOT_VALID` 是 transition guard 的预期结果：配置刚完成时，软件不会把 apply 前的旧测量窗口当成新 candidate 的频率证据。
+
+### 10.3 两次独立测量与 candidate status
+
+等待新测量窗口后，两次独立执行 `ad9528 measure status` 均得到：
+
+```text
+OK AD9528_MEASURE state=VALID_IN_RANGE valid=1 in_range=1 alive=1
+odiv2_count=61436
+measured_odiv2_hz=61436000
+measured_out0_hz=122872000
+window_us=1000
+```
+
+两次测量的 sequence 分别为 8283 和 22299；count 和换算频率完全一致。随后 `ad9528 candidate status` 得到：
+
+```text
+OK AD9528_CANDIDATE_STATUS
+state=READY_UNMEASURED
+vcxo_status_ok=1
+readback_ok=1
+measurement_state=VALID_IN_RANGE
+measurement_valid=1
+measurement_in_range=1
+measurement_alive=1
+measurement_sequence=36676
+measured_odiv2_count=61437
+measured_odiv2_hz=61437000
+measured_out0_hz=122874000
+board_verified=0
+```
+
+因此三次独立软件快照给出的 OUT0 频率范围为 122.872～122.874 MHz，与 candidate 的 122.88 MHz 目标一致，误差约为 -8～-6 kHz（约 -65～-49 ppm）。这里的“实测”特指 FPGA 内部 ODIV2 计数器经 PS/UDP 回读得到的板上测量结果，不代表外部示波器或频率计验证。
+
+candidate set 回包 sequence 为 60416，等待后读取为 8283，并非 sequence 倒退。sequence 是 16 位、每个 1 ms 窗口递增的计数器；等待期间跨过 65535 后发生自然回绕，软件只用它判断同一次读取是否跨窗口以及 transition 后是否已有新窗口，不要求数值单调不回绕。
+
+### 10.4 candidate restore 与旧值清除证明
+
+执行 restore：
+
+```text
+ad9528 candidate restore
+OK AD9528_CANDIDATE_RESTORE snapshot_restored=1
+state=RESTORED
+configured_out0_hz=0
+runtime_active_likely=0
+readback_ok=1
+applied_snapshot_valid=0
+rollback_state=SUCCESS
+rollback_attempted=1
+rollback_success=1
+io_update_writes=1
+board_verified=0
+measurement_state=NOT_VALID
+```
+
+等待下一个完整窗口后，测量结果变为：
+
+```text
+OK AD9528_MEASURE state=VALID_OUT_OF_RANGE
+valid=1
+in_range=0
+alive=0
+odiv2_count=0
+measured_odiv2_hz=0
+measured_out0_hz=0
+window_us=1000
+```
+
+随后 candidate status 仍为 `RESTORED`，并再次返回 `count=0`、`alive=0`、`in_range=0`。这证明软件没有缓存 apply 状态下的 61436/61437 旧值：restore 后，一个新的完整 1 ms 测量窗口已经完成，但窗口内没有检测到 ODIV2 边沿。
+
+这里 `valid=1` 表示完整测量窗口有效，并不表示存在时钟；`count=0` 和 `alive=0` 表示窗口内没有检测到输入边沿，因此 `VALID_OUT_OF_RANGE` 是合理状态语义。当前证据支持“restore 后 OUT0 停止，或恢复到当前测量路径无法检测的状态”，不进一步推断 AD9528 内部所有时钟树节点的状态。
+
+### 10.5 本阶段上板结论
+
+软件测量回读及 UDP 命令已完成上板验证；OUT0 candidate 状态下通过 FPGA 内部 ODIV2 计数器实测约 122.872～122.874 MHz，restore 后测量值归零。`board_verified=0` 继续保持，因为本阶段没有完成外部仪器验证，也没有完成 Bank110 到 Bank111 GTX 参考时钟接入。
 
 ## 11. 生成文件路径
 
@@ -227,9 +326,9 @@ candidate set 稳定后的预期是 count 约 61437～61440、ODIV2 约 61.437�
 
 ## 13. 风险与后续建议
 
-- 新 AXI GPIO、BSP device ID 和 UDP 回读需要实际上板验证；
+- 新 AXI GPIO、BSP device ID、sequence coherent read 和 UDP 测量回读已完成上述上板验证；
 - `in_range=0` 仅表示当前窗口不在候选范围，不等同于 SPI/apply 失败；
 - 当前只报告单个 snapshot，没有实现连续多窗口稳定判定；
 - `board_verified` 继续保持 0；
 - 不声明示波器、Bank110->Bank111 GTNORTHREFCLK、外部光口、BER 或新 GT profile 已完成。
-- Hardware test was not run for the new PS/UDP readback path；上一阶段 ILA 的约 61437 计数只能作为本轮上板预期，不能代替新接口实测。
+- FPGA 内部计数与 UDP 回读不是外部仪器测量；仍建议后续使用示波器或频率计独立复核 OUT0。
