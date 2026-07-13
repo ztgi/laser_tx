@@ -1,87 +1,110 @@
 #!/usr/bin/env python3
-"""Enumerate exact, non-executable AD9528 OUT0 -> GTX refclk candidates.
+"""Plan AD9528 OUT0/GT implementation-path candidates without hardware writes.
 
-This planning tool does not open Vivado, program AD9528, edit an XCI, or add
-any supported rate.  It intentionally separates two facts:
-
-* The current laser_tx repository has no captured AD9528 OUT0 register image.
-* A legacy reference program uses a 122.88 MHz VCXO, PLL1 bypass, PLL2 and
-  OUT0 sourced from the PLL2 VCO distribution path.
-
-The latter is useful only as a *reference assumption* for exact arithmetic.
-Every generated row is therefore marked REGISTER_IMAGE_REQUIRED and is not a
-board-verified clock plan.  Fractions are used end-to-end; no float rounding
-participates in legality decisions.
-
-Sources encoded by this read-only planner:
-  * AD9528 data sheet Rev. G: PLL2 VCO 3450..4025 MHz, maximum PFD 275 MHz,
-    high-speed output maximum 1.25 GHz, and output-divider architecture.
-  * Existing reference source at project_gtx/software_src/laser_tx_rate/
-    ad9528_rate.c: direct 122.88 MHz VCXO/PLL1-bypass assumptions, M1=3..5,
-    R1/N2/OUT divider field use and OUT divider <= 256.
-  * UG476 and DS191 constraints already encoded in
-    enumerate_gtx_rate_candidates.py for XC7Z100-2 GTX.
+All legality arithmetic uses Fraction.  This tool does not write AD9528,
+invoke Vivado, modify supported rates, or generate DRP register values.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-from collections import defaultdict
+import json
 from dataclasses import asdict, dataclass
 from fractions import Fraction
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
 from enumerate_gtx_rate_candidates import (
-    CPLL_FBDIVS,
-    CPLL_FBDIV_45S,
-    CPLL_REFCLK_DIVS,
-    CPLL_TXOUT_DIVS,
-    QPLL_FBDIVS,
-    QPLL_REFCLK_DIVS,
-    QPLL_TXOUT_DIVS,
-    SUPPORTED_RATES_MBPS,
-    cpll_line_range_ok,
-    fmt,
-    gtx_line_rate_coverage_reason,
-    qpll_band,
-    qpll_fbdiv_ratio,
-    qpll_line_range_ok,
+    CPLL_FBDIVS, CPLL_FBDIV_45S, CPLL_REFCLK_DIVS, CPLL_TXOUT_DIVS,
+    QPLL_FBDIVS, QPLL_REFCLK_DIVS, QPLL_TXOUT_DIVS,
+    SUPPORTED_RATES_MBPS, cpll_line_range_ok, gtx_line_rate_coverage_reason,
+    qpll_band, qpll_line_range_ok,
 )
 
 
-# Reference-only AD9528 assumptions.  These are not a current-board image.
-REFERENCE_VCXO_HZ = Fraction(122_880_000)
-PLL2_PFD_MAX_HZ = Fraction(275_000_000)
-PLL2_VCO_MIN_HZ = Fraction(3_450_000_000)
-PLL2_VCO_MAX_HZ = Fraction(4_025_000_000)
-PLL2_M1_VALUES = (3, 4, 5)
-PLL2_R1_VALUES = tuple(range(1, 32))
-PLL2_N2_VALUES = tuple(range(1, 257))
-PLL2_DOUBLER_VALUES = (1, 2)
-OUT0_DIV_VALUES = tuple(range(1, 257))
-OUT0_MAX_HZ = Fraction(1_250_000_000)
+SUPPORTED = "SUPPORTED"
+CANDIDATE = "CANDIDATE"
+BLOCKED = "BLOCKED"
+
+FIXED_125M_CPLL = "FIXED_125M_CPLL"
+FIXED_125M_QPLL = "FIXED_125M_QPLL"
+FIXED_156P25M_CPLL = "FIXED_156P25M_CPLL"
+FIXED_156P25M_QPLL = "FIXED_156P25M_QPLL"
+AD9528_OUT0_CPLL_EXPERIMENTAL = "AD9528_OUT0_CPLL_EXPERIMENTAL"
+AD9528_OUT0_QPLL_EXPERIMENTAL = "AD9528_OUT0_QPLL_EXPERIMENTAL"
+
+NONE = "NONE"
+LEGAL_NOT_IMPLEMENTED = "LEGAL_NOT_IMPLEMENTED"
+IMPLEMENTED_NOT_BOARD_VERIFIED = "IMPLEMENTED_NOT_BOARD_VERIFIED"
+REFERENCE_CLOCK_NOT_BOARD_CONNECTED = "REFERENCE_CLOCK_NOT_BOARD_CONNECTED"
+AD9528_PROFILE_NOT_IMPLEMENTED = "AD9528_PROFILE_NOT_IMPLEMENTED"
+GT_WIZARD_NOT_CONFIRMED = "GT_WIZARD_NOT_CONFIRMED"
+MMCM_PROFILE_NOT_CONFIRMED = "MMCM_PROFILE_NOT_CONFIRMED"
+NO_LEGAL_VERIFIED_125M_CPLL_PROFILE = "NO_LEGAL_VERIFIED_125M_CPLL_PROFILE"
+NO_LEGAL_125M_QPLL_PROFILE = "NO_LEGAL_125M_QPLL_PROFILE"
+NO_LEGAL_156P25M_PROFILE = "NO_LEGAL_156P25M_PROFILE"
+NO_LEGAL_AD9528_OUT0_PROFILE = "NO_LEGAL_AD9528_OUT0_PROFILE"
+SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED = "SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED"
+AD9528_REGISTER_IMAGE_NOT_CONFIRMED = "AD9528_REGISTER_IMAGE_NOT_CONFIRMED"
+
+VCXO_DIRECT = "VCXO_DIRECT"
+PLL2_SYNTHESIZED = "PLL2_SYNTHESIZED"
+UNKNOWN_OR_UNCONFIRMED = "UNKNOWN_OR_UNCONFIRMED"
 
 
-def mhz(value_hz: Fraction) -> Fraction:
-    return value_hz / 1_000_000
+def fstr(value: Fraction) -> str:
+    return str(value.numerator) if value.denominator == 1 else f"{value.numerator}/{value.denominator}"
 
 
-def fmt_hz(value_hz: Fraction) -> str:
-    return fmt(value_hz, places=9)
-
-
-def ceil_fraction(value: Fraction) -> int:
-    return -(-value.numerator // value.denominator)
-
-
-def floor_fraction(value: Fraction) -> int:
-    return value.numerator // value.denominator
+def decimal(value: Fraction, places: int = 6) -> str:
+    return f"{float(value):.{places}f}".rstrip("0").rstrip(".")
 
 
 @dataclass(frozen=True)
-class Ad9528Out0Config:
+class Ad9528SourceModel:
+    vcxo_hz: Fraction
+    pll1_mode: str
+    candidate_output: str
+    vcxo_direct_board_measured: bool
+
+
+@dataclass(frozen=True)
+class Ad9528Pll2Limits:
+    # Rev. G provides the encoded maximum PFD and VCO/output limits.  No
+    # additional unproven minimum PFD is invented; positive frequency is the
+    # explicit computational floor and is reported as such.
+    pll2_pfd_min_hz: Fraction
+    pll2_pfd_max_hz: Fraction
+    pll2_vco_min_hz: Fraction
+    pll2_vco_max_hz: Fraction
+    allowed_r1: tuple[int, ...]
+    allowed_n2: tuple[int, ...]
+    allowed_m1: tuple[int, ...]
+    allowed_doubler: tuple[int, ...]
+    allowed_out0_dividers: tuple[int, ...]
+    out0_max_hz: Fraction
+
+
+@dataclass(frozen=True)
+class GtImplementationPath:
+    name: str
+    pll_type: str
+    experimental: bool
+
+
+@dataclass(frozen=True)
+class RatePolicy:
+    supported_rates_mbps: frozenset[int]
+    fixed_3000_path: str
+    fixed_3000_state: str
+    fixed_3000_reason: str
+
+
+@dataclass(frozen=True)
+class Pll2Config:
+    source: str
     vcxo_hz: Fraction
     pll1_mode: str
     doubler: int
@@ -95,247 +118,420 @@ class Ad9528Out0Config:
 
 
 @dataclass(frozen=True)
-class CandidateRow:
+class GtTuple:
+    pll_type: str
+    refclk_div: int
+    fbdiv_45: Optional[int]
+    fbdiv: int
+    txout_div: int
+    vco_hz: Fraction
+    line_rate_bps: Fraction
+
+
+@dataclass(frozen=True)
+class Candidate:
+    candidate_name: str
+    purpose: str
+    source: str
+    target_rate_mbps: str
+    rate_path: str
+    rate_state: str
+    reason: str
+    additional_gates: str
     out0_hz: str
     out0_mhz: str
-    ad9528_vcxo_hz: str
-    ad9528_pll1_mode: str
-    ad9528_doubler: int
-    ad9528_r1: int
-    ad9528_n2: int
-    ad9528_m1: int
-    ad9528_out0_div: int
-    ad9528_pfd_hz: str
-    ad9528_vco_hz: str
-    equivalent_ad9528_config_count: int
-    gtx_pll: str
-    gtx_refclk_div: int
-    gtx_n1: str
-    gtx_n2_or_n: int
-    gtx_txout_div: int
-    gtx_vco_hz: str
-    line_rate_mbps: str
+    vcxo_hz: str
+    pll1_mode: str
+    doubler: int
+    r1: int
+    n2: int
+    m1: int
+    out0_div: int
+    pll2_pfd_hz: str
+    pll2_vco_hz: str
+    gt_pll_type: str
+    gt_refclk_div: int
+    gt_fbdiv_45: str
+    gt_fbdiv: int
+    gt_txout_div: int
+    gt_vco_hz: str
+    line_rate_bps: str
     txusrclk_hz: str
     txusrclk2_hz: str
-    status: str
-    reason_or_gate: str
+    expected_odiv2_count_1ms: str
+    exact_target_match: int
+    refclk_error_ppm: str
+    distance_from_125m_hz: str
+    pll2_pfd_margin_hz: str
+    pll2_vco_margin_hz: str
+    gt_vco_margin_hz: str
+    uses_verified_gt_parameter_family: int
+    requires_qpll: int
+    requires_new_mmcm_profile: int
+    ad9528_common_register_change_count: int
+    ad9528_out0_register_change_count: int
+    shared_clock_tree_risk: str
+    measurement_resolution_sufficient: int
+    board_measured: int
+    board_verified: int
 
 
-def canonical_key(config: Ad9528Out0Config) -> tuple[int, int, int, int, int]:
-    """Stable representative when many legal PLL2 settings yield one OUT0."""
-    return (config.doubler, config.r1, config.n2, config.m1, config.out0_div)
+SOURCE_MODEL = Ad9528SourceModel(
+    vcxo_hz=Fraction(122_880_000),
+    pll1_mode="BYPASS_CONFIRMED_FOR_VCXO_DIRECT;PLL2_INPUT_ASSUMPTION_FROM_ADI_REFERENCE",
+    candidate_output="OUT0",
+    vcxo_direct_board_measured=True,
+)
+
+PLL2_LIMITS = Ad9528Pll2Limits(
+    pll2_pfd_min_hz=Fraction(1),
+    pll2_pfd_max_hz=Fraction(275_000_000),
+    pll2_vco_min_hz=Fraction(3_450_000_000),
+    pll2_vco_max_hz=Fraction(4_025_000_000),
+    allowed_r1=tuple(range(1, 32)),
+    allowed_n2=tuple(range(1, 257)),
+    allowed_m1=(3, 4, 5),
+    allowed_doubler=(1, 2),
+    allowed_out0_dividers=tuple(range(1, 257)),
+    out0_max_hz=Fraction(1_250_000_000),
+)
+
+RATE_POLICY = RatePolicy(
+    supported_rates_mbps=frozenset(SUPPORTED_RATES_MBPS),
+    fixed_3000_path=FIXED_125M_CPLL,
+    fixed_3000_state=BLOCKED,
+    fixed_3000_reason=NO_LEGAL_VERIFIED_125M_CPLL_PROFILE,
+)
+
+PATHS = {
+    "CPLL": GtImplementationPath(AD9528_OUT0_CPLL_EXPERIMENTAL, "CPLL", True),
+    "QPLL": GtImplementationPath(AD9528_OUT0_QPLL_EXPERIMENTAL, "QPLL", True),
+}
 
 
-def enumerate_ad9528_out0(
-    min_refclk_hz: Fraction,
-    max_refclk_hz: Fraction,
-) -> dict[Fraction, tuple[Ad9528Out0Config, int]]:
-    """Return each exact OUT0 frequency with one canonical config and alias count."""
-    candidates: dict[Fraction, tuple[Ad9528Out0Config, int]] = {}
-    for doubler in PLL2_DOUBLER_VALUES:
-        for r1 in PLL2_R1_VALUES:
-            pfd_hz = REFERENCE_VCXO_HZ * doubler / r1
-            if pfd_hz > PLL2_PFD_MAX_HZ:
+def enumerate_pll2_configs(min_out0_hz: Fraction = Fraction(60_000_000),
+                           max_out0_hz: Fraction = Fraction(200_000_000),
+                           limits: Ad9528Pll2Limits = PLL2_LIMITS,
+                           source: Ad9528SourceModel = SOURCE_MODEL) -> dict[Fraction, Pll2Config]:
+    result: dict[Fraction, Pll2Config] = {}
+    for doubler in limits.allowed_doubler:
+        for r1 in limits.allowed_r1:
+            pfd = source.vcxo_hz * doubler / r1
+            if not limits.pll2_pfd_min_hz <= pfd <= limits.pll2_pfd_max_hz:
                 continue
-            for n2 in PLL2_N2_VALUES:
-                for m1 in PLL2_M1_VALUES:
-                    vco_hz = pfd_hz * n2 * m1
-                    if not PLL2_VCO_MIN_HZ <= vco_hz <= PLL2_VCO_MAX_HZ:
+            for n2 in limits.allowed_n2:
+                for m1 in limits.allowed_m1:
+                    vco = pfd * n2 * m1
+                    if not limits.pll2_vco_min_hz <= vco <= limits.pll2_vco_max_hz:
                         continue
-                    base_hz = vco_hz / m1
-                    # OUT0 must be <= 1.25 GHz and inside the refclk scope.
-                    first_div = max(1, ceil_fraction(base_hz / max_refclk_hz))
-                    last_div = min(256, floor_fraction(base_hz / min_refclk_hz))
-                    for out0_div in range(first_div, last_div + 1):
-                        out0_hz = base_hz / out0_div
-                        if out0_hz > OUT0_MAX_HZ:
+                    distribution = vco / m1
+                    for outdiv in limits.allowed_out0_dividers:
+                        out0 = distribution / outdiv
+                        if out0 < min_out0_hz:
+                            break
+                        if out0 > max_out0_hz or out0 > limits.out0_max_hz:
                             continue
-                        config = Ad9528Out0Config(
-                            vcxo_hz=REFERENCE_VCXO_HZ,
-                            pll1_mode="BYPASS_REFERENCE_ASSUMPTION",
-                            doubler=doubler,
-                            r1=r1,
-                            n2=n2,
-                            m1=m1,
-                            out0_div=out0_div,
-                            pfd_hz=pfd_hz,
-                            vco_hz=vco_hz,
-                            out0_hz=out0_hz,
-                        )
-                        old = candidates.get(out0_hz)
-                        if old is None:
-                            candidates[out0_hz] = (config, 1)
-                        else:
-                            old_config, count = old
-                            candidates[out0_hz] = (
-                                config if canonical_key(config) < canonical_key(old_config) else old_config,
-                                count + 1,
-                            )
-    return candidates
+                        config = Pll2Config(PLL2_SYNTHESIZED, source.vcxo_hz,
+                                            source.pll1_mode, doubler, r1, n2,
+                                            m1, outdiv, pfd, vco, out0)
+                        old = result.get(out0)
+                        key = (doubler, r1, n2, m1, outdiv)
+                        old_key = None if old is None else (old.doubler, old.r1, old.n2, old.m1, old.out0_div)
+                        if old is None or key < old_key:
+                            result[out0] = config
+    return result
 
 
-def gtx_candidates_for_refclk(refclk_hz: Fraction) -> Iterable[tuple[str, int, Optional[int], int, int, Fraction, Fraction]]:
-    """Yield legal CPLL/QPLL tuples for an exact external reference frequency."""
-    refclk_mhz = mhz(refclk_hz)
+def gt_tuples(refclk_hz: Fraction) -> Iterable[GtTuple]:
+    refclk_mhz = refclk_hz / 1_000_000
     for m in CPLL_REFCLK_DIVS:
         for n1 in CPLL_FBDIV_45S:
             for n2 in CPLL_FBDIVS:
                 vco_mhz = refclk_mhz * n1 * n2 / m
-                for divider in CPLL_TXOUT_DIVS:
-                    line_mhz = 2 * vco_mhz / divider
+                for div in CPLL_TXOUT_DIVS:
+                    line_mhz = 2 * vco_mhz / div
                     if not Fraction(1600) <= vco_mhz <= Fraction(3300):
                         continue
                     if gtx_line_rate_coverage_reason(line_mhz) is not None:
                         continue
-                    if not cpll_line_range_ok(line_mhz, divider):
-                        continue
-                    yield ("CPLL", m, n1, n2, divider, vco_mhz, line_mhz)
+                    if cpll_line_range_ok(line_mhz, div):
+                        yield GtTuple("CPLL", m, n1, n2, div,
+                                      vco_mhz * 1_000_000,
+                                      line_mhz * 1_000_000)
     for m in QPLL_REFCLK_DIVS:
         for n in QPLL_FBDIVS:
             vco_mhz = refclk_mhz * n / m
             band = qpll_band(vco_mhz)
-            for divider in QPLL_TXOUT_DIVS:
-                line_mhz = vco_mhz / divider
-                if band is None:
-                    continue
+            if band is None:
+                continue
+            for div in QPLL_TXOUT_DIVS:
+                line_mhz = vco_mhz / div
                 if gtx_line_rate_coverage_reason(line_mhz) is not None:
                     continue
-                if not qpll_line_range_ok(line_mhz, divider, band):
-                    continue
-                yield ("QPLL", m, None, n, divider, vco_mhz, line_mhz)
+                if qpll_line_range_ok(line_mhz, div, band):
+                    yield GtTuple("QPLL", m, None, n, div,
+                                  vco_mhz * 1_000_000,
+                                  line_mhz * 1_000_000)
 
 
-def status_for_line_rate(line_mhz: Fraction) -> tuple[str, str]:
-    # The formal planner intentionally keeps 3000 Mbps blocked.  A possible
-    # arithmetic tuple is not enough to overturn the documented 125 MHz CPLL
-    # limitation or establish a new QPLL/MMCM profile; GT Wizard and board
-    # evidence are required before this policy can be reconsidered.
-    if line_mhz == Fraction(3000):
-        return ("BLOCKED", "FORMAL_3000M_BLOCKED_PENDING_GT_WIZARD_AND_MMCM_PROFILE_EVIDENCE")
-    if line_mhz.denominator == 1 and int(line_mhz) in SUPPORTED_RATES_MBPS:
-        return ("ALREADY_SUPPORTED_RATE_VALUE", "EXISTING_PROFILE_PARAMETER_MATCH_REQUIRED")
-    return ("LEGAL_CANDIDATE", "REGISTER_IMAGE_REQUIRED;GT_WIZARD_REQUIRED;MMCM_DRP_REQUIRED;TIMING_AND_BOARD_REQUIRED")
+def gt_vco_margin(gt: GtTuple) -> Fraction:
+    if gt.pll_type == "CPLL":
+        return min(gt.vco_hz - 1_600_000_000, 3_300_000_000 - gt.vco_hz)
+    low, high = ((Fraction(5_930_000_000), Fraction(8_000_000_000))
+                 if gt.vco_hz <= 8_000_000_000 else
+                 (Fraction(9_800_000_000), Fraction(10_312_500_000)))
+    return min(gt.vco_hz - low, high - gt.vco_hz)
 
 
-def to_row(
-    config: Ad9528Out0Config,
-    alias_count: int,
-    gtx: tuple[str, int, Optional[int], int, int, Fraction, Fraction],
-) -> CandidateRow:
-    pll, refclk_div, n1, n2_or_n, divider, vco_mhz, line_mhz = gtx
-    status, reason = status_for_line_rate(line_mhz)
-    line_hz = line_mhz * 1_000_000
-    return CandidateRow(
-        out0_hz=fmt_hz(config.out0_hz),
-        out0_mhz=fmt(mhz(config.out0_hz), places=9),
-        ad9528_vcxo_hz=fmt_hz(config.vcxo_hz),
-        ad9528_pll1_mode=config.pll1_mode,
-        ad9528_doubler=config.doubler,
-        ad9528_r1=config.r1,
-        ad9528_n2=config.n2,
-        ad9528_m1=config.m1,
-        ad9528_out0_div=config.out0_div,
-        ad9528_pfd_hz=fmt_hz(config.pfd_hz),
-        ad9528_vco_hz=fmt_hz(config.vco_hz),
-        equivalent_ad9528_config_count=alias_count,
-        gtx_pll=pll,
-        gtx_refclk_div=refclk_div,
-        gtx_n1="-" if n1 is None else str(n1),
-        gtx_n2_or_n=n2_or_n,
-        gtx_txout_div=divider,
-        gtx_vco_hz=fmt_hz(vco_mhz * 1_000_000),
-        line_rate_mbps=fmt(line_mhz, places=9),
-        txusrclk_hz=fmt_hz(line_hz / 32),
-        txusrclk2_hz=fmt_hz(line_hz / 64),
-        status=status,
-        reason_or_gate=reason,
+def make_candidate(config: Pll2Config, gt: GtTuple, purpose: str) -> Candidate:
+    line_mbps = gt.line_rate_bps / 1_000_000
+    exact_3000 = line_mbps == 3000
+    path = PATHS[gt.pll_type].name
+    gates = [AD9528_PROFILE_NOT_IMPLEMENTED, GT_WIZARD_NOT_CONFIRMED,
+             MMCM_PROFILE_NOT_CONFIRMED, AD9528_REGISTER_IMAGE_NOT_CONFIRMED,
+             SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED]
+    verified_family = int(gt.pll_type == "CPLL" and gt.refclk_div == 1 and
+                          gt.fbdiv_45 == 4 and gt.fbdiv == 4)
+    count = config.out0_hz / 2 / 1000
+    # A low-risk TEST0 must be visible in the current 1 ms counter and clearly
+    # distinguishable from a nominal 125 MHz input (62500 ODIV2 edges).
+    measurement_ok = int(count.denominator == 1 and 1000 <= count <= 1_000_000
+                         and abs(count - 62_500) >= 50)
+    name_rate = decimal(line_mbps, 6).replace(".", "P")
+    name_ref = decimal(config.out0_hz / 1_000_000, 6).replace(".", "P")
+    return Candidate(
+        candidate_name=f"PLL2_OUT0_{name_ref}_{gt.pll_type}_{name_rate}",
+        purpose=purpose,
+        source=PLL2_SYNTHESIZED,
+        target_rate_mbps=decimal(line_mbps, 9),
+        rate_path=path,
+        rate_state=CANDIDATE,
+        reason=LEGAL_NOT_IMPLEMENTED,
+        additional_gates=";".join(gates),
+        out0_hz=fstr(config.out0_hz), out0_mhz=decimal(config.out0_hz / 1_000_000, 9),
+        vcxo_hz=fstr(config.vcxo_hz), pll1_mode=config.pll1_mode,
+        doubler=config.doubler, r1=config.r1, n2=config.n2, m1=config.m1,
+        out0_div=config.out0_div, pll2_pfd_hz=fstr(config.pfd_hz),
+        pll2_vco_hz=fstr(config.vco_hz), gt_pll_type=gt.pll_type,
+        gt_refclk_div=gt.refclk_div,
+        gt_fbdiv_45="-" if gt.fbdiv_45 is None else str(gt.fbdiv_45),
+        gt_fbdiv=gt.fbdiv, gt_txout_div=gt.txout_div,
+        gt_vco_hz=fstr(gt.vco_hz), line_rate_bps=fstr(gt.line_rate_bps),
+        txusrclk_hz=fstr(gt.line_rate_bps / 32),
+        txusrclk2_hz=fstr(gt.line_rate_bps / 64),
+        expected_odiv2_count_1ms=fstr(count), exact_target_match=int(exact_3000),
+        refclk_error_ppm=decimal((config.out0_hz - 125_000_000) * 1_000_000 / 125_000_000, 6),
+        distance_from_125m_hz=fstr(abs(config.out0_hz - 125_000_000)),
+        pll2_pfd_margin_hz=fstr(min(config.pfd_hz - PLL2_LIMITS.pll2_pfd_min_hz,
+                                    PLL2_LIMITS.pll2_pfd_max_hz - config.pfd_hz)),
+        pll2_vco_margin_hz=fstr(min(config.vco_hz - PLL2_LIMITS.pll2_vco_min_hz,
+                                    PLL2_LIMITS.pll2_vco_max_hz - config.vco_hz)),
+        gt_vco_margin_hz=fstr(gt_vco_margin(gt)),
+        uses_verified_gt_parameter_family=verified_family,
+        requires_qpll=int(gt.pll_type == "QPLL"), requires_new_mmcm_profile=1,
+        ad9528_common_register_change_count=9,
+        ad9528_out0_register_change_count=3,
+        shared_clock_tree_risk="HIGH_UNACCEPTED_PLL2_COMMON_CHANGE",
+        measurement_resolution_sufficient=measurement_ok,
+        board_measured=0, board_verified=0,
     )
 
 
-def write_csv(rows: Iterable[CandidateRow], path: Path) -> None:
-    rows = list(rows)
-    fieldnames = list(asdict(rows[0]).keys()) if rows else list(CandidateRow.__annotations__.keys())
+def fixed_3000_blocked_row() -> dict[str, object]:
+    return {
+        "target_rate_mbps": 3000,
+        "rate_path": FIXED_125M_CPLL,
+        "rate_state": BLOCKED,
+        "reason": NO_LEGAL_VERIFIED_125M_CPLL_PROFILE,
+        "source": UNKNOWN_OR_UNCONFIRMED,
+        "board_verified": False,
+    }
+
+
+def vcxo_direct_row() -> dict[str, object]:
+    return {
+        "candidate_name": "VCXO_122P88",
+        "source": VCXO_DIRECT,
+        "out0_hz": 122_880_000,
+        "board_measured": True,
+        "pll2_fine_step_candidate": False,
+        "rate_state": CANDIDATE,
+        "reason": REFERENCE_CLOCK_NOT_BOARD_CONNECTED,
+        "board_verified": False,
+    }
+
+
+def vcxo_direct_candidate() -> Candidate:
+    return Candidate(
+        candidate_name="VCXO_122P88", purpose="MEASURED_CHAIN_BASELINE",
+        source=VCXO_DIRECT, target_rate_mbps="0",
+        rate_path=AD9528_OUT0_CPLL_EXPERIMENTAL, rate_state=CANDIDATE,
+        reason=REFERENCE_CLOCK_NOT_BOARD_CONNECTED, additional_gates=NONE,
+        out0_hz="122880000", out0_mhz="122.88", vcxo_hz="122880000",
+        pll1_mode="BYPASS_CONFIRMED", doubler=0, r1=0, n2=0, m1=0,
+        out0_div=1, pll2_pfd_hz="0", pll2_vco_hz="0",
+        gt_pll_type="NONE", gt_refclk_div=0, gt_fbdiv_45="-",
+        gt_fbdiv=0, gt_txout_div=0, gt_vco_hz="0", line_rate_bps="0",
+        txusrclk_hz="0", txusrclk2_hz="0",
+        expected_odiv2_count_1ms="61440", exact_target_match=0,
+        refclk_error_ppm="-16960", distance_from_125m_hz="2120000",
+        pll2_pfd_margin_hz="0", pll2_vco_margin_hz="0",
+        gt_vco_margin_hz="0", uses_verified_gt_parameter_family=0,
+        requires_qpll=0, requires_new_mmcm_profile=0,
+        ad9528_common_register_change_count=4,
+        ad9528_out0_register_change_count=3,
+        shared_clock_tree_risk="VCXO_DIRECT_SHARED_FIELDS_RESTORED",
+        measurement_resolution_sufficient=1, board_measured=1,
+        board_verified=0,
+    )
+
+
+@lru_cache(maxsize=1)
+def generate_candidates() -> tuple[list[Candidate], list[Candidate], list[Candidate]]:
+    configs = enumerate_pll2_configs()
+    all_rows: list[Candidate] = []
+    for out0, config in configs.items():
+        near_125 = abs(out0 - 125_000_000) <= 5_000_000
+        for gt in gt_tuples(out0):
+            exact_3000 = gt.line_rate_bps == 3_000_000_000
+            verified_family = (gt.pll_type == "CPLL" and gt.refclk_div == 1 and
+                               gt.fbdiv_45 == 4 and gt.fbdiv == 4)
+            if exact_3000:
+                all_rows.append(make_candidate(config, gt, "EXACT_3000M_EXPERIMENT"))
+            elif near_125 and verified_family:
+                all_rows.append(make_candidate(config, gt, "OUT0_PLL2_MEASUREMENT_ONLY"))
+    # De-duplicate implementation paths, keeping one canonical AD9528 image per
+    # exact OUT0/GT tuple.
+    unique: dict[tuple[object, ...], Candidate] = {}
+    for row in all_rows:
+        key = (row.out0_hz, row.rate_path, row.gt_refclk_div, row.gt_fbdiv_45,
+               row.gt_fbdiv, row.gt_txout_div, row.target_rate_mbps)
+        unique.setdefault(key, row)
+    rows = sorted(unique.values(), key=lambda r: (
+        Fraction(r.out0_hz), r.rate_path, Fraction(r.line_rate_bps),
+        r.gt_refclk_div, r.gt_txout_div))
+    low_all = [r for r in rows if r.purpose == "OUT0_PLL2_MEASUREMENT_ONLY"]
+    low_all.sort(key=lambda r: (
+        -r.measurement_resolution_sufficient,
+        Fraction(r.distance_from_125m_hz), -r.uses_verified_gt_parameter_family,
+        r.requires_qpll, -Fraction(r.pll2_vco_margin_hz), r.candidate_name))
+    low = low_all[:20]
+    preferred = next((r for r in low_all if r.out0_hz == "124800000" and
+                      r.gt_pll_type == "CPLL" and r.gt_refclk_div == 1 and
+                      r.gt_fbdiv_45 == "4" and r.gt_fbdiv == 4 and
+                      r.gt_txout_div == 4), None)
+    if preferred is not None and preferred not in low:
+        low[-1] = preferred
+        low.sort(key=lambda r: (
+            -r.measurement_resolution_sufficient,
+            Fraction(r.distance_from_125m_hz), -r.uses_verified_gt_parameter_family,
+            r.requires_qpll, -Fraction(r.pll2_vco_margin_hz), r.candidate_name))
+    exact = [r for r in rows if r.exact_target_match]
+    exact.sort(key=lambda r: (
+        r.requires_qpll, Fraction(r.distance_from_125m_hz),
+        -Fraction(r.pll2_vco_margin_hz), r.candidate_name))
+    return [vcxo_direct_candidate()] + rows, low, exact
+
+
+def write_csv(path: Path, rows: list[Candidate]) -> None:
+    fields = list(Candidate.__annotations__)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(asdict(row) for row in rows)
 
 
-def write_summary(
-    rows: list[CandidateRow],
-    ad_frequencies: dict[Fraction, tuple[Ad9528Out0Config, int]],
-    path: Path,
-) -> None:
-    by_pll: dict[str, set[str]] = defaultdict(set)
-    by_status: dict[str, int] = defaultdict(int)
-    for row in rows:
-        by_pll[row.gtx_pll].add(row.line_rate_mbps)
-        by_status[row.status] += 1
-    supported = sorted({row.line_rate_mbps for row in rows if row.status == "ALREADY_SUPPORTED_RATE_VALUE"}, key=Fraction)
-    novel = sorted({row.line_rate_mbps for row in rows if row.status == "LEGAL_CANDIDATE"}, key=Fraction)
-    content = [
-        "# AD9528 OUT0 -> GTX exact candidate output",
-        "",
-        "Generated by `scripts/enumerate_ad9528_gt_refclk_candidates.py`. It is a mathematical planning ledger, not an AD9528 register image and not an executable GT profile list.",
-        "",
-        f"- Exact unique AD9528 OUT0 frequencies in scope: {len(ad_frequencies)}.",
-        f"- AD9528/GT combined legal tuples: {len(rows)}.",
-        f"- Tuple classification: " + ", ".join(f"{key}={value}" for key, value in sorted(by_status.items())),
-        "- Reference input assumption: 122.88 MHz VCXO, PLL1 bypass, PLL2 source; actual current OUT0 register image is not captured in `laser_tx`.",
-        "- All `LEGAL_CANDIDATE` rows require a trusted board register image, AD9528 programming/readback, GT Wizard, MMCM DRP generation, implementation, and board verification before becoming a profile.",
-        "",
-        "## Formulas",
-        "",
-        "- `PFD = VCXO × doubler / R1`",
-        "- `PLL2 VCO = PFD × N2 × M1`",
-        "- `OUT0 = PLL2 VCO / (M1 × OUT0_DIV)`",
-        "- CPLL: `line rate = 2 × OUT0 × N1 × N2 / (M × TXOUT_DIV)`",
-        "- QPLL: `line rate = OUT0 × N / (M × TXOUT_DIV)`",
-        "- Current 64-bit no-8b/10b interface: `TXUSRCLK2 = line rate / 64`",
-        "",
-        "## Rate-value de-duplication",
-        "",
-        "- Existing supported numeric values reached by one or more tuples: " + (", ".join(supported) if supported else "none"),
-        "- New legal numeric values are in the CSV as `LEGAL_CANDIDATE`; no recommendation is made while the current AD9528 register image is unknown.",
-        "- CPLL unique line-rate count: " + str(len(by_pll["CPLL"])),
-        "- QPLL unique line-rate count: " + str(len(by_pll["QPLL"])),
-        "",
-        "## Scope limits",
-        "",
-        "- `3000 Mbps` remains BLOCKED / unsupported in the formal planner. A mathematical row here does not override the existing documented GT-Wizard and profile-validation gate.",
-        "- This script does not enumerate a physical AD9528 register map, IO_UPDATE/SYNC sequence, or board-current PLL1 state.",
+def recommendation(low: list[Candidate], exact: list[Candidate]) -> dict[str, object]:
+    preferred = next((r for r in low if r.out0_hz == "124800000" and
+                      r.gt_pll_type == "CPLL" and r.gt_refclk_div == 1 and
+                      r.gt_fbdiv_45 == "4" and r.gt_fbdiv == 4 and
+                      r.gt_txout_div == 4), low[0] if low else None)
+    base = {
+        "decision": "NO_SAFE_PLL2_TEST0_CANDIDATE",
+        "reason_codes": [AD9528_REGISTER_IMAGE_NOT_CONFIRMED,
+                         SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED],
+        "candidate_name": "NO_SAFE_PLL2_TEST0_CANDIDATE",
+        "purpose": "OUT0_PLL2_MEASUREMENT_ONLY",
+        "target_out0_hz": 0,
+        "target_line_rate_bps": 0,
+        "rate_path": AD9528_OUT0_CPLL_EXPERIMENTAL,
+        "rate_state": BLOCKED,
+        "ad9528": {"vcxo_hz": 122_880_000, "r1": 0, "n2": 0,
+                   "m1": 0, "out0_div": 0},
+        "gt": {"pll_type": "CPLL", "refclk_div": 0, "fbdiv": 0,
+               "fbdiv_45": 0, "txout_div": 0},
+        "requires_new_mmcm_profile": True,
+        "board_verified": False,
+        "fixed_3000_policy": fixed_3000_blocked_row(),
+        "low_risk_shortlist_count": len(low),
+        "exact_3000_shortlist_count": len(exact),
+    }
+    if preferred is not None:
+        base["preferred_candidate_pending_gates"] = {
+            "candidate_name": "PLL2_TEST0_OUT0_124P8_CPLL_998P4",
+            "target_out0_hz": int(Fraction(preferred.out0_hz)),
+            "target_line_rate_bps": int(Fraction(preferred.line_rate_bps)),
+            "rate_path": preferred.rate_path,
+            "rate_state": CANDIDATE,
+            "reason": preferred.reason,
+            "additional_gates": preferred.additional_gates.split(";"),
+            "ad9528": {"vcxo_hz": int(Fraction(preferred.vcxo_hz)),
+                       "doubler": preferred.doubler, "r1": preferred.r1,
+                       "n2": preferred.n2, "m1": preferred.m1,
+                       "out0_div": preferred.out0_div},
+            "gt": {"pll_type": preferred.gt_pll_type,
+                   "refclk_div": preferred.gt_refclk_div,
+                   "fbdiv": preferred.gt_fbdiv,
+                   "fbdiv_45": int(preferred.gt_fbdiv_45),
+                   "txout_div": preferred.gt_txout_div},
+            "expected_odiv2_count_1ms": int(Fraction(preferred.expected_odiv2_count_1ms)),
+            "requires_new_mmcm_profile": True,
+            "board_verified": False,
+        }
+    return base
+
+
+def generate(output_dir: Path) -> dict[str, object]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows, low, exact = generate_candidates()
+    write_csv(output_dir / "all_candidates.csv", rows)
+    write_csv(output_dir / "low_risk_shortlist.csv", low)
+    write_csv(output_dir / "exact_3000m_shortlist.csv", exact)
+    result = recommendation(low, exact)
+    (output_dir / "recommended_test0.json").write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    summary = [
+        "AD9528 PLL2 fine-step TEST0 planning summary",
+        f"all_candidates={len(rows)}",
+        f"low_risk_shortlist={len(low)}",
+        f"exact_3000m_shortlist={len(exact)}",
+        f"decision={result['decision']}",
+        "fixed_3000_path=FIXED_125M_CPLL",
+        "fixed_3000_state=BLOCKED",
+        "fixed_3000_reason=NO_LEGAL_VERIFIED_125M_CPLL_PROFILE",
+        "vcxo_122p88_source=VCXO_DIRECT",
+        "vcxo_122p88_board_measured=1",
+        "vcxo_122p88_pll2_fine_step_candidate=0",
     ]
-    path.write_text("\n".join(content) + "\n", encoding="utf-8")
+    preferred = result.get("preferred_candidate_pending_gates")
+    if preferred:
+        summary += [
+            f"preferred_pending={preferred['candidate_name']}",
+            f"preferred_out0_hz={preferred['target_out0_hz']}",
+            f"preferred_line_rate_bps={preferred['target_line_rate_bps']}",
+        ]
+    (output_dir / "generation_summary.txt").write_text(
+        "\n".join(summary) + "\n", encoding="utf-8")
+    return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--min-refclk-mhz", type=str, default="60")
-    parser.add_argument("--max-refclk-mhz", type=str, default="200")
+    parser.add_argument("--output-dir", type=Path,
+                        default=Path("reports/ad9528_fine_step_test0"))
     args = parser.parse_args()
-    min_refclk_hz = Fraction(args.min_refclk_mhz) * 1_000_000
-    max_refclk_hz = Fraction(args.max_refclk_mhz) * 1_000_000
-    if min_refclk_hz <= 0 or min_refclk_hz > max_refclk_hz:
-        raise SystemExit("invalid --min-refclk-mhz/--max-refclk-mhz range")
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    ad_frequencies = enumerate_ad9528_out0(min_refclk_hz, max_refclk_hz)
-    rows: list[CandidateRow] = []
-    for out0_hz, (config, aliases) in ad_frequencies.items():
-        for gtx in gtx_candidates_for_refclk(out0_hz):
-            rows.append(to_row(config, aliases, gtx))
-    rows.sort(key=lambda row: (
-        Fraction(row.out0_hz), row.gtx_pll, Fraction(row.line_rate_mbps),
-        row.gtx_refclk_div, row.gtx_txout_div,
-    ))
-    write_csv(rows, args.output_dir / "ad9528_gt_refclk_candidates.csv")
-    write_summary(rows, ad_frequencies, args.output_dir / "ad9528_gt_refclk_candidates_summary.md")
-
-    unique_rates = sorted({Fraction(row.line_rate_mbps) for row in rows})
-    print(f"PASS: exact OUT0 frequencies={len(ad_frequencies)} combined GTX tuples={len(rows)}")
-    print(f"Unique GTX line-rate values={len(unique_rates)}")
-    print(f"Output: {args.output_dir}")
+    result = generate(args.output_dir)
+    print(f"PASS: decision={result['decision']} output={args.output_dir}")
     return 0
 
 

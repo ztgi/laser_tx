@@ -1,0 +1,14 @@
+AD9528 PLL2 fine-step TEST0 planning summary
+all_candidates=1701
+low_risk_shortlist=20
+exact_3000m_shortlist=3
+decision=NO_SAFE_PLL2_TEST0_CANDIDATE
+fixed_3000_path=FIXED_125M_CPLL
+fixed_3000_state=BLOCKED
+fixed_3000_reason=NO_LEGAL_VERIFIED_125M_CPLL_PROFILE
+vcxo_122p88_source=VCXO_DIRECT
+vcxo_122p88_board_measured=1
+vcxo_122p88_pll2_fine_step_candidate=0
+preferred_pending=PLL2_TEST0_OUT0_124P8_CPLL_998P4
+preferred_out0_hz=124800000
+preferred_line_rate_bps=998400000

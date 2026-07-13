@@ -4,6 +4,16 @@
 
 本报告仅整理既有文档和证据，不修改 RTL、BD、XDC、Vitis、build 脚本、bitstream 或 LTX。
 
+## AD9528 PLL2 fine-step TEST0 规划状态
+
+- 已完成实现路径感知的只读枚举模型和 host tests；
+- `VCXO_122P88` 明确标记为 `VCXO_DIRECT/board_measured=1/pll2_fine_step_candidate=0`；
+- all candidates=1701（含 VCXO direct 基线），低风险 shortlist=20，精确 3000M experimental shortlist=3；
+- 固定 `3000M/FIXED_125M_CPLL` 继续为 `BLOCKED/NO_LEGAL_VERIFIED_125M_CPLL_PROFILE`；
+- 首选待解锁数学候选为 `PLL2_TEST0_OUT0_124P8_CPLL_998P4`；
+- 因 PLL2 完整寄存器 image 和共享输出影响未确认，正式决策为 `NO_SAFE_PLL2_TEST0_CANDIDATE`；
+- 未修改 AD9528 寄存器、RTL、BD/XDC、Vitis 下板逻辑或 supported rates。
+
 ## 1. 当前分层状态表
 
 | 层级 / 功能 | 当前状态 | 证据入口 | 备注 |

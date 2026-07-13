@@ -32,6 +32,20 @@ rate plan / rate set <Mbps>
 
 3000M 不在 supported 表中：125MHz CPLL 的数学候选会落入不满足当前 GTX CPLL 输出范围/验证要求的组合，且没有 GT Wizard、实现和上板验证的 3000M profile。
 
+### 实现路径感知的候选状态
+
+正式软件 planner 仍只管理已验证固定 profile；候选分析必须使用 `(target_rate, implementation_path)`，不能用一个全局 Mbps 状态覆盖不同参考时钟/PLL 路径。例如：
+
+```text
+3000M + FIXED_125M_CPLL
+  = BLOCKED / NO_LEGAL_VERIFIED_125M_CPLL_PROFILE
+
+3000M + AD9528_OUT0_CPLL_EXPERIMENTAL
+  = CANDIDATE（仅当数学组合合法，仍不可执行）
+```
+
+实验路径不会进入 `rate list`，也不会改变普通 `rate set 3000` 的拒绝行为。详细模型见 `ad9528_fine_step_test0_candidate_selection.md`。
+
 ## 规划结果
 
 - `EXACT`：请求值精确匹配正式 verified profile，可由 `rate set` 执行。

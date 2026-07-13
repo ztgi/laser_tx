@@ -99,9 +99,20 @@ Timing/QoR result not confirmed yet; rerun synthesis/implementation is required.
 
 该要求只在后续将某个经确认的 OUT0 候选实际接入 GT wrapper/profile 时生效。CSV 的 `TXUSRCLK2` 是接口公式结果，不能替代主工程的 MMCM 配置、VERIFY_RATE 窗口或 timing report。
 
-## 8. 风险与后续建议
+## 8. 当前证据更新与 TEST0 规划状态
 
-1. **当前可信 AD9528 image 缺失。** 首先应通过现有 SPI 读取或可追溯 boot 镜像确认 PLL1 source/bypass、VCXO/REFA/REFB、doubler、R1、N2、M1、OUT0 source/divider、power-down、IO_UPDATE/SYNC 和 lock/status。
+本文形成时“当前可信 AD9528 image 缺失”是正确的早期前提，但已经不是当前完整状态：
+
+- 当前已取得并验证 `VCXO_122P88` 的七项 masked register plan、IO_UPDATE、post-readback、snapshot/restore；
+- FPGA ILA 与 PS/UDP 软件回读已测得 OUT0 约 122.872～122.874 MHz；
+- 该证据只覆盖 `VCXO_DIRECT`，且 PLL1/PLL2 均 power-down，不是 PLL2 细步进验证；
+- 完整 PLL2 charge-pump/loop-filter/calibration/lock 运行镜像仍未针对 TEST0 在本板确认。
+
+新版实现路径感知枚举和 TEST0 决策见 `ad9528_fine_step_test0_candidate_selection.md`。固定 `3000M/FIXED_125M_CPLL` 仍保持 `BLOCKED/NO_LEGAL_VERIFIED_125M_CPLL_PROFILE`；AD9528 数学路径只能建立独立 experimental candidate。
+
+## 9. 风险与后续建议
+
+1. **历史上可信 AD9528 image 缺失；当前只补齐了 VCXO direct image。** PLL2 TEST0 仍必须确认 charge pump、feedback A/B、loop filter、calibration、R1/N2/M1、power、IO_UPDATE/SYNC 和 lock/status。
 2. 在该镜像确认前，不推荐定义 `AD9528_GT_REFCLK_TEST0`，也不推荐任何新 GT profile；推荐结论为“**没有可安全下板的测试 profile**”。
 3. 读取到真实镜像后，应将其作为枚举器的显式输入重新生成候选表，选择**一档**与现有 CPLL/QPLL 参数族尽量接近的速率，逐项完成 GT Wizard、MMCM DRP、frequency window、implementation 与 UDP/ILA 双向回切验证。
 4. 若真实 OUT0 频率或输入源与参考模型不同，当前 174,640 行只保留为方法验证，不能用于配置决策。
@@ -113,4 +124,3 @@ Timing/QoR result not confirmed yet; rerun synthesis/implementation is required.
 - [AMD PG046: GTX/GTH Transceivers Wizard](https://docs.amd.com/r/en-US/pg046-gtwizard)：相邻 Quad 参考时钟的 Wizard 路由/引脚交换说明。
 - [Analog Devices AD9528 data sheet](https://www.analog.com/media/en/technical-documentation/data-sheets/ad9528.pdf)：PLL2、VCO、PFD、输出与 divider 限制。
 - `D:/FPGA_Learn/project_gtx/software_src/laser_tx_rate/ad9528_rate.c`：仅作参考性模型输入，不是当前工程寄存器镜像。
-

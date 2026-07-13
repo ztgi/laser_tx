@@ -171,3 +171,9 @@ MMCM DRP：未实现；
 ad9528_out0_frequency_measurement_report.md
 41_ad9528_out0_software_measurement_readback_report.md
 ```
+
+如果关心下一步 PLL2 fine-step TEST0 的候选选择、3000M 实现路径状态和安全停止点，阅读：
+
+```text
+../design_notes/ad9528_fine_step_test0_candidate_selection.md
+```
