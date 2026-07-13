@@ -1,0 +1,20 @@
+{
+  "ad9528_config_count": 1319,
+  "ad9528_out0_max_hz": 200000000,
+  "ad9528_out0_min_hz": 60000000,
+  "cpll_tuple_count": 80,
+  "fixed_3000m_cpll_reason": "NO_LEGAL_VERIFIED_125M_CPLL_PROFILE",
+  "fixed_3000m_cpll_state": "BLOCKED",
+  "generator_version": 1,
+  "gt_tuple_count": 240,
+  "mmcm_recipe_count": 63,
+  "mmcm_write_count": 15,
+  "qpll_tuple_count": 160,
+  "source_models": [
+    "enumerate_ad9528_gt_refclk_candidates.py",
+    "enumerate_gtx_rate_candidates.py",
+    "generate_625m_4000m_mmcm_drp_candidates.py",
+    "Vitis 2022.2 xvphy_mmcme2.c/XAPP888 encoding"
+  ],
+  "target_profiles_generated": 0
+}

@@ -13,10 +13,13 @@
 #include "laser_gpio.h"
 #include "laser_gt.h"
 #include "laser_hw.h"
+#include "laser_rate_decimal_parser.h"
+#include "laser_runtime_rate_planner.h"
 #include "laser_status.h"
 #include "laser_udp_server.h"
 #include "xil_printf.h"
 #include "xstatus.h"
+#include "xtime_l.h"
 
 #if LASER_HAS_LWIP
 #include "lwip/init.h"
@@ -220,6 +223,109 @@ static int parse_u32_arg(char **cursor, uint32_t *value)
     return XST_SUCCESS;
 }
 
+static int parse_u32_token(const char *token, uint32_t *value)
+{
+    char *end = NULL;
+    unsigned long parsed;
+    if (token == NULL || value == NULL || token[0] == '\0' || token[0] == '-') {
+        return XST_FAILURE;
+    }
+    errno = 0;
+    parsed = strtoul(token, &end, 10);
+    if (errno == ERANGE || parsed > UINT32_MAX || end == token || *end != '\0') {
+        return XST_FAILURE;
+    }
+    *value = (uint32_t)parsed;
+    return XST_SUCCESS;
+}
+
+static int command_has_extra_arg(char **cursor);
+
+static int parse_runtime_tolerance(const char *token, uint32_t *value)
+{
+    static const char prefix[] = "TOLERANCE_PPM=";
+    size_t i;
+    if (token == NULL || value == NULL) return XST_FAILURE;
+    for (i = 0U; i < sizeof(prefix) - 1U; ++i) {
+        if (token[i] == '\0' || ascii_upper(token[i]) != prefix[i]) {
+            return XST_FAILURE;
+        }
+    }
+    return parse_u32_token(token + sizeof(prefix) - 1U, value);
+}
+
+static void format_runtime_rate_plan(const char *rate_text, char **cursor,
+                                     char *response, size_t response_size)
+{
+    RuntimeRatePlanRequest request;
+    RuntimeRatePlan plan;
+    RuntimeRatePlanDiagnostics diagnostics;
+    char *option;
+    XTime start;
+    XTime end;
+    int status;
+
+    memset(&request, 0, sizeof(request));
+    request.preferred_error_ppm = LASER_RUNTIME_RATE_DEFAULT_PREFERRED_PPM;
+    request.maximum_error_ppm = LASER_RUNTIME_RATE_DEFAULT_MAXIMUM_PPM;
+    request.allowed_pll_type = LASER_RUNTIME_PLL_BOTH;
+    request.allowed_implementation_path = LASER_RUNTIME_PATH_AD9528_OUT0;
+    if (laser_rate_decimal_mbps_to_bps(rate_text,
+                                       &request.requested_line_rate_bps) !=
+        LASER_RATE_DECIMAL_OK) {
+        (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
+        return;
+    }
+    option = next_token(cursor);
+    if (option != NULL) {
+        if (parse_runtime_tolerance(option, &request.maximum_error_ppm) !=
+                XST_SUCCESS ||
+            request.maximum_error_ppm == 0U ||
+            request.maximum_error_ppm > LASER_RUNTIME_RATE_MAXIMUM_ALLOWED_PPM ||
+            command_has_extra_arg(cursor)) {
+            (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
+            return;
+        }
+        if (request.preferred_error_ppm > request.maximum_error_ppm) {
+            request.preferred_error_ppm = request.maximum_error_ppm;
+        }
+    }
+    XTime_GetTime(&start);
+    status = laser_runtime_rate_plan(&request, NULL, &plan, &diagnostics);
+    XTime_GetTime(&end);
+    diagnostics.planning_time_us = (uint32_t)(((end - start) * 1000000ULL) /
+                                               COUNTS_PER_SECOND);
+    if (status == LASER_RUNTIME_PLAN_OK && plan.plan_executable != 0U) {
+        (void)snprintf(response, response_size,
+            "OK RATE_PLAN mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld ad9528_out0_hz=%lu r1=%u n2=%u m1=%u out_div=%u gt_pll_type=%s gt_refclk_div=%u gt_fbdiv=%u gt_fbdiv_45=%u txout_div=%u txusrclk_hz=%lu verify_expected_count=%lu plan_executable=1 reason=NONE planning_time_us=%lu",
+            (unsigned long long)plan.requested_line_rate_bps,
+            (unsigned long long)plan.actual_line_rate_bps,
+            (long)plan.line_rate_error_ppm,
+            (unsigned long)plan.ad9528_out0_hz,
+            (unsigned int)plan.ad9528_r1,
+            (unsigned int)plan.ad9528_n2,
+            (unsigned int)plan.ad9528_m1,
+            (unsigned int)plan.ad9528_out_div,
+            plan.gt_pll_type == LASER_RUNTIME_PLL_QPLL ? "QPLL" : "CPLL",
+            (unsigned int)plan.gt_refclk_div,
+            (unsigned int)plan.gt_fbdiv,
+            (unsigned int)plan.gt_fbdiv_45,
+            (unsigned int)plan.gt_txout_div,
+            (unsigned long)plan.txusrclk_hz,
+            (unsigned long)plan.verify_expected_count,
+            (unsigned long)diagnostics.planning_time_us);
+        return;
+    }
+    (void)snprintf(response, response_size,
+        "OK RATE_PLAN mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld plan_executable=0 reason=%s planning_time_us=%lu",
+        (unsigned long long)request.requested_line_rate_bps,
+        (unsigned long long)plan.actual_line_rate_bps,
+        (long)plan.line_rate_error_ppm,
+        plan.rejected_reason == NULL ? "NO_LEGAL_PLAN_WITHIN_TOLERANCE" :
+                                      plan.rejected_reason,
+        (unsigned long)diagnostics.planning_time_us);
+}
+
 static void format_rate_list(char *response, size_t response_size)
 {
     size_t i;
@@ -349,6 +455,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
     uint32_t current_rate_mbps;
     uint32_t rate_state;
     uint32_t error_code;
+    uint64_t target_rate_bps;
     GtRatePlan plan;
     int plan_status;
 
@@ -392,19 +499,30 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
     }
 
     if (token_equals(subcommand, "PLAN")) {
+        char *rate_text = next_token(cursor);
+        char *saved_cursor;
         char *mode;
-        if (parse_u32_arg(cursor, &target_mbps) != XST_SUCCESS) {
+        if (rate_text == NULL) {
             (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
             return;
         }
+        saved_cursor = *cursor;
         mode = next_token(cursor);
-        if (mode != NULL && (!token_equals(mode, "NEAREST") ||
-                             command_has_extra_arg(cursor))) {
+        if (mode == NULL || !token_equals(mode, "NEAREST")) {
+            *cursor = saved_cursor;
+            format_runtime_rate_plan(rate_text, cursor, response, response_size);
+            return;
+        }
+        if (command_has_extra_arg(cursor) ||
+            laser_rate_decimal_mbps_to_bps(rate_text, &target_rate_bps) !=
+                LASER_RATE_DECIMAL_OK ||
+            target_rate_bps % 1000000ULL != 0U ||
+            target_rate_bps / 1000000ULL > UINT32_MAX) {
             (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
             return;
         }
-        plan_status = (mode == NULL) ? gt_rate_plan_exact(target_mbps, &plan) :
-                                       gt_rate_plan_nearest(target_mbps, &plan);
+        target_mbps = (uint32_t)(target_rate_bps / 1000000ULL);
+        plan_status = gt_rate_plan_nearest(target_mbps, &plan);
         if (plan_status == GT_RATE_PLAN_OK && plan.result == GT_RATE_PLAN_EXACT) {
             (void)snprintf(response, response_size,
                            "OK RATE_PLAN result=EXACT requested=%lu selected=%lu rate_id=%lu refclk=%lu pll=%s QPLL_N=%u TXOUT_DIV=%u expected_txusrclk2=%lu freq_counter_min=%lu freq_counter_max=%lu qpll_required=%u ad9528_dynamic_required=%u verified=%u",
