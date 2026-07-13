@@ -13,13 +13,22 @@ import enumerate_ad9528_gt_refclk_candidates as planner
 
 
 class FineStepPlannerTest(unittest.TestCase):
-    def test_fraction_determinism_and_124p8(self):
+    def test_124p8_math_is_reproducible_but_not_encodable(self):
+        pfd = Fraction(122_880_000, 8)
+        vco = pfd * 65 * 4
+        out0 = vco / 4 / 8
+        self.assertEqual(pfd, Fraction(15_360_000))
+        self.assertEqual(vco, Fraction(3_993_600_000))
+        self.assertEqual(out0, Fraction(124_800_000))
+        self.assertFalse(planner.pll2_calibration_divider_valid(65 * 4))
         configs = planner.enumerate_pll2_configs()
-        config = configs[Fraction(124_800_000)]
-        self.assertEqual(config.pfd_hz, Fraction(15_360_000))
-        self.assertEqual(config.vco_hz, Fraction(3_993_600_000))
-        self.assertEqual((config.r1, config.n2, config.m1, config.out0_div),
-                         (8, 65, 4, 8))
+        self.assertNotIn(Fraction(124_800_000), configs)
+
+    def test_calibration_divider_driver_limits(self):
+        for value in (16, 17, 20, 255):
+            self.assertTrue(planner.pll2_calibration_divider_valid(value))
+        for value in (0, 15, 18, 19, 23, 27, 256, 260):
+            self.assertFalse(planner.pll2_calibration_divider_valid(value))
 
     def test_invalid_pfd_and_vco_excluded(self):
         bad_pfd = planner.Ad9528Pll2Limits(
@@ -55,12 +64,7 @@ class FineStepPlannerTest(unittest.TestCase):
         self.assertEqual(fixed["reason"],
                          planner.NO_LEGAL_VERIFIED_125M_CPLL_PROFILE)
         _, _, exact = planner.generate_candidates()
-        self.assertTrue(exact)
-        self.assertTrue(all(row.rate_state == planner.CANDIDATE for row in exact))
-        self.assertTrue(any(row.rate_path == planner.AD9528_OUT0_CPLL_EXPERIMENTAL
-                            for row in exact))
-        self.assertTrue(any(row.rate_path == planner.AD9528_OUT0_QPLL_EXPERIMENTAL
-                            for row in exact))
+        self.assertEqual(exact, [])
 
     def test_no_duplicate_implementation_path_records(self):
         rows, _, _ = planner.generate_candidates()
@@ -69,11 +73,7 @@ class FineStepPlannerTest(unittest.TestCase):
         self.assertEqual(len(keys), len(set(keys)))
 
     def test_measurement_count(self):
-        rows, low, _ = planner.generate_candidates()
-        del rows
-        row = next(r for r in low if r.out0_hz == "124800000" and
-                   r.gt_txout_div == 4)
-        self.assertEqual(Fraction(row.expected_odiv2_count_1ms), 62400)
+        self.assertEqual(Fraction(124_800_000, 2_000), 62400)
 
     def test_repeat_generation_is_identical_and_not_verified(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
@@ -87,6 +87,9 @@ class FineStepPlannerTest(unittest.TestCase):
             data = json.loads((Path(a) / "recommended_test0.json").read_text())
             self.assertFalse(data["board_verified"])
             self.assertEqual(data["decision"], "NO_SAFE_PLL2_TEST0_CANDIDATE")
+            pending = data.get("preferred_candidate_pending_gates", {})
+            self.assertNotEqual(pending.get("candidate_name"),
+                                "PLL2_TEST0_OUT0_124P8_CPLL_998P4")
 
     def test_no_candidate_has_explicit_safe_stop(self):
         data = planner.recommendation([], [])
@@ -99,8 +102,7 @@ class FineStepPlannerTest(unittest.TestCase):
             planner.generate(Path(directory))
             with (Path(directory) / "exact_3000m_shortlist.csv").open() as handle:
                 rows = list(csv.DictReader(handle))
-            self.assertTrue(rows)
-            self.assertTrue(all(row["rate_state"] == planner.CANDIDATE for row in rows))
+            self.assertEqual(rows, [])
 
 
 if __name__ == "__main__":

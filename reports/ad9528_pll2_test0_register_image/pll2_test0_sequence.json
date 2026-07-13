@@ -1,0 +1,38 @@
+{
+  "calibration_timeout": null,
+  "candidate_name": "PLL2_TEST0_OUT0_124P8_CPLL_998P4",
+  "executable": false,
+  "failure_status_fields": [
+    "last_error",
+    "failed_reg",
+    "expected",
+    "actual",
+    "rollback_attempted",
+    "rollback_success"
+  ],
+  "lock_timeout": null,
+  "nominal_order": [
+    "snapshot_all_modified_registers",
+    "masked_write_pll2_common_out0_and_power",
+    "io_update_1",
+    "write_0x0203_calibrate_bit",
+    "io_update_2",
+    "poll_0x0508_IS_CALIBRATING_clear",
+    "poll_0x0508_PLL2_LOCKED_and_PLL2_OK",
+    "channel_sync_only_if_shared_output_audit_proves_safe",
+    "post_readback",
+    "frequency_measurement"
+  ],
+  "poll_interval": null,
+  "requires_sync": null,
+  "restore": [
+    "invalidate_measurement_result",
+    "restore_full_snapshot_bytes",
+    "io_update",
+    "readback_verify",
+    "verify_pll2_common_and_all_outputs_returned_to_preapply_state",
+    "clear_measurement_cache"
+  ],
+  "sequence_source": "D:/FPGA_Learn/project_gtx/vitis_clean/laser_tx_rate/src/ad9528.c+h",
+  "sync_reason": "FULL_OUTPUT_IMAGE_AND_SYNC_IGNORE_MASK_REQUIRED"
+}

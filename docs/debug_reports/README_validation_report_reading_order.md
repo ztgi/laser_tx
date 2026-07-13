@@ -176,4 +176,5 @@ ad9528_out0_frequency_measurement_report.md
 
 ```text
 ../design_notes/ad9528_fine_step_test0_candidate_selection.md
+43_ad9528_pll2_test0_register_image_audit.md
 ```

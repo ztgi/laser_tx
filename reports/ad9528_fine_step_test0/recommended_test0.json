@@ -9,7 +9,7 @@
   "board_verified": false,
   "candidate_name": "NO_SAFE_PLL2_TEST0_CANDIDATE",
   "decision": "NO_SAFE_PLL2_TEST0_CANDIDATE",
-  "exact_3000_shortlist_count": 3,
+  "exact_3000_shortlist_count": 0,
   "fixed_3000_policy": {
     "board_verified": false,
     "rate_path": "FIXED_125M_CPLL",
@@ -30,9 +30,9 @@
     "ad9528": {
       "doubler": 1,
       "m1": 4,
-      "n2": 65,
+      "n2": 49,
       "out0_div": 8,
-      "r1": 8,
+      "r1": 6,
       "vcxo_hz": 122880000
     },
     "additional_gates": [
@@ -43,8 +43,8 @@
       "SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED"
     ],
     "board_verified": false,
-    "candidate_name": "PLL2_TEST0_OUT0_124P8_CPLL_998P4",
-    "expected_odiv2_count_1ms": 62400,
+    "candidate_name": "PLL2_OUT0_125P44_CPLL_1003P52",
+    "expected_odiv2_count_1ms": 62720,
     "gt": {
       "fbdiv": 4,
       "fbdiv_45": 4,
@@ -56,8 +56,8 @@
     "rate_state": "CANDIDATE",
     "reason": "LEGAL_NOT_IMPLEMENTED",
     "requires_new_mmcm_profile": true,
-    "target_line_rate_bps": 998400000,
-    "target_out0_hz": 124800000
+    "target_line_rate_bps": 1003520000,
+    "target_out0_hz": 125440000
   },
   "purpose": "OUT0_PLL2_MEASUREMENT_ONLY",
   "rate_path": "AD9528_OUT0_CPLL_EXPERIMENTAL",

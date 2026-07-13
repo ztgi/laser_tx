@@ -1,0 +1,18 @@
+{
+  "board_verified": false,
+  "calibration_divider": 260,
+  "calibration_divider_valid": false,
+  "candidate_name": "PLL2_TEST0_OUT0_124P8_CPLL_998P4",
+  "executable_initializer_generated": false,
+  "failed_gates": [
+    "PLL2_CALIBRATION_DIVIDER_NOT_ENCODABLE",
+    "FEEDBACK_AB_NOT_ENCODABLE",
+    "CHARGE_PUMP_NOT_CONFIRMED_FOR_BOARD_TEST0",
+    "LOOP_FILTER_NOT_CONFIRMED_FOR_BOARD_TEST0",
+    "BOARD_DUMP_REQUIRED_FOR_A_B_C_STATES",
+    "SYNC_DECISION_NOT_CLOSED",
+    "SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED"
+  ],
+  "result": "NO_PROVEN_PLL2_REGISTER_IMAGE",
+  "safe_to_implement": false
+}

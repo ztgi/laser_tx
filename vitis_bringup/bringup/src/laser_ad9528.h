@@ -138,6 +138,7 @@ void laser_ad9528_get_last_identity(uint8_t *product_id, uint8_t *revision,
 int32_t laser_ad9528_basic_check(void);
 int32_t laser_ad9528_apply_rate_profile(uint32_t profile_id);
 int32_t laser_ad9528_dump_runtime_state(LaserAd9528RuntimeState *state);
+int32_t laser_ad9528_dump_full_readonly(void);
 uint16_t laser_ad9528_last_read_error_reg(void);
 void laser_ad9528_print_runtime_state(const LaserAd9528RuntimeState *state);
 int32_t laser_ad9528_format_runtime_status(char *buffer, size_t buffer_size,

@@ -378,6 +378,60 @@ int32_t laser_ad9528_dump_runtime_state(LaserAd9528RuntimeState *state)
     return XST_SUCCESS;
 }
 
+typedef struct {
+    uint16_t first;
+    uint16_t last;
+} LaserAd9528ReadRange;
+
+int32_t laser_ad9528_dump_full_readonly(void)
+{
+    static const LaserAd9528ReadRange ranges[] = {
+        {0x0000U, 0x000FU},
+        {0x0100U, 0x010AU},
+        {0x0200U, 0x0208U},
+        {0x0300U, 0x032EU},
+        {0x0400U, 0x0403U},
+        {0x0500U, 0x0508U}
+    };
+    uint8_t product_id = 0U;
+    uint8_t revision = 0U;
+    uint8_t vendor_id = 0U;
+    uint32_t range_index;
+    int32_t status;
+
+    if (!ad9528_initialized) {
+        return XST_FAILURE;
+    }
+    status = laser_ad9528_identify(&product_id, &revision, &vendor_id);
+    if (status != XST_SUCCESS) {
+        return status;
+    }
+
+    ad9528_last_read_error_reg = 0U;
+    xil_printf("AD9528_FULL_DUMP_BEGIN readonly=1 ranges=0000-000f,0100-010a,0200-0208,0300-032e,0400-0403,0500-0508\r\n");
+    for (range_index = 0U;
+         range_index < (uint32_t)(sizeof(ranges) / sizeof(ranges[0]));
+         ++range_index) {
+        uint16_t reg;
+        for (reg = ranges[range_index].first;
+             reg <= ranges[range_index].last;
+             ++reg) {
+            uint8_t value = 0U;
+            status = laser_ad9528_read(reg, &value);
+            if (status != XST_SUCCESS) {
+                ad9528_last_read_error_reg = reg;
+                xil_printf("AD9528_FULL_DUMP_ERROR addr=0x%04x status=%ld\r\n",
+                           (unsigned int)reg, (long)status);
+                return status;
+            }
+            xil_printf("AD9528_REG addr=0x%04x value=0x%02x\r\n",
+                       (unsigned int)reg, (unsigned int)value);
+        }
+    }
+    xil_printf("AD9528_FULL_DUMP_END readonly=1\r\n");
+    return XST_SUCCESS;
+}
+
 uint16_t laser_ad9528_last_read_error_reg(void)
 {
     return ad9528_last_read_error_reg;

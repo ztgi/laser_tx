@@ -48,6 +48,7 @@ NO_LEGAL_156P25M_PROFILE = "NO_LEGAL_156P25M_PROFILE"
 NO_LEGAL_AD9528_OUT0_PROFILE = "NO_LEGAL_AD9528_OUT0_PROFILE"
 SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED = "SHARED_CLOCK_TREE_IMPACT_NOT_ACCEPTED"
 AD9528_REGISTER_IMAGE_NOT_CONFIRMED = "AD9528_REGISTER_IMAGE_NOT_CONFIRMED"
+PLL2_CALIBRATION_DIVIDER_NOT_ENCODABLE = "PLL2_CALIBRATION_DIVIDER_NOT_ENCODABLE"
 
 VCXO_DIRECT = "VCXO_DIRECT"
 PLL2_SYNTHESIZED = "PLL2_SYNTHESIZED"
@@ -115,6 +116,15 @@ class Pll2Config:
     pfd_hz: Fraction
     vco_hz: Fraction
     out0_hz: Fraction
+
+
+def pll2_calibration_divider_valid(value: int) -> bool:
+    """Match the ADI no-OS AD9528 feedback-calibration divider gate.
+
+    Register 0x0201 uses A[1:0] and B[5:0], with divider = 4*B + A.
+    The official driver accepts 16..255 except 18, 19, 23 and 27.
+    """
+    return 16 <= value <= 255 and value not in (18, 19, 23, 27)
 
 
 @dataclass(frozen=True)
@@ -221,6 +231,12 @@ def enumerate_pll2_configs(min_out0_hz: Fraction = Fraction(60_000_000),
                 continue
             for n2 in limits.allowed_n2:
                 for m1 in limits.allowed_m1:
+                    # N2 (0x0208) and the calibration feedback divider
+                    # encoded in A/B (0x0201) are related but not identical
+                    # fields.  ADI derives the latter from M1*N2 and rejects
+                    # values outside its representable/valid set.
+                    if not pll2_calibration_divider_valid(n2 * m1):
+                        continue
                     vco = pfd * n2 * m1
                     if not limits.pll2_vco_min_hz <= vco <= limits.pll2_vco_max_hz:
                         continue
@@ -468,7 +484,7 @@ def recommendation(low: list[Candidate], exact: list[Candidate]) -> dict[str, ob
     }
     if preferred is not None:
         base["preferred_candidate_pending_gates"] = {
-            "candidate_name": "PLL2_TEST0_OUT0_124P8_CPLL_998P4",
+            "candidate_name": preferred.candidate_name,
             "target_out0_hz": int(Fraction(preferred.out0_hz)),
             "target_line_rate_bps": int(Fraction(preferred.line_rate_bps)),
             "rate_path": preferred.rate_path,

@@ -765,6 +765,28 @@ static void handle_udp_command(LaserGpio *gpio,
             }
             return;
         }
+        if (subcommand != NULL && token_equals(subcommand, "DUMP")) {
+            char *view = next_token(&cursor);
+            if (view != NULL && token_equals(view, "FULL") &&
+                !command_has_extra_arg(&cursor)) {
+                ad9528_status = laser_ad9528_dump_full_readonly();
+                if (ad9528_status == XST_SUCCESS) {
+                    (void)snprintf(response, response_size,
+                                   "OK AD9528_DUMP_FULL readonly=1 uart_format=AD9528_REG ranges=0000-000f,0100-010a,0200-0208,0300-032e,0400-0403,0500-0508");
+                } else {
+                    (void)snprintf(response, response_size,
+                                   "ERROR AD9528_DUMP_FULL readonly=1 status=%ld failed_reg=0x%04x",
+                                   (long)ad9528_status,
+                                   (unsigned int)laser_ad9528_last_read_error_reg());
+                }
+                return;
+            }
+            if (view != NULL) {
+                (void)snprintf(response, response_size,
+                               "ERR AD9528_DUMP_ARGS expected=FULL");
+                return;
+            }
+        }
         if (subcommand == NULL || command_has_extra_arg(&cursor) ||
             (!token_equals(subcommand, "STATUS") && !token_equals(subcommand, "DUMP"))) {
             (void)snprintf(response, response_size, "ERR AD9528_COMMAND");
