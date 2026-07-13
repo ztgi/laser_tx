@@ -199,6 +199,55 @@ board_verified=0
 
 若 82883 稳定复现，后续应优先复核 AD9528 OUT0 source encoding、divider encoding、VCXO input/source path 和 `IBUFDS_GTE2.ODIV2` 换算关系。不能仅凭 `configured_out0_hz=122880000` 继续推进。
 
+## 9.2 Restore 与默认镜像回读
+
+用户补充验证：执行 `ad9528 candidate restore` 后，ILA count 已离开约 82883。这一点很重要，说明 Bank110 `IBUFDS_GTE2.ODIV2` 测量点不是一个与 AD9528 candidate 无关的固定时钟；candidate set/restore 至少能够改变该测量点的运行状态。
+
+restore 后保存的 AD9528 dump 显示 SPI identity 仍正确：
+
+```text
+0x0003 = 0x05
+0x0006 = 0x03
+0x000C = 0x56
+```
+
+关键寄存器回到默认/未初始化镜像：
+
+| Register | Value | 说明 |
+| --- | ---: | --- |
+| `0x0108` | `0x00` | PLL1/VCXO path 默认值 |
+| `0x0109` | `0x00` | PLL1 bypass bits 未置位 |
+| `0x010A` | `0x00` | PLL1 ctrl 默认值 |
+| `0x0300` | `0x00` | OUT0 source 默认值 |
+| `0x0301` | `0x00` | OUT0 driver 默认值 |
+| `0x0302` | `0x04` | OUT0 divider 默认值，解析为 out0_div=5 |
+| `0x0500` | `0x10` | global power-down默认镜像 |
+| `0x0501` | `0x00` | channel power-down低字节 |
+| `0x0503` | `0xFF` | OUT0 LDO status |
+| `0x0508` | `0x10` | readback status low byte |
+| `0x0509` | `0x08` | readback status high byte |
+
+软件解析结果为：
+
+```text
+pll1_bypass_likely=0
+pll2_direct_vcxo_likely=0
+pll1_lock=0
+pll2_lock=0
+out0_source=0
+out0_div=5
+out0_cfg_enabled=1
+out0_hz=UNKNOWN
+```
+
+因此，restore 路径和默认镜像恢复是有效的；但这份 dump 是 restore 后状态，不能解释 candidate set 时 `ad9528_odiv2_count_axi=82883` 的原因。下一步需要在 count=82883 的 set 状态下立即保存同一组寄存器，尤其是：
+
+```text
+0x0108 0x0109 0x0300 0x0301 0x0302 0x0500 0x0501 0x0503 0x0508 0x0509
+```
+
+如果 set 状态下这些寄存器与计划值一致，但 ILA count 仍稳定约 82883，则需要重新核对 AD9528 OUT0 source/divider 位域或 `ODIV2=OUT0/2` 的当前器件路径假设；如果 set 状态下寄存器没有进入计划值，则问题应回到 candidate apply/IO_UPDATE/readback 路径。
+
 ## 10. 修改文件
 
 | 文件 | 修改 |
