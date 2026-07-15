@@ -39,7 +39,8 @@ def generate_c() -> str:
         f"#define LASER_DYN_DESC_VERSION {SPEC['version']}U\n",
         f"#define LASER_DYN_DESC_WORDS {SPEC['descriptor_words']}U\n",
         f"#define LASER_DYN_DESC_MAX_MMCM_WRITES {SPEC['max_mmcm_writes']}U\n",
-        "#define LASER_DYN_DESC_VERSION_COUNT \\\n+    ((LASER_DYN_DESC_WORDS << 16) | LASER_DYN_DESC_VERSION)\n",
+        "#define LASER_DYN_DESC_VERSION_COUNT \\\n"
+        "    ((LASER_DYN_DESC_WORDS << 16) | LASER_DYN_DESC_VERSION)\n",
         "#define LASER_DYN_CRC32_INIT UINT32_C(0xFFFFFFFF)\n",
         "#define LASER_DYN_CRC32_POLY UINT32_C(0xEDB88320)\n",
         "#define LASER_DYN_CRC32_XOROUT UINT32_C(0xFFFFFFFF)\n\n",

@@ -104,6 +104,26 @@
 #define LASER_GT_STATUS_CHANNEL 1U
 #define LASER_AD9528_SPI_SLAVE  1U
 
+/* Stage-2 mailbox addresses are fixed by system.bd. The named xparameters
+ * macros become available after the Stage-6 XSA refresh; the fallback keeps
+ * the current platform build tied to the reviewed, unchanged address map. */
+#if defined(XPAR_AXI_GPIO_DYNAMIC_MAILBOX_BASEADDR)
+#define LASER_DYNAMIC_MAILBOX_GPIO_BASEADDR \
+    XPAR_AXI_GPIO_DYNAMIC_MAILBOX_BASEADDR
+#else
+#define LASER_DYNAMIC_MAILBOX_GPIO_BASEADDR 0x40040000U
+#endif
+
+#if defined(XPAR_AXI_BRAM_DYN_DESC_S_AXI_BASEADDR)
+#define LASER_DYNAMIC_DESCRIPTOR_BRAM_BASEADDR \
+    XPAR_AXI_BRAM_DYN_DESC_S_AXI_BASEADDR
+#elif defined(XPAR_AXI_BRAM_DYN_DESC_BASEADDR)
+#define LASER_DYNAMIC_DESCRIPTOR_BRAM_BASEADDR \
+    XPAR_AXI_BRAM_DYN_DESC_BASEADDR
+#else
+#define LASER_DYNAMIC_DESCRIPTOR_BRAM_BASEADDR 0x42000000U
+#endif
+
 #define LASER_CONFIG_STRIDE_BYTES 32U
 #define LASER_CONFIG_WORD_COUNT    8U
 

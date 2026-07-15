@@ -67,6 +67,7 @@ typedef struct {
     uint8_t gt_txout_div;
     uint8_t gt_txout_div_encoding;
     uint8_t gt_drp_encoding_confirmed;
+    uint16_t gt_cpll_drp_value;
     uint64_t gt_vco_hz;
 
     uint8_t mmcm_mult;

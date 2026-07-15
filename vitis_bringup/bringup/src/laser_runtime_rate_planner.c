@@ -298,6 +298,10 @@ static int evaluate_candidate(const RuntimeRatePlanRequest *request,
     candidate->plan.gt_txout_div = gt->txout_div;
     candidate->plan.gt_txout_div_encoding = gt->txout_div_encoding;
     candidate->plan.gt_drp_encoding_confirmed = gt->drp_encoding_confirmed;
+    candidate->plan.gt_cpll_drp_value = (uint16_t)(
+        ((uint16_t)gt->cpll_refclk_div_encoding << 8) |
+        ((uint16_t)gt->cpll_fbdiv_45_encoding << 7) |
+        (uint16_t)gt->cpll_fbdiv_encoding);
     candidate->plan.gt_vco_hz = vco;
     candidate->plan.mmcm_mult = mmcm->mult;
     candidate->plan.mmcm_write_count = RUNTIME_MMCM_WRITE_COUNT;

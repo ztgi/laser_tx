@@ -6,6 +6,7 @@
 #include "laser_gpio.h"
 #include "laser_gt.h"
 #include "laser_hw.h"
+#include "laser_runtime_rate_switch.h"
 #include "laser_status.h"
 #include "laser_udp_server.h"
 #include "sleep.h"
@@ -84,6 +85,12 @@ static int laser_init_control_hw(LaserGpio *gpio)
     status = laser_ad9528_measure_init();
     if (status != XST_SUCCESS) {
         xil_printf("ERROR: AD9528 measurement GPIO init failed: %d\r\n", status);
+        return XST_FAILURE;
+    }
+
+    status = laser_runtime_rate_switch_init();
+    if (status != XST_SUCCESS) {
+        xil_printf("ERROR: dynamic rate mailbox init failed: %d\r\n", status);
         return XST_FAILURE;
     }
 
