@@ -94,6 +94,7 @@ module system_wrapper
     dynamic_descriptor_bram_portb_we,
     dynamic_mailbox_control_out,
     dynamic_mailbox_status_in,
+    dynamic_rate_debug_bus,
     eom_out_0,
     gpio_ctrl_to_gt,
     gpio_status_to_gt,
@@ -190,6 +191,7 @@ module system_wrapper
   input [3:0]dynamic_descriptor_bram_portb_we;
   output [3:0]dynamic_mailbox_control_out;
   input [31:0]dynamic_mailbox_status_in;
+  input [31:0]dynamic_rate_debug_bus;
   output eom_out_0;
   output [31:0]gpio_ctrl_to_gt;
   output [31:0]gpio_status_to_gt;
@@ -299,6 +301,7 @@ module system_wrapper
   wire [3:0]dynamic_descriptor_bram_portb_we;
   wire [3:0]dynamic_mailbox_control_out;
   wire [31:0]dynamic_mailbox_status_in;
+  wire [31:0]dynamic_rate_debug_bus;
   wire eom_out_0;
   wire [31:0]gpio_ctrl_to_gt;
   wire [31:0]gpio_status_to_gt;
@@ -425,6 +428,7 @@ module system_wrapper
         .dynamic_descriptor_bram_portb_we(dynamic_descriptor_bram_portb_we),
         .dynamic_mailbox_control_out(dynamic_mailbox_control_out),
         .dynamic_mailbox_status_in(dynamic_mailbox_status_in),
+        .dynamic_rate_debug_bus(dynamic_rate_debug_bus),
         .eom_out_0(eom_out_0),
         .gpio_ctrl_to_gt(gpio_ctrl_to_gt),
         .gpio_status_to_gt(gpio_status_to_gt),

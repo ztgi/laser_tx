@@ -21,7 +21,8 @@ module laser_gt_dynamic_rate_executor_tb;
         if (mm_en && mm_we) mmcm_reg <= mm_di;
     end
     initial begin #20000; $fatal(1,"timeout state=%0d error=%0d freq=%0d",state,failed,freq); end
-    laser_gt_dynamic_rate_executor #(.RESET_HOLD_CYCLES(2),.TIMEOUT_CYCLES(20)) dut(
+    laser_gt_dynamic_rate_executor #(.RESET_HOLD_CYCLES(2),.TIMEOUT_CYCLES(20),
+        .REFCLK_READY_TIMEOUT_CYCLES(40)) dut(
         .clk(clk),.rst(rst),.start(start),.descriptor_valid(1'b1),.active_words_flat(words),
         .refclk_ready_event(refclk),.abort_event(abort),.rollback_ready_event(rollback),
         .resource_request(request),.resource_grant(grant),.resource_reject(1'b0),
@@ -55,6 +56,10 @@ module laser_gt_dynamic_rate_executor_tb;
     endtask
     task launch;
         begin start=1;@(posedge clk);start=0;while(!prepared)@(posedge clk);
+            // AD9528 preparation is allowed to exceed the ordinary hardware
+            // timeout without producing E_REFCLK.
+            repeat(25) @(posedge clk);
+            if(error) $fatal(1,"PREPARED used short TIMEOUT_CYCLES");
             @(negedge clk);refclk=1;@(posedge clk);@(negedge clk);refclk=0;
         end
     endtask

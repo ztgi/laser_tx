@@ -6,7 +6,11 @@
 // DONE and is restored only after the matching mailbox ROLLBACK_READY event.
 module laser_gt_dynamic_rate_executor #(
     parameter integer RESET_HOLD_CYCLES = 1024,
-    parameter integer TIMEOUT_CYCLES = 5000000
+    parameter integer TIMEOUT_CYCLES = 5000000,
+    // PREPARED waits for PS to program/calibrate/measure AD9528 before it
+    // raises REFCLK_READY. Keep this independent from the short hardware
+    // DRP/lock timeout used by the remaining states.
+    parameter integer REFCLK_READY_TIMEOUT_CYCLES = 250000000
 ) (
     input wire clk, input wire rst,
     input wire start, input wire descriptor_valid,
@@ -189,7 +193,7 @@ module laser_gt_dynamic_rate_executor #(
             end
             S_PREPARED: if(descriptor_sequence!=latched_sequence) enter_error(E_SEQUENCE);
                 else if(refclk_ready_event) begin timer<=0;dynamic_state<=S_SNAP_CPLL;end
-                else if(timer>=TIMEOUT_CYCLES) enter_error(E_REFCLK);
+                else if(timer>=REFCLK_READY_TIMEOUT_CYCLES) enter_error(E_REFCLK);
                 else timer<=timer+1;
             S_SNAP_CPLL: begin gt_drp_addr<=9'h05e;gt_drp_en<=1;timer<=0;dynamic_state<=S_SNAP_CPLL_W;end
             S_SNAP_CPLL_W: if(gt_drp_rdy) begin saved_cpll<=gt_drp_do;dynamic_state<=S_SNAP_OUT;end

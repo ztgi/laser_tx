@@ -156,6 +156,16 @@ set txusrclk_pin [get_pins -quiet \
 set txusrclk2_pin [get_pins -quiet \
     u_laser_gt_tx_profile0/u_tx_usrclk_profile0/u_txusrclk2_bufg/O]
 
+# The tracked QPLL/GTNORTH-capable Wizard wrapper is compiled directly so its
+# generated XCI constraint is intentionally not part of this build. Recreate
+# only the confirmed power-up Profile-0 TXOUTCLK clock when it is absent; this
+# is the same 64 ns constraint emitted by gtwizard_0.xdc.
+if {[llength $txoutclk_pin] == 1 &&
+    [llength [get_clocks -quiet -of_objects $txoutclk_pin]] == 0} {
+    create_clock -name GT_TXOUTCLK_INITIAL_500M -period 64.000 $txoutclk_pin
+    puts "INFO: Created confirmed 64 ns initial GT TXOUTCLK clock on $txoutclk_pin."
+}
+
 set txoutclk_clock [require_one_clock "GT TXOUTCLK" $txoutclk_pin]
 set txusrclk_clock [require_one_clock "GT TXUSRCLK" $txusrclk_pin]
 set txusrclk2_clock [require_one_clock "GT TXUSRCLK2" $txusrclk2_pin]
@@ -163,6 +173,19 @@ set txusrclk2_clock [require_one_clock "GT TXUSRCLK2" $txusrclk2_pin]
 require_period "GT TXOUTCLK / TXUSRCLK" $txoutclk_clock 64.000
 require_period "GT TXUSRCLK" $txusrclk_clock 64.000
 require_period "GT TXUSRCLK2" $txusrclk2_clock 128.000
+
+# The MMCM is reprogrammed at runtime. Static inference sees only the 500M
+# power-up dividers, so replace the inferred TXUSRCLK/TXUSRCLK2 clocks with the
+# worst legal clocks accepted by the runtime planner: 10.3125 Gb/s / 32 =
+# 322.265625 MHz (3.103 ns) and / 64 = 161.1328125 MHz (6.206 ns). This times
+# the GT user-clock interface, TX data path, and TX-domain ILA for every
+# runtime candidate instead of under-constraining them at the 500M startup.
+create_clock -name GT_TXUSRCLK_RUNTIME_MAX -period 3.103 $txusrclk_pin
+set txusrclk_clock [require_one_clock "runtime maximum GT TXUSRCLK" $txusrclk_pin]
+require_period "runtime maximum GT TXUSRCLK" $txusrclk_clock 3.103
+create_clock -name GT_TXUSRCLK2_RUNTIME_MAX -period 6.206 $txusrclk2_pin
+set txusrclk2_clock [require_one_clock "runtime maximum GT TXUSRCLK2" $txusrclk2_pin]
+require_period "runtime maximum GT TXUSRCLK2" $txusrclk2_clock 6.206
 
 set_clock_groups -asynchronous \
     -group $axi_clock \

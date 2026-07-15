@@ -124,6 +124,25 @@ module laser_tx_board_top (
     wire dynamic_executor_verify_pass;
     wire [7:0] dynamic_executor_failed_stage;
     wire [7:0] dynamic_executor_state;
+    // AXI/FCLK ILA-only summary. This bus is observational and never feeds
+    // back into the mailbox, executor, or legacy rate-switch path.
+    wire [31:0] dynamic_rate_debug_bus = {
+        3'b000,
+        gt_ready,
+        2'b00,
+        dynamic_rollback_ready_event,
+        dynamic_abort_event,
+        dynamic_refclk_ready_event,
+        dynamic_descriptor_commit_event,
+        dynamic_descriptor_valid,
+        dynamic_executor_verify_pass,
+        dynamic_executor_rollback_done,
+        dynamic_executor_error,
+        dynamic_executor_done,
+        dynamic_executor_prepared,
+        dynamic_executor_failed_stage,
+        dynamic_executor_state
+    };
 
     localparam integer AD9528_MEASURE_GT_CTRL_CLK_HZ = 50000000;
     localparam integer AD9528_MEASURE_WINDOW_US = 1000;
@@ -356,6 +375,7 @@ module laser_tx_board_top (
         .dynamic_descriptor_bram_portb_we   (dynamic_descriptor_bram_we),
         .dynamic_mailbox_control_out        (dynamic_mailbox_control),
         .dynamic_mailbox_status_in          (dynamic_mailbox_status),
+        .dynamic_rate_debug_bus             (dynamic_rate_debug_bus),
         .gt_ctrl_clk       (gt_ctrl_clk),
         .gt_ctrl_rst       (gt_ctrl_rst),
         .gt_ready          (gt_ready),

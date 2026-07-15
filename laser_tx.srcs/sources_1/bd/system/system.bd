@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x2F37D7DB907A82AC",
+      "boundary_crc": "0xB5BBC63713DF00DA",
       "device": "xc7z100ffg900-2",
       "gen_directory": "../../../../laser_tx.gen/sources_1/bd/system",
       "name": "system",
@@ -572,6 +572,11 @@
         "right": "0"
       },
       "dynamic_mailbox_status_in": {
+        "direction": "I",
+        "left": "31",
+        "right": "0"
+      },
+      "dynamic_rate_debug_bus": {
         "direction": "I",
         "left": "31",
         "right": "0"
@@ -1628,7 +1633,7 @@
             "value": "Native"
           },
           "C_NUM_OF_PROBES": {
-            "value": "50"
+            "value": "51"
           },
           "C_PROBE0_WIDTH": {
             "value": "32"
@@ -1763,6 +1768,9 @@
             "value": "32"
           },
           "C_PROBE4_WIDTH": {
+            "value": "32"
+          },
+          "C_PROBE50_WIDTH": {
             "value": "32"
           },
           "C_PROBE5_WIDTH": {
@@ -2553,6 +2561,12 @@
         "ports": [
           "dynamic_mailbox_status_in",
           "axi_gpio_dynamic_mailbox/gpio2_io_i"
+        ]
+      },
+      "dynamic_rate_debug_bus_1": {
+        "ports": [
+          "dynamic_rate_debug_bus",
+          "ila_laser_axi_cfg/probe50"
         ]
       },
       "gt_ready_1": {
