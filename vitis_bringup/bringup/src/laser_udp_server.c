@@ -15,6 +15,7 @@
 #include "laser_hw.h"
 #include "laser_rate_decimal_parser.h"
 #include "laser_runtime_rate_planner.h"
+#include "laser_runtime_rate_switch.h"
 #include "laser_status.h"
 #include "laser_udp_server.h"
 #include "xil_printf.h"
@@ -123,7 +124,7 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     xil_printf("BRAM             : 0x%08lx\r\n", (unsigned long)LASER_BRAM_BASEADDR);
     xil_printf("GT status GPIO   : 0x%08lx\r\n", (unsigned long)LASER_GT_STATUS_GPIO_BASEADDR);
     xil_printf("AD9528 measure   : 0x%08lx\r\n", (unsigned long)LASER_AD9528_MEASURE_GPIO_BASEADDR);
-    xil_printf("Runtime rate set : verified 125MHz CPLL/QPLL profiles including 625M and 4000M, no AD9528/refclk/wide-range rate change\r\n");
+    xil_printf("Runtime rate set : fixed verified profiles remain compatible; non-fixed targets use AD9528 OUT0 + GTNORTH mailbox transactions\r\n");
 
     status = laser_gpio_init(gpio);
     if (status != XST_SUCCESS) {
@@ -138,6 +139,11 @@ static int laser_udp_init_control_hw(LaserGpio *gpio)
     status = laser_ad9528_measure_init();
     if (status != XST_SUCCESS) {
         xil_printf("ERROR: AD9528 measurement GPIO init failed: %d\r\n", status);
+        return XST_FAILURE;
+    }
+    status = laser_runtime_rate_switch_init();
+    if (status != XST_SUCCESS) {
+        xil_printf("ERROR: dynamic rate mailbox init failed: %d\r\n", status);
         return XST_FAILURE;
     }
     status = laser_ad9528_spi_init();
@@ -254,41 +260,49 @@ static int parse_runtime_tolerance(const char *token, uint32_t *value)
     return parse_u32_token(token + sizeof(prefix) - 1U, value);
 }
 
+static int parse_runtime_rate_request(const char *rate_text, char **cursor,
+                                      RuntimeRatePlanRequest *request,
+                                      uint8_t *explicit_tolerance)
+{
+    char *option;
+    if (request == NULL || explicit_tolerance == NULL) return XST_FAILURE;
+    memset(request, 0, sizeof(*request));
+    request->preferred_error_ppm = LASER_RUNTIME_RATE_DEFAULT_PREFERRED_PPM;
+    request->maximum_error_ppm = LASER_RUNTIME_RATE_DEFAULT_MAXIMUM_PPM;
+    request->allowed_pll_type = LASER_RUNTIME_PLL_BOTH;
+    request->allowed_implementation_path = LASER_RUNTIME_PATH_AD9528_OUT0;
+    *explicit_tolerance = 0U;
+    if (laser_rate_decimal_mbps_to_bps(rate_text,
+                                       &request->requested_line_rate_bps) !=
+        LASER_RATE_DECIMAL_OK) return XST_FAILURE;
+    option = next_token(cursor);
+    if (option != NULL) {
+        if (parse_runtime_tolerance(option, &request->maximum_error_ppm) !=
+                XST_SUCCESS || request->maximum_error_ppm == 0U ||
+            request->maximum_error_ppm > LASER_RUNTIME_RATE_MAXIMUM_ALLOWED_PPM ||
+            command_has_extra_arg(cursor)) return XST_FAILURE;
+        *explicit_tolerance = 1U;
+        if (request->preferred_error_ppm > request->maximum_error_ppm)
+            request->preferred_error_ppm = request->maximum_error_ppm;
+    }
+    return XST_SUCCESS;
+}
+
 static void format_runtime_rate_plan(const char *rate_text, char **cursor,
                                      char *response, size_t response_size)
 {
     RuntimeRatePlanRequest request;
     RuntimeRatePlan plan;
     RuntimeRatePlanDiagnostics diagnostics;
-    char *option;
     XTime start;
     XTime end;
+    uint8_t explicit_tolerance;
     int status;
 
-    memset(&request, 0, sizeof(request));
-    request.preferred_error_ppm = LASER_RUNTIME_RATE_DEFAULT_PREFERRED_PPM;
-    request.maximum_error_ppm = LASER_RUNTIME_RATE_DEFAULT_MAXIMUM_PPM;
-    request.allowed_pll_type = LASER_RUNTIME_PLL_BOTH;
-    request.allowed_implementation_path = LASER_RUNTIME_PATH_AD9528_OUT0;
-    if (laser_rate_decimal_mbps_to_bps(rate_text,
-                                       &request.requested_line_rate_bps) !=
-        LASER_RATE_DECIMAL_OK) {
+    if (parse_runtime_rate_request(rate_text, cursor, &request,
+                                   &explicit_tolerance) != XST_SUCCESS) {
         (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
         return;
-    }
-    option = next_token(cursor);
-    if (option != NULL) {
-        if (parse_runtime_tolerance(option, &request.maximum_error_ppm) !=
-                XST_SUCCESS ||
-            request.maximum_error_ppm == 0U ||
-            request.maximum_error_ppm > LASER_RUNTIME_RATE_MAXIMUM_ALLOWED_PPM ||
-            command_has_extra_arg(cursor)) {
-            (void)snprintf(response, response_size, "ERR RATE_PLAN_ARGS");
-            return;
-        }
-        if (request.preferred_error_ppm > request.maximum_error_ppm) {
-            request.preferred_error_ppm = request.maximum_error_ppm;
-        }
     }
     XTime_GetTime(&start);
     status = laser_runtime_rate_plan(&request, NULL, &plan, &diagnostics);
@@ -324,6 +338,49 @@ static void format_runtime_rate_plan(const char *rate_text, char **cursor,
         plan.rejected_reason == NULL ? "NO_LEGAL_PLAN_WITHIN_TOLERANCE" :
                                       plan.rejected_reason,
         (unsigned long)diagnostics.planning_time_us);
+}
+
+static void execute_runtime_rate_set(const char *rate_text, char **cursor,
+                                     char *response, size_t response_size)
+{
+    RuntimeRatePlanRequest request;
+    LaserRuntimeRateSwitchStatus status;
+    uint8_t explicit_tolerance;
+    int result;
+    if (parse_runtime_rate_request(rate_text, cursor, &request,
+                                   &explicit_tolerance) != XST_SUCCESS) {
+        (void)snprintf(response, response_size, "ERR RATE_SET_ARGS");
+        return;
+    }
+    (void)explicit_tolerance;
+    result = laser_runtime_rate_switch_execute(&request);
+    laser_runtime_rate_switch_get_status(&status);
+    if (result == XST_SUCCESS) {
+        (void)snprintf(response, response_size,
+            "OK RATE_SET mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld state=%s sequence=%lu pll=%s ad9528_out0_hz=%lu txusrclk2_hz=%lu verify_expected=%lu verify_tolerance=%lu",
+            (unsigned long long)status.requested_plan.requested_line_rate_bps,
+            (unsigned long long)status.requested_plan.actual_line_rate_bps,
+            (long)status.requested_plan.line_rate_error_ppm,
+            laser_runtime_rate_switch_state_name(status.state),
+            (unsigned long)status.sequence,
+            status.requested_plan.gt_pll_type == LASER_RUNTIME_PLL_QPLL ?
+                "QPLL" : "CPLL",
+            (unsigned long)status.requested_plan.ad9528_out0_hz,
+            (unsigned long)status.requested_plan.txusrclk2_hz,
+            (unsigned long)status.requested_plan.verify_expected_count,
+            (unsigned long)status.requested_plan.verify_tolerance);
+        return;
+    }
+    (void)snprintf(response, response_size,
+        "ERROR RATE_SET_FAILED mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu state=%s error=%s sequence=%lu mailbox_raw=0x%08lx failed_stage=%u ad9528_error=%u ad9528_failed_reg=0x%04x",
+        (unsigned long long)request.requested_line_rate_bps,
+        laser_runtime_rate_switch_state_name(status.state),
+        laser_runtime_rate_switch_error_name(status.error),
+        (unsigned long)status.sequence,
+        (unsigned long)status.mailbox.raw,
+        (unsigned int)status.mailbox.failed_stage,
+        (unsigned int)status.ad9528.error,
+        (unsigned int)status.ad9528.failed_reg);
 }
 
 static void format_rate_list(char *response, size_t response_size)
@@ -457,6 +514,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
     uint32_t error_code;
     uint64_t target_rate_bps;
     GtRatePlan plan;
+    LaserRuntimeRateSwitchStatus runtime_status;
     int plan_status;
 
     if (subcommand == NULL) {
@@ -474,8 +532,9 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         current_rate_mbps = laser_gt_rate_id_to_mbps(current_rate_id);
         rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
         error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
+        laser_runtime_rate_switch_get_status(&runtime_status);
         (void)snprintf(response, response_size,
-                       "OK RATE_STATUS mode=dynamic_verified_125mhz_cpll_qpll_profiles current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx",
+                       "OK RATE_STATUS mode=dynamic_verified_125mhz_cpll_qpll_profiles current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx runtime_state=%s runtime_error=%s runtime_sequence=%lu runtime_current_valid=%u runtime_actual_rate_bps=%llu mailbox_raw=0x%08lx",
                        (unsigned long)current_rate_mbps,
                        (unsigned long)current_rate_id,
                        laser_gt_rate_state_name(rate_state),
@@ -485,7 +544,14 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
                        (unsigned long)((gt_status & LASER_GT_STATUS_GT_DRP_DONE) != 0U),
                        (unsigned long)((gt_status & LASER_GT_STATUS_MMCM_DRP_DONE) != 0U),
                        (unsigned long)laser_gt_is_ready(gt_status),
-                       (unsigned long)gt_status);
+                       (unsigned long)gt_status,
+                       laser_runtime_rate_switch_state_name(runtime_status.state),
+                       laser_runtime_rate_switch_error_name(runtime_status.error),
+                       (unsigned long)runtime_status.sequence,
+                       (unsigned int)runtime_status.current_plan_valid,
+                       (unsigned long long)(runtime_status.current_plan_valid ?
+                           runtime_status.current_plan.actual_line_rate_bps : 0ULL),
+                       (unsigned long)runtime_status.mailbox.raw);
         return;
     }
 
@@ -562,14 +628,54 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         return;
     }
 
+    if (token_equals(subcommand, "ABORT")) {
+        if (command_has_extra_arg(cursor)) {
+            (void)snprintf(response, response_size, "ERR RATE_ABORT_ARGS");
+            return;
+        }
+        plan_status = laser_runtime_rate_switch_abort();
+        laser_runtime_rate_switch_get_status(&runtime_status);
+        (void)snprintf(response, response_size,
+            "%s RATE_ABORT state=%s error=%s sequence=%lu mailbox_raw=0x%08lx",
+            plan_status == XST_SUCCESS ? "OK" : "ERROR",
+            laser_runtime_rate_switch_state_name(runtime_status.state),
+            laser_runtime_rate_switch_error_name(runtime_status.error),
+            (unsigned long)runtime_status.sequence,
+            (unsigned long)runtime_status.mailbox.raw);
+        return;
+    }
+
     if (token_equals(subcommand, "SET")) {
-        if (parse_u32_arg(cursor, &target_mbps) != XST_SUCCESS ||
-            command_has_extra_arg(cursor)) {
+        RuntimeRatePlanRequest runtime_request;
+        uint8_t explicit_tolerance;
+        char *rate_text = next_token(cursor);
+        char *saved_cursor;
+        if (rate_text == NULL) {
             (void)snprintf(response, response_size, "ERR RATE_SET_ARGS");
             return;
         }
-
+        saved_cursor = *cursor;
+        if (parse_runtime_rate_request(rate_text, cursor, &runtime_request,
+                                       &explicit_tolerance) != XST_SUCCESS) {
+            (void)snprintf(response, response_size, "ERR RATE_SET_ARGS");
+            return;
+        }
+        if (runtime_request.requested_line_rate_bps % 1000000ULL != 0U ||
+            runtime_request.requested_line_rate_bps / 1000000ULL > UINT32_MAX) {
+            *cursor = saved_cursor;
+            execute_runtime_rate_set(rate_text, cursor, response, response_size);
+            return;
+        }
+        target_mbps = (uint32_t)(runtime_request.requested_line_rate_bps /
+                                 1000000ULL);
         plan_status = gt_rate_plan_exact(target_mbps, &plan);
+        if (explicit_tolerance || plan_status != GT_RATE_PLAN_OK ||
+            plan.result != GT_RATE_PLAN_EXACT || plan.profile == NULL ||
+            plan.profile->board_verified == 0U) {
+            *cursor = saved_cursor;
+            execute_runtime_rate_set(rate_text, cursor, response, response_size);
+            return;
+        }
         if (plan_status != GT_RATE_PLAN_OK ||
             plan.result != GT_RATE_PLAN_EXACT ||
             plan.profile == NULL || plan.profile->board_verified == 0U) {
@@ -1132,14 +1238,14 @@ int laser_udp_server_run(void)
     uint32_t loop_count = 0U;
 
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
-    xil_printf("UDP purpose      : fixed 125MHz CPLL/QPLL profile selection, GT/MMCM reconfiguration, PLL/reset/lock handling and TXUSRCLK2 frequency verification\r\n");
+    xil_printf("UDP purpose      : fixed verified CPLL/QPLL profiles plus AD9528 OUT0 runtime planning, transactional GT/MMCM reconfiguration and frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status rate list rate plan <Mbps> rate set <Mbps>\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);
     xil_printf("Power-up rate    : %lu Mb/s\r\n", (unsigned long)LASER_STATIC_RATE_MBPS);
-    xil_printf("AD9528 dynamic   : not configured in UDP mode\r\n");
+    xil_printf("AD9528 dynamic   : runtime OUT0 plans use mailbox PREPARE/REFCLK_READY and verified rollback\r\n");
 
     status = laser_udp_init_control_hw(&gpio);
     if (status != XST_SUCCESS) {
