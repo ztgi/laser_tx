@@ -90,6 +90,8 @@
     //------------------------ Channel - Clocking Ports ------------------------
     input           gt0_gtrefclk0_in,
     input           gt0_gtrefclk1_in,
+    input           gt0_gtnorthrefclk0_in,
+    input   [2:0]   gt0_cpllrefclksel_in,
     //-------------------------- Channel - DRP Ports  --------------------------
     input   [8:0]   gt0_drpaddr_in,
     input           gt0_drpclk_in,
@@ -223,7 +225,8 @@ wire            cpll_pd0_i;
     )
 gt0_gtwizard_0_i
     (
-        .cpllrefclksel_in(3'b001),
+        .cpllrefclksel_in               (gt0_cpllrefclksel_in),
+        .gtnorthrefclk0_in              (gt0_gtnorthrefclk0_in),
         //------------------------------- CPLL Ports -------------------------------
         .cpllfbclklost_out              (gt0_cpllfbclklost_out),
         .cplllock_out                   (gt0_cplllock_out),
@@ -316,4 +319,3 @@ gt0_gtwizard_0_i
 assign gt0_cpllreset_i = cpll_reset0_i || gt0_cpllreset_in; 
 assign gt0_cpllpd_i = cpll_pd0_i || gt0_cpllpd_in; 
 endmodule
-

@@ -6,9 +6,24 @@ set project_file [file join $project_dir laser_tx.xpr]
 set bd_file [file join $project_dir laser_tx.srcs sources_1 bd system system.bd]
 set mailbox_sources [list \
     [file join $project_dir rtl laser_dynamic_rate_descriptor_reader.v] \
-    [file join $project_dir rtl laser_dynamic_rate_mailbox.v]]
+    [file join $project_dir rtl laser_dynamic_rate_mailbox.v] \
+    [file join $project_dir rtl laser_gt_dynamic_rate_executor.v] \
+    [file join $project_dir rtl laser_gt_rate_resource_arbiter.v] \
+    [file join $project_dir rtl laser_gt_rate_control_mux.v]]
 
 open_project $project_file
+set wizard_xci [get_files -quiet */gtwizard_0.xci]
+if {![llength $wizard_xci]} { error "gtwizard_0.xci not found" }
+set_property IS_ENABLED false $wizard_xci
+set wrapper_root [file join $project_dir laser_tx.srcs sources_1 imports sources_1 ip gtwizard_0]
+set wrapper_sources [concat \
+    [glob -nocomplain [file join $wrapper_root *.v]] \
+    [glob -nocomplain [file join $wrapper_root gtwizard_0 example_design *.v]]]
+foreach source $wrapper_sources {
+    if {![llength [get_files -quiet $source]]} {
+        add_files -fileset sources_1 -norecurse $source
+    }
+}
 foreach source $mailbox_sources {
     if {![llength [get_files -quiet $source]]} {
         add_files -fileset sources_1 -norecurse $source
@@ -16,6 +31,28 @@ foreach source $mailbox_sources {
 }
 set_property include_dirs [list [file join $project_dir rtl]] [get_filesets sources_1]
 open_bd_design $bd_file
+
+# The existing debug/control input is also the functional quiesce gate for the
+# TX module reference. Refresh only this changed module reference and connect
+# the already-exported signal; no new external interface is introduced.
+set tx_core [get_bd_cells -quiet laser_tx_core_0]
+if {[llength $tx_core]} {
+    update_compile_order -fileset sources_1
+    update_module_reference system_laser_tx_core_0_0
+    set quiesce_pin [get_bd_pins -quiet laser_tx_core_0/rate_apply_enable_blocked]
+    set quiesce_port [get_bd_ports -quiet dbg_apply_enable_blocked]
+    if {[llength $quiesce_pin] && [llength $quiesce_port]} {
+        set quiesce_net [get_bd_nets -quiet -of_objects $quiesce_port]
+        if {![llength $quiesce_net]} {
+            error "dbg_apply_enable_blocked external port has no BD net"
+        }
+        set pin_nets [get_bd_nets -quiet -of_objects $quiesce_pin]
+        puts "INFO: TX quiesce pin existing_nets=$pin_nets target_net=$quiesce_net"
+        if {[lsearch -exact $pin_nets $quiesce_net] < 0} {
+            connect_bd_net -net $quiesce_net $quiesce_pin
+        }
+    }
+}
 
 set smc [get_bd_cells axi_smc]
 if {[get_property CONFIG.NUM_MI $smc] < 6} {

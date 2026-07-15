@@ -102,6 +102,8 @@ output          gt0_rx_mmcm_reset_out,
     //------------------------ Channel - Clocking Ports ------------------------
     input           gt0_gtrefclk0_in,
     input           gt0_gtrefclk1_in,
+    input           gt0_gtnorthrefclk0_in,
+    input   [2:0]   gt0_cpllrefclksel_in,
     //-------------------------- Channel - DRP Ports  --------------------------
     input   [8:0]   gt0_drpaddr_in,
     input           gt0_drpclk_in,
@@ -273,6 +275,8 @@ assign  tied_to_vcc_i                        =  1'b1;
         //------------------------ Channel - Clocking Ports ------------------------
         .gt0_gtrefclk0_in               (gt0_gtrefclk0_in), // input wire gt0_gtrefclk0_in
         .gt0_gtrefclk1_in               (gt0_gtrefclk1_in), // input wire gt0_gtrefclk1_in
+        .gt0_gtnorthrefclk0_in          (gt0_gtnorthrefclk0_in),
+        .gt0_cpllrefclksel_in           (gt0_cpllrefclksel_in),
         //-------------------------- Channel - DRP Ports  --------------------------
         .gt0_drpaddr_in                 (gt0_drpaddr_in), // input wire [8:0] gt0_drpaddr_in
         .gt0_drpclk_in                  (gt0_drpclk_in), // input wire gt0_drpclk_in
@@ -485,5 +489,4 @@ assign  gt0_recclk_stable_i                  =  gt0_rx_cdrlocked;
 
 
 endmodule
-
 

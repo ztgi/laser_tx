@@ -11,6 +11,9 @@ module laser_tx_core #(
     // This signal is already synchronous to txusrclk2 at the board wrapper.
     input  wire        gt_ready,
     input  wire [31:0] gpio_ctrl,
+    // Rate executors assert this level while TX must be quiescent. It only
+    // gates the effective enable; the PS-owned GPIO value is not modified.
+    input  wire        rate_apply_enable_blocked,
     output wire [31:0] gpio_status,
 
     // Native read-only BRAM master interface. Vivado groups these scalar ports
@@ -143,7 +146,7 @@ module laser_tx_core #(
             soft_reset_meta <= 1'b0;
             soft_reset_tx <= 1'b0;
         end else begin
-            enable_meta <= gpio_ctrl[9] & gt_ready;
+            enable_meta <= gpio_ctrl[9] & gt_ready & ~rate_apply_enable_blocked;
             enable_tx <= enable_meta;
             soft_reset_meta <= gpio_ctrl[10];
             soft_reset_tx <= soft_reset_meta;

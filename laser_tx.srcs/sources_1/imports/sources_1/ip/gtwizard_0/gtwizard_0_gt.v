@@ -79,6 +79,7 @@ module gtwizard_0_GT #
 )
 (
      input [2:0]  cpllrefclksel_in,
+     input        gtnorthrefclk0_in,
     //------------------------------- CPLL Ports -------------------------------
     output          cpllfbclklost_out,
     output          cplllock_out,
@@ -508,7 +509,7 @@ wire            rxstartofseq_float_i;
         .CLKRSVD                        (tied_to_ground_vec_i[3:0]),
         //------------------------ Channel - Clocking Ports ------------------------
         .GTGREFCLK                      (tied_to_ground_i),
-        .GTNORTHREFCLK0                 (tied_to_ground_i),
+        .GTNORTHREFCLK0                 (gtnorthrefclk0_in),
         .GTNORTHREFCLK1                 (tied_to_ground_i),
         .GTREFCLK0                      (gtrefclk0_in),
         .GTREFCLK1                      (gtrefclk1_in),
@@ -789,4 +790,3 @@ wire            rxstartofseq_float_i;
      );
 
 endmodule     
-

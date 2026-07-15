@@ -14,6 +14,7 @@ module laser_dynamic_rate_mailbox_tb;
     wire desc_valid;
     wire [2047:0] active;
     wire refclk_event, abort_event, rollback_event;
+    reg exec_prepared=0, exec_done=0, exec_error=0, exec_rollback=0, exec_verify=0;
     reg [31:0] mem [0:255];
     integer i;
 
@@ -32,6 +33,10 @@ module laser_dynamic_rate_mailbox_tb;
         .bram_word_addr(bram_addr), .bram_we(bram_we),
         .bram_wdata(bram_wdata), .bram_rdata(bram_rdata),
         .active_descriptor_valid(desc_valid), .active_words_flat(active),
+        .descriptor_commit_event(), .executor_prepared_ack(exec_prepared),
+        .executor_switch_done(exec_done), .executor_switch_error(exec_error),
+        .executor_rollback_done(exec_rollback), .executor_verify_pass(exec_verify),
+        .executor_failed_stage(8'd0),
         .refclk_ready_event(refclk_event), .abort_event(abort_event),
         .rollback_ready_event(rollback_event)
     );
@@ -95,7 +100,7 @@ module laser_dynamic_rate_mailbox_tb;
         integer timeout;
         begin
             timeout = 0;
-            while (!status[1] && !status[3] && timeout < 200) begin
+            while (!status[5] && !status[3] && timeout < 200) begin
                 @(posedge clk); timeout = timeout + 1;
             end
             if (timeout == 200) $fatal(1, "mailbox timeout");
@@ -128,6 +133,7 @@ module laser_dynamic_rate_mailbox_tb;
 
         // A legal descriptor is latched. Later shadow changes must not alter it.
         pulse_prepare(); wait_complete();
+        exec_prepared=1; @(posedge clk); exec_prepared=0; @(posedge clk);
         if (!status[1] || !status[5] || active[2*32 +: 32] != 32'h12345678)
             $fatal(1, "valid descriptor failed status=%08x seq=%08x", status, active[2*32 +: 32]);
         repeat (6) @(posedge clk);
@@ -139,8 +145,11 @@ module laser_dynamic_rate_mailbox_tb;
             $fatal(1, "active descriptor followed shadow writes");
         // Duplicate/busy PREPARE is consumed and cannot replay after abort.
         control[0] = ~control[0]; @(posedge clk);
-        control[2] = ~control[2]; @(posedge clk); @(posedge clk);
-        if (!status[4] || status[0]) $fatal(1, "abort did not release transaction");
+        @(negedge clk); control[2] = ~control[2]; @(posedge clk); #1;
+        if (!abort_event || !status[0]) $fatal(1, "abort was not forwarded while ownership held");
+        @(posedge clk);
+        exec_rollback=1; @(posedge clk); exec_rollback=0; @(posedge clk);
+        if (!status[4] || status[0]) $fatal(1, "executor rollback did not release transaction");
         repeat (5) @(posedge clk);
         if (status[0]) $fatal(1, "busy PREPARE replayed");
 

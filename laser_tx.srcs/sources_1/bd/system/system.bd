@@ -20,11 +20,11 @@
       "ila_laser_axi_cfg": "",
       "ila_laser_tx": "",
       "axi_gpio_gt_status": "",
-      "laser_tx_core_0": "",
       "axi_gpio_ad9528_measure": "",
       "axi_gpio_dynamic_mailbox": "",
       "axi_bram_dyn_desc": "",
-      "blk_mem_dyn_desc": ""
+      "blk_mem_dyn_desc": "",
+      "laser_tx_core_0": ""
     },
     "interface_ports": {
       "DDR": {
@@ -1864,6 +1864,108 @@
           }
         }
       },
+      "axi_gpio_ad9528_measure": {
+        "vlnv": "xilinx.com:ip:axi_gpio:2.0",
+        "xci_name": "system_axi_gpio_ad9528_measure_0",
+        "xci_path": "ip\\system_axi_gpio_ad9528_measure_0\\system_axi_gpio_ad9528_measure_0.xci",
+        "inst_hier_path": "axi_gpio_ad9528_measure",
+        "parameters": {
+          "C_ALL_INPUTS": {
+            "value": "1"
+          },
+          "C_ALL_INPUTS_2": {
+            "value": "1"
+          },
+          "C_GPIO2_WIDTH": {
+            "value": "32"
+          },
+          "C_GPIO_WIDTH": {
+            "value": "32"
+          },
+          "C_IS_DUAL": {
+            "value": "1"
+          }
+        }
+      },
+      "axi_gpio_dynamic_mailbox": {
+        "vlnv": "xilinx.com:ip:axi_gpio:2.0",
+        "xci_name": "system_axi_gpio_dynamic_mailbox_0",
+        "xci_path": "ip\\system_axi_gpio_dynamic_mailbox_0\\system_axi_gpio_dynamic_mailbox_0.xci",
+        "inst_hier_path": "axi_gpio_dynamic_mailbox",
+        "parameters": {
+          "C_ALL_INPUTS": {
+            "value": "0"
+          },
+          "C_ALL_INPUTS_2": {
+            "value": "1"
+          },
+          "C_ALL_OUTPUTS": {
+            "value": "1"
+          },
+          "C_GPIO2_WIDTH": {
+            "value": "32"
+          },
+          "C_GPIO_WIDTH": {
+            "value": "4"
+          },
+          "C_IS_DUAL": {
+            "value": "1"
+          }
+        }
+      },
+      "axi_bram_dyn_desc": {
+        "vlnv": "xilinx.com:ip:axi_bram_ctrl:4.1",
+        "xci_name": "system_axi_bram_dyn_desc_0",
+        "xci_path": "ip\\system_axi_bram_dyn_desc_0\\system_axi_bram_dyn_desc_0.xci",
+        "inst_hier_path": "axi_bram_dyn_desc",
+        "parameters": {
+          "DATA_WIDTH": {
+            "value": "32"
+          },
+          "SINGLE_PORT_BRAM": {
+            "value": "0"
+          }
+        },
+        "hdl_attributes": {
+          "BMM_INFO_ADDRESS_SPACE": {
+            "value": "byte  0x42000000 32 > system blk_mem_dyn_desc",
+            "value_src": "default"
+          },
+          "KEEP_HIERARCHY": {
+            "value": "yes",
+            "value_src": "default"
+          }
+        }
+      },
+      "blk_mem_dyn_desc": {
+        "vlnv": "xilinx.com:ip:blk_mem_gen:8.4",
+        "xci_name": "system_blk_mem_dyn_desc_0",
+        "xci_path": "ip\\system_blk_mem_dyn_desc_0\\system_blk_mem_dyn_desc_0.xci",
+        "inst_hier_path": "blk_mem_dyn_desc",
+        "parameters": {
+          "Enable_B": {
+            "value": "Use_ENB_Pin"
+          },
+          "Memory_Type": {
+            "value": "True_Dual_Port_RAM"
+          },
+          "Read_Width_A": {
+            "value": "32"
+          },
+          "Read_Width_B": {
+            "value": "32"
+          },
+          "Register_PortB_Output_of_Memory_Primitives": {
+            "value": "false"
+          },
+          "Write_Width_A": {
+            "value": "32"
+          },
+          "Write_Width_B": {
+            "value": "32"
+          }
+        }
+      },
       "laser_tx_core_0": {
         "vlnv": "xilinx.com:module_ref:laser_tx_core:1.0",
         "xci_name": "system_laser_tx_core_0_0",
@@ -1985,6 +2087,9 @@
             "left": "31",
             "right": "0"
           },
+          "rate_apply_enable_blocked": {
+            "direction": "I"
+          },
           "gpio_status": {
             "direction": "O",
             "left": "31",
@@ -2062,108 +2167,6 @@
           },
           "dbg_gt_ready_tx": {
             "direction": "O"
-          }
-        }
-      },
-      "axi_gpio_ad9528_measure": {
-        "vlnv": "xilinx.com:ip:axi_gpio:2.0",
-        "xci_name": "system_axi_gpio_ad9528_measure_0",
-        "xci_path": "ip\\system_axi_gpio_ad9528_measure_0\\system_axi_gpio_ad9528_measure_0.xci",
-        "inst_hier_path": "axi_gpio_ad9528_measure",
-        "parameters": {
-          "C_ALL_INPUTS": {
-            "value": "1"
-          },
-          "C_ALL_INPUTS_2": {
-            "value": "1"
-          },
-          "C_GPIO2_WIDTH": {
-            "value": "32"
-          },
-          "C_GPIO_WIDTH": {
-            "value": "32"
-          },
-          "C_IS_DUAL": {
-            "value": "1"
-          }
-        }
-      },
-      "axi_gpio_dynamic_mailbox": {
-        "vlnv": "xilinx.com:ip:axi_gpio:2.0",
-        "xci_name": "system_axi_gpio_dynamic_mailbox_0",
-        "xci_path": "ip\\system_axi_gpio_dynamic_mailbox_0\\system_axi_gpio_dynamic_mailbox_0.xci",
-        "inst_hier_path": "axi_gpio_dynamic_mailbox",
-        "parameters": {
-          "C_ALL_INPUTS": {
-            "value": "0"
-          },
-          "C_ALL_INPUTS_2": {
-            "value": "1"
-          },
-          "C_ALL_OUTPUTS": {
-            "value": "1"
-          },
-          "C_GPIO2_WIDTH": {
-            "value": "32"
-          },
-          "C_GPIO_WIDTH": {
-            "value": "4"
-          },
-          "C_IS_DUAL": {
-            "value": "1"
-          }
-        }
-      },
-      "axi_bram_dyn_desc": {
-        "vlnv": "xilinx.com:ip:axi_bram_ctrl:4.1",
-        "xci_name": "system_axi_bram_dyn_desc_0",
-        "xci_path": "ip\\system_axi_bram_dyn_desc_0\\system_axi_bram_dyn_desc_0.xci",
-        "inst_hier_path": "axi_bram_dyn_desc",
-        "parameters": {
-          "DATA_WIDTH": {
-            "value": "32"
-          },
-          "SINGLE_PORT_BRAM": {
-            "value": "0"
-          }
-        },
-        "hdl_attributes": {
-          "BMM_INFO_ADDRESS_SPACE": {
-            "value": "byte  0x42000000 32 > system blk_mem_dyn_desc",
-            "value_src": "default"
-          },
-          "KEEP_HIERARCHY": {
-            "value": "yes",
-            "value_src": "default"
-          }
-        }
-      },
-      "blk_mem_dyn_desc": {
-        "vlnv": "xilinx.com:ip:blk_mem_gen:8.4",
-        "xci_name": "system_blk_mem_dyn_desc_0",
-        "xci_path": "ip\\system_blk_mem_dyn_desc_0\\system_blk_mem_dyn_desc_0.xci",
-        "inst_hier_path": "blk_mem_dyn_desc",
-        "parameters": {
-          "Enable_B": {
-            "value": "Use_ENB_Pin"
-          },
-          "Memory_Type": {
-            "value": "True_Dual_Port_RAM"
-          },
-          "Read_Width_A": {
-            "value": "32"
-          },
-          "Read_Width_B": {
-            "value": "32"
-          },
-          "Register_PortB_Output_of_Memory_Primitives": {
-            "value": "false"
-          },
-          "Write_Width_A": {
-            "value": "32"
-          },
-          "Write_Width_B": {
-            "value": "32"
           }
         }
       }
@@ -2284,7 +2287,8 @@
       "dbg_apply_enable_blocked_1": {
         "ports": [
           "dbg_apply_enable_blocked",
-          "ila_laser_axi_cfg/probe23"
+          "ila_laser_axi_cfg/probe23",
+          "laser_tx_core_0/rate_apply_enable_blocked"
         ]
       },
       "dbg_current_rate_mbps_1": {
@@ -2702,10 +2706,10 @@
           "ila_laser_axi_cfg/clk",
           "axi_gpio_gt_status/s_axi_aclk",
           "gt_ctrl_clk",
-          "laser_tx_core_0/axi_clk",
           "axi_gpio_ad9528_measure/s_axi_aclk",
           "axi_gpio_dynamic_mailbox/s_axi_aclk",
-          "axi_bram_dyn_desc/s_axi_aclk"
+          "axi_bram_dyn_desc/s_axi_aclk",
+          "laser_tx_core_0/axi_clk"
         ]
       },
       "processing_system7_0_FCLK_RESET0_N": {
@@ -2721,10 +2725,10 @@
           "axi_smc/aresetn",
           "axi_gpio_0/s_axi_aresetn",
           "axi_gpio_gt_status/s_axi_aresetn",
-          "laser_tx_core_0/axi_rstn",
           "axi_gpio_ad9528_measure/s_axi_aresetn",
           "axi_gpio_dynamic_mailbox/s_axi_aresetn",
-          "axi_bram_dyn_desc/s_axi_aresetn"
+          "axi_bram_dyn_desc/s_axi_aresetn",
+          "laser_tx_core_0/axi_rstn"
         ]
       },
       "rst_ps7_0_50M_peripheral_reset": {

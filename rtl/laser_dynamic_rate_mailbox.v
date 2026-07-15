@@ -13,6 +13,13 @@ module laser_dynamic_rate_mailbox (
     input  wire [31:0]   bram_rdata,
     output wire          active_descriptor_valid,
     output wire [2047:0] active_words_flat,
+    output reg           descriptor_commit_event,
+    input  wire          executor_prepared_ack,
+    input  wire          executor_switch_done,
+    input  wire          executor_switch_error,
+    input  wire          executor_rollback_done,
+    input  wire          executor_verify_pass,
+    input  wire [7:0]    executor_failed_stage,
     output reg           refclk_ready_event,
     output reg           abort_event,
     output reg           rollback_ready_event
@@ -74,6 +81,7 @@ module laser_dynamic_rate_mailbox (
             refclk_ready_event <= 1'b0;
             abort_event <= 1'b0;
             rollback_ready_event <= 1'b0;
+            descriptor_commit_event <= 1'b0;
             status_write_active <= 1'b0;
             status_write_index <= 2'd0;
         end else begin
@@ -82,6 +90,24 @@ module laser_dynamic_rate_mailbox (
             refclk_ready_event <= 1'b0;
             abort_event <= 1'b0;
             rollback_ready_event <= 1'b0;
+            descriptor_commit_event <= 1'b0;
+
+            if (executor_prepared_ack)
+                prepared_ack <= 1'b1;
+            if (executor_switch_done) begin
+                switch_done <= 1'b1;
+                verify_pass <= executor_verify_pass;
+                busy_latched <= 1'b0;
+            end
+            if (executor_switch_error) begin
+                switch_error <= 1'b1;
+                failed_stage <= executor_failed_stage;
+            end
+            if (executor_rollback_done) begin
+                rollback_done <= 1'b1;
+                busy_latched <= 1'b0;
+                prepared_ack <= 1'b0;
+            end
 
             if (status_write_active) begin
                 if (status_write_index == 2'd3)
@@ -107,7 +133,7 @@ module laser_dynamic_rate_mailbox (
                 status_write_active <= 1'b1;
                 status_write_index <= 2'd0;
                 if (active_descriptor_valid) begin
-                    prepared_ack <= 1'b1;
+                    descriptor_commit_event <= 1'b1;
                 end else begin
                     busy_latched <= 1'b0;
                     switch_error <= 1'b1;
@@ -123,9 +149,9 @@ module laser_dynamic_rate_mailbox (
             end
             if (control_toggles[2] != toggle_d[2]) begin
                 abort_event <= busy_latched;
-                busy_latched <= 1'b0;
-                prepared_ack <= 1'b0;
-                rollback_done <= 1'b1;
+                // ABORT is a request to restore the previous PL state. The
+                // mailbox remains busy and does not report rollback complete
+                // until the executor confirms the actual restore.
             end
             if (control_toggles[3] != toggle_d[3]) begin
                 rollback_ready_event <= switch_error;

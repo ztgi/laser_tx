@@ -45,6 +45,7 @@ module laser_gt_rate_switch_500m_1000m #(
 )(
     input  wire        clk,
     input  wire        rst,
+    input  wire        request_enable,
 
     input  wire [31:0] gpio_ctrl,
     input  wire [31:0] gpio_status,
@@ -235,7 +236,7 @@ module laser_gt_rate_switch_500m_1000m #(
         (!programmed_cpll_drp_valid) ||
         (target_cpll_drp_value != programmed_cpll_drp_value);
 
-    wire can_accept_rate_request =
+    wire can_accept_rate_request = request_enable &&
         (rate_state == RATE_IDLE) ||
         (rate_state == RATE_DONE) ||
         (rate_state == RATE_ERROR);

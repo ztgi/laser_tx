@@ -116,6 +116,14 @@ module laser_tx_board_top (
     wire dynamic_refclk_ready_event;
     wire dynamic_abort_event;
     wire dynamic_rollback_ready_event;
+    wire dynamic_descriptor_commit_event;
+    wire dynamic_executor_prepared;
+    wire dynamic_executor_done;
+    wire dynamic_executor_error;
+    wire dynamic_executor_rollback_done;
+    wire dynamic_executor_verify_pass;
+    wire [7:0] dynamic_executor_failed_stage;
+    wire [7:0] dynamic_executor_state;
 
     localparam integer AD9528_MEASURE_GT_CTRL_CLK_HZ = 50000000;
     localparam integer AD9528_MEASURE_WINDOW_US = 1000;
@@ -125,7 +133,7 @@ module laser_tx_board_top (
     localparam [31:0] AD9528_ODIV2_COUNT_MIN = 32'd60000;
     localparam [31:0] AD9528_ODIV2_COUNT_MAX = 32'd62900;
 
-    wire ad9528_out0_gt_refclk_unused;
+    wire ad9528_out0_gt_refclk;
     wire ad9528_out0_odiv2_raw;
     wire ad9528_out0_odiv2_clk;
     reg [31:0] ad9528_odiv2_counter = 32'd0;
@@ -171,7 +179,7 @@ module laser_tx_board_top (
         .I     (ad9528_ref0_clk_p),
         .IB    (ad9528_ref0_clk_n),
         .CEB   (1'b0),
-        .O     (ad9528_out0_gt_refclk_unused),
+        .O     (ad9528_out0_gt_refclk),
         .ODIV2 (ad9528_out0_odiv2_raw)
     );
 
@@ -249,6 +257,13 @@ module laser_tx_board_top (
         .bram_rdata                (dynamic_descriptor_bram_rdata),
         .active_descriptor_valid   (dynamic_descriptor_valid),
         .active_words_flat         (dynamic_descriptor_active_words),
+        .descriptor_commit_event   (dynamic_descriptor_commit_event),
+        .executor_prepared_ack     (dynamic_executor_prepared),
+        .executor_switch_done      (dynamic_executor_done),
+        .executor_switch_error     (dynamic_executor_error),
+        .executor_rollback_done    (dynamic_executor_rollback_done),
+        .executor_verify_pass      (dynamic_executor_verify_pass),
+        .executor_failed_stage     (dynamic_executor_failed_stage),
         .refclk_ready_event        (dynamic_refclk_ready_event),
         .abort_event               (dynamic_abort_event),
         .rollback_ready_event      (dynamic_rollback_ready_event)
@@ -358,8 +373,22 @@ module laser_tx_board_top (
         .ctrl_rst      (gt_ctrl_rst),
         .gt_refclk125_p(gt_refclk125_p),
         .gt_refclk125_n(gt_refclk125_n),
+        .ad9528_gtnorthrefclk0(ad9528_out0_gt_refclk),
         .gpio_ctrl_axi (gpio_ctrl_to_gt),
         .gpio_status_axi(gpio_status_to_gt),
+        .dynamic_start(dynamic_descriptor_commit_event),
+        .dynamic_descriptor_valid(dynamic_descriptor_valid),
+        .dynamic_words(dynamic_descriptor_active_words),
+        .dynamic_refclk_ready(dynamic_refclk_ready_event),
+        .dynamic_abort(dynamic_abort_event),
+        .dynamic_rollback_ready(dynamic_rollback_ready_event),
+        .dynamic_prepared(dynamic_executor_prepared),
+        .dynamic_done(dynamic_executor_done),
+        .dynamic_error(dynamic_executor_error),
+        .dynamic_rollback_done(dynamic_executor_rollback_done),
+        .dynamic_verify_pass(dynamic_executor_verify_pass),
+        .dynamic_failed_stage(dynamic_executor_failed_stage),
+        .dynamic_state(dynamic_executor_state),
         .txdata_in     (laser_txdata),
         .valid_mask_in (laser_valid_mask),
         .txusrclk2_out (gt_txusrclk2),

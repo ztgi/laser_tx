@@ -20,8 +20,22 @@ module laser_gt_tx_profile0 (
     input  wire        ctrl_rst,
     input  wire        gt_refclk125_p,
     input  wire        gt_refclk125_n,
+    input  wire        ad9528_gtnorthrefclk0,
     input  wire [31:0] gpio_ctrl_axi,
     input  wire [31:0] gpio_status_axi,
+    input  wire        dynamic_start,
+    input  wire        dynamic_descriptor_valid,
+    input  wire [2047:0] dynamic_words,
+    input  wire        dynamic_refclk_ready,
+    input  wire        dynamic_abort,
+    input  wire        dynamic_rollback_ready,
+    output wire        dynamic_prepared,
+    output wire        dynamic_done,
+    output wire        dynamic_error,
+    output wire        dynamic_rollback_done,
+    output wire        dynamic_verify_pass,
+    output wire [7:0]  dynamic_failed_stage,
+    output wire [7:0]  dynamic_state,
     input  wire [63:0] txdata_in,
     input  wire [63:0] valid_mask_in,
     output wire        txusrclk2_out,
@@ -129,6 +143,8 @@ module laser_gt_tx_profile0 (
     (* mark_debug = "true", keep = "true" *) wire qpllpd_ctrl;
     (* mark_debug = "true", keep = "true" *) wire [1:0] gt0_txsysclksel_effective;
     (* mark_debug = "true", keep = "true" *) wire qpll_selected;
+    (* mark_debug = "true", keep = "true" *) wire refclk_north_selected;
+    wire [2:0] gt0_refclksel_effective = refclk_north_selected ? 3'b011 : 3'b001;
     wire [15:0] qpll_drpdo_unused;
     wire qpll_drprdy_unused;
     wire qpllfbclklost_unused;
@@ -273,7 +289,7 @@ module laser_gt_tx_profile0 (
         .DRPRDY                   (qpll_drprdy_unused),
         .DRPWE                    (1'b0),
         .GTGREFCLK                (tied_to_ground),
-        .GTNORTHREFCLK0           (tied_to_ground),
+        .GTNORTHREFCLK0           (ad9528_gtnorthrefclk0),
         .GTNORTHREFCLK1           (tied_to_ground),
         .GTREFCLK0                (gtrefclk125),
         .GTREFCLK1                (tied_to_ground),
@@ -290,7 +306,7 @@ module laser_gt_tx_profile0 (
         .QPLLOUTRESET             (tied_to_ground),
         .QPLLPD                   (qpllpd_ctrl),
         .QPLLREFCLKLOST           (qpllrefclklost),
-        .QPLLREFCLKSEL            (3'b001),
+        .QPLLREFCLKSEL            (gt0_refclksel_effective),
         .QPLLRESET                (qpllreset_ctrl),
         .QPLLRSVD1                (16'b0000000000000000),
         .QPLLRSVD2                (5'b11111),
@@ -408,11 +424,24 @@ module laser_gt_tx_profile0 (
         dbg_rate_timeout_count[15:0]
     };
 
-    laser_gt_rate_switch_500m_1000m u_rate_switch_500m_1000m (
+    laser_gt_rate_control_mux u_rate_switch_500m_1000m (
         .clk                         (ctrl_clk),
         .rst                         (ctrl_rst),
         .gpio_ctrl                   (gpio_ctrl_axi),
         .gpio_status                 (gpio_status_axi),
+        .dynamic_start               (dynamic_start),
+        .dynamic_descriptor_valid    (dynamic_descriptor_valid),
+        .dynamic_words               (dynamic_words),
+        .dynamic_refclk_ready        (dynamic_refclk_ready),
+        .dynamic_abort               (dynamic_abort),
+        .dynamic_rollback_ready      (dynamic_rollback_ready),
+        .dynamic_prepared            (dynamic_prepared),
+        .dynamic_done                (dynamic_done),
+        .dynamic_error               (dynamic_error),
+        .dynamic_rollback_done       (dynamic_rollback_done),
+        .dynamic_verify_pass         (dynamic_verify_pass),
+        .dynamic_failed_stage        (dynamic_failed_stage),
+        .dynamic_state               (dynamic_state),
         .cplllock_sync               (cplllock_sync),
         .qplllock_sync               (qplllock_sync),
         .qpllrefclklost_sync         (qpllrefclklost_sync),
@@ -427,6 +456,7 @@ module laser_gt_tx_profile0 (
         .rate_cpll_reset             (rate_cpll_reset),
         .rate_qpll_reset             (rate_qpll_reset),
         .qpll_selected               (qpll_selected),
+        .refclk_north_selected       (refclk_north_selected),
         .apply_enable_blocked        (apply_enable_blocked),
         .gt_drp_addr                 (gt_drpaddr),
         .gt_drp_di                   (gt_drpdi),
@@ -602,6 +632,8 @@ module laser_gt_tx_profile0 (
         .gt0_cpllreset_in             (ctrl_rst | rate_cpll_reset),
         .gt0_gtrefclk0_in             (gtrefclk125),
         .gt0_gtrefclk1_in             (1'b0),
+        .gt0_gtnorthrefclk0_in        (ad9528_gtnorthrefclk0),
+        .gt0_cpllrefclksel_in         (gt0_refclksel_effective),
         .gt0_drpaddr_in               (gt_drpaddr),
         .gt0_drpclk_in                (ctrl_clk),
         .gt0_drpdi_in                 (gt_drpdi),
