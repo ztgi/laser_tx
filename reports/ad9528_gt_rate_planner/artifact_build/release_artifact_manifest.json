@@ -1,0 +1,118 @@
+{
+  "candidate_name": "runtime-rate-artifact-candidate-v1",
+  "git_branch": "feature/runtime-rate-artifact-candidate-v1",
+  "git_commit": "27555a803e4d418ccc066604548f087a17463c17",
+  "git_dirty": true,
+  "git_commit_semantics": "captured source parent before the firmware/manifest commit; the annotated tag identifies the complete candidate",
+  "vivado": {
+    "version": "2022.2 build 3671981",
+    "device": "xc7z100ffg900-2",
+    "top": "laser_tx_board_top",
+    "strategy": "Performance_Explore",
+    "directives": {
+      "opt_design": "Explore",
+      "place_design": "Explore",
+      "phys_opt_design": "Explore",
+      "route_design": "Explore",
+      "top_synthesis_incremental_mode": "off"
+    },
+    "runtime_clocks_ns": {
+      "txusrclk": 3.103,
+      "txusrclk2": 6.206
+    },
+    "ooc_rtl_signature": {
+      "pattern_index_reg": 21,
+      "pattern_mode_63_active": 2,
+      "pattern_cursor_reg": 0,
+      "len_active_reg": 0,
+      "next_phase_pattern_base_q": 0,
+      "cross_next_valid_count_q": 0,
+      "current_pattern_q": 0,
+      "rotated_pattern_reg": 0
+    },
+    "project_1_840_unique_dcp_count": 13,
+    "project_1_840_log_occurrences": 39,
+    "remaining_critical_warnings": [
+      "Project 1-840"
+    ],
+    "drc_warnings": {
+      "PDCN-1569": 3,
+      "RTSTAT-10": 1
+    },
+    "timing": {
+      "txusrclk_period_ns": 3.103,
+      "txusrclk2_period_ns": 6.206,
+      "wns_ns": 0.028,
+      "tns_ns": 0.0,
+      "setup_failing_endpoints": 0,
+      "whs_ns": 0.034,
+      "ths_ns": 0.0,
+      "hold_failing_endpoints": 0,
+      "drc_errors": 0,
+      "unrouted_nets": 0,
+      "no_clock_zero": 1,
+      "multiple_clock_zero": 1,
+      "unconstrained_internal_endpoints_zero": 1
+    }
+  },
+  "vitis": {
+    "version": "2022.2",
+    "workspace": "reports/runtime_rate_vitis",
+    "platform": "runtime_rate_artifact_platform",
+    "domain": "standalone_ps7_cortexa9_0",
+    "managed_clean_build": "PASS",
+    "managed_source_count": 16,
+    "managed_sources": [
+      "gt_rate_plan.c",
+      "laser_ad9528.c",
+      "laser_ad9528_measure.c",
+      "laser_ad9528_runtime.c",
+      "laser_bram.c",
+      "laser_config_cases.c",
+      "laser_dynamic_mailbox.c",
+      "laser_gpio.c",
+      "laser_gt.c",
+      "laser_rate_decimal_parser.c",
+      "laser_runtime_rate_planner.c",
+      "laser_runtime_rate_switch.c",
+      "laser_runtime_rate_tables.c",
+      "laser_status.c",
+      "laser_udp_server.c",
+      "main.c"
+    ],
+    "user_objs": "EMPTY",
+    "map_only_relink_matches_managed_elf_sha256": true,
+    "bsp_addresses": {
+      "XPAR_AXI_GPIO_DYNAMIC_MAILBOX_BASEADDR": "0x40040000",
+      "XPAR_AXI_BRAM_DYN_DESC_S_AXI_BASEADDR": "0x42000000"
+    }
+  },
+  "artifacts": {
+    "bit": "reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top.bit",
+    "ltx": "reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top.ltx",
+    "xsa": "reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top_runtime_rate_switch.xsa",
+    "elf": "reports/runtime_rate_vitis/bringup/Debug/bringup.elf",
+    "map": "reports/runtime_rate_vitis/bringup/Debug/bringup.map",
+    "routed_dcp": "reports/ad9528_gt_rate_planner/artifact_build/routed.dcp",
+    "ooc_dcp": "laser_tx.runs/system_laser_tx_core_0_0_synth_1/system_laser_tx_core_0_0.dcp"
+  },
+  "sha256": {
+    "reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top.bit": "F9623218BF4B69CB7E332B3A07437C37F23BC981BE40D3A1572F6054EF07C4FA",
+    "reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top.ltx": "B12D23A5C8BFC0A2D9D22FD531CC2462B4439254FFEF30E29F28748AEBDD735B",
+    "reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top_runtime_rate_switch.xsa": "D60E66F4EDBC7BC8AA05E304E839027AA8923054D9FE59B58DAEC26DB6FB5508",
+    "reports/runtime_rate_vitis/bringup/Debug/bringup.elf": "3BED156E1900BEB0A8BE45F50AB18DC56BE119DE7E3C221D9805E055425379EF",
+    "reports/runtime_rate_vitis/bringup/Debug/bringup.map": "BF86593676135E742AF109E68D89960AFEB61FBE0D1328414AA3177DE0E23337",
+    "reports/ad9528_gt_rate_planner/artifact_build/routed.dcp": "9B160945D2F3AE88B1643D1D1605F72C53AC11230DB8E436E0F8CCE0A161E1C8",
+    "laser_tx.runs/system_laser_tx_core_0_0_synth_1/system_laser_tx_core_0_0.dcp": "5ACD41821583902652BF85E3D1535B38543191F5724FE5F1CB2B1BC612AE13F1",
+    "reports/ad9528_gt_rate_planner/artifact_build/final_timing_summary.rpt": "169348A5B8175E432CEF82CAD88352DD533299927E804C5A0E3C535F74278BB0",
+    "reports/runtime_rate_vitis/runtime_rate_artifact_platform/ps7_cortexa9_0/standalone_ps7_cortexa9_0/bsp/ps7_cortexa9_0/include/xparameters.h": "63E9CB47B21E57B25D41410C4918F39C6B291B6BD0FF500E8126FB0FC38428B5",
+    "constraints/laser_sync_pins_template.xdc": "76082BD7192A9D33BC2C1501F375535D058C590F9594A0D87D43F7A97B8F0432",
+    "constraints/laser_tx_ad9528_spi.xdc": "533EE46B69338D59A3C69680D9816D9BA55B736B3DA199A6C6CC504DAB334D83",
+    "constraints/laser_tx_board_io.xdc": "74ABE1CB09810EB40525C823E9E390CA19310BB1C52906D8BA41E1316032232A",
+    "constraints/laser_tx_gt_profile0.xdc": "8A2226C241C6F18B01520564914EC4959CCF22CDBF24B1D1B73336C1482F72A3",
+    "scripts/gt_profile0_impl_pre.tcl": "FFA72AD71B1FFF0A067EE073119078A654A9DD5CFC00E2AF4A622B7CCC14E1A2",
+    "scripts/run_runtime_rate_artifact_candidate_build.tcl": "F875763A522A5B0CCBE808446AD4013E63ED462458AC26BEBE993CB92E48BE64"
+  },
+  "board_verified": false,
+  "hardware_test": "NOT_RUN"
+}

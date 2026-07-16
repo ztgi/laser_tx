@@ -1,0 +1,13 @@
+result=PASS
+build=managed make clean; managed make all
+source_count=16
+user_objs=EMPTY
+elf=reports/runtime_rate_vitis/bringup/Debug/bringup.elf
+elf_sha256=3BED156E1900BEB0A8BE45F50AB18DC56BE119DE7E3C221D9805E055425379EF
+map=reports/runtime_rate_vitis/bringup/Debug/bringup.map
+map_sha256=BF86593676135E742AF109E68D89960AFEB61FBE0D1328414AA3177DE0E23337
+old_workspace_reference_in_elf=0
+old_workspace_reference_in_map=0
+dynamic_mailbox=0x40040000
+descriptor_bram=0x42000000
+elf_size=text	   data	    bss	    dec	    hex	filename |  261673	   3528	3201088	3466289	 34e431	bringup.elf
