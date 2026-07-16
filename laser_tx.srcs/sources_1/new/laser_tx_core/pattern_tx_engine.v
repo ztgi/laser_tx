@@ -35,8 +35,7 @@ module pattern_tx_engine (
 
     // Active configuration is captured at start and remains local to this
     // clock domain for the complete sequence.
-    reg [7:0]   len_active;
-    reg         len_is_63_active;
+    reg         pattern_mode_63_active;
     reg         phase_shift_active;
     reg         loop_active;
     reg [39:0]  phase_total_active;
@@ -84,29 +83,34 @@ module pattern_tx_engine (
         {base_pattern[0], base_pattern[62:0], base_pattern[62:0]} :
         base_pattern;
 
-    // Rotate a periodic sequence so output bit zero is count valid bits later.
-    // Count is at most 64; no divider or modulo operator is inferred.
-    function [126:0] rotate_sequence;
+    // Dedicated 63-bit rotate network.  Only the 63-bit pattern and the
+    // bounded 6-bit index enter this cone; no runtime length or mode test is
+    // replicated through the output-word variable select.
+    function [126:0] rotate_sequence_63;
+        input [62:0] sequence_in;
+        input [5:0]  count;
+        reg [125:0] doubled;
+        reg [125:0] shifted;
+        reg [62:0]  rotated;
+        begin
+            doubled = {sequence_in, sequence_in};
+            shifted = doubled >> count;
+            rotated = shifted[62:0];
+            rotate_sequence_63 = {rotated[0], rotated, rotated};
+        end
+    endfunction
+
+    // Dedicated 127-bit rotate network.  The modulus is fixed by structure;
+    // the full seven-bit index is the only variable-select control.
+    function [126:0] rotate_sequence_127;
         input [126:0] sequence_in;
         input [6:0]   count;
-        input         sequence_is_63;
         reg [253:0] doubled;
         reg [253:0] shifted;
-        reg [62:0]  rotated63;
         begin
-            if (sequence_is_63) begin
-                doubled = 254'b0;
-                // sequence_in already contains 127 periodic bits in 63-bit
-                // mode, enough for a 63-bit window after advancing up to 64.
-                doubled[126:0] = sequence_in;
-                shifted = doubled >> count;
-                rotated63 = shifted[62:0];
-                rotate_sequence = {rotated63[0], rotated63, rotated63};
-            end else begin
-                doubled = {sequence_in, sequence_in};
-                shifted = doubled >> count;
-                rotate_sequence = shifted[126:0];
-            end
+            doubled = {sequence_in, sequence_in};
+            shifted = doubled >> count;
+            rotate_sequence_127 = shifted[126:0];
         end
     endfunction
 
@@ -180,17 +184,34 @@ module pattern_tx_engine (
     reg [6:0]  next_consumed_count;
     reg [6:0]  next_valid_count;
     reg [7:0]  next_phase_offset_calc;
+    reg [7:0]  next_phase_offset_63_comb;
+    reg [7:0]  next_phase_offset_127_comb;
     reg         last_phase_calc;
+    reg         last_phase_63_comb;
+    reg         last_phase_127_comb;
     reg         has_next_phase_calc;
-    reg [126:0] current_pattern_calc;
-    reg [126:0] next_phase_pattern_calc;
-    reg [126:0] current_after_gap_vec;
-    reg [126:0] next_before_gap_aligned;
-    reg [126:0] next_after_gap_aligned;
+    reg         has_next_phase_63_comb;
+    reg         has_next_phase_127_comb;
+    reg [126:0] current_pattern_63_comb;
+    reg [126:0] current_pattern_127_comb;
+    reg [126:0] next_phase_pattern_63_comb;
+    reg [126:0] next_phase_pattern_127_comb;
+    reg [126:0] current_after_gap_63_comb;
+    reg [126:0] current_after_gap_127_comb;
+    reg [126:0] next_before_gap_63_comb;
+    reg [126:0] next_before_gap_127_comb;
+    reg [126:0] next_after_gap_63_comb;
+    reg [126:0] next_after_gap_127_comb;
     reg [7:0]   next_after_shift;
 
+    reg [63:0]  word_63_comb;
+    reg [63:0]  word_127_comb;
+    reg [63:0]  valid_63_comb;
+    reg [63:0]  valid_127_comb;
     reg [63:0]  txdata_calc;
     reg [63:0]  valid_mask_calc;
+    reg         phase_start_63_comb;
+    reg         phase_start_127_comb;
     reg         phase_start_calc;
     reg         word_active_calc;
 
@@ -206,16 +227,36 @@ module pattern_tx_engine (
     reg [6:0]   current_gap_end_rel_next_q;
 
     always @* begin
-        last_phase_calc = (!phase_shift_active) ||
-                          (phase_offset == (len_active - 1'b1));
-        has_next_phase_calc = loop_active || !last_phase_calc;
-        next_phase_offset_calc = last_phase_calc ? 8'd0 :
-                                                  (phase_offset + 1'b1);
+        last_phase_63_comb = (!phase_shift_active) ||
+                             (phase_offset == 8'd62);
+        last_phase_127_comb = (!phase_shift_active) ||
+                              (phase_offset == 8'd126);
+        has_next_phase_63_comb = loop_active || !last_phase_63_comb;
+        has_next_phase_127_comb = loop_active || !last_phase_127_comb;
+        next_phase_offset_63_comb = last_phase_63_comb ? 8'd0 :
+                                                          (phase_offset + 1'b1);
+        next_phase_offset_127_comb = last_phase_127_comb ? 8'd0 :
+                                                            (phase_offset + 1'b1);
 
-        current_pattern_calc = rotate_sequence(
-            pattern_base_active, pattern_index, len_is_63_active);
-        next_phase_pattern_calc = rotate_sequence(
-            pattern_base_active, next_phase_offset_calc[6:0], len_is_63_active);
+        // The active mode is used only after both fixed-modulus candidates
+        // have been built.  It is not an input to either rotate network.
+        last_phase_calc = pattern_mode_63_active ? last_phase_63_comb :
+                                                   last_phase_127_comb;
+        has_next_phase_calc = pattern_mode_63_active ?
+                              has_next_phase_63_comb :
+                              has_next_phase_127_comb;
+        next_phase_offset_calc = pattern_mode_63_active ?
+                                 next_phase_offset_63_comb :
+                                 next_phase_offset_127_comb;
+
+        current_pattern_63_comb = rotate_sequence_63(
+            pattern_base_active[62:0], pattern_index[5:0]);
+        current_pattern_127_comb = rotate_sequence_127(
+            pattern_base_active, pattern_index);
+        next_phase_pattern_63_comb = rotate_sequence_63(
+            pattern_base_active[62:0], next_phase_offset_63_comb[5:0]);
+        next_phase_pattern_127_comb = rotate_sequence_127(
+            pattern_base_active, next_phase_offset_127_comb[6:0]);
 
         current_gap_start_rel = current_gap_start_rel_q;
         current_gap_end_rel = current_gap_end_rel_q;
@@ -230,49 +271,88 @@ module pattern_tx_engine (
 
         current_gap_width = current_gap_end_rel - current_gap_start_rel;
         next_gap_width = next_gap_end_rel - next_gap_start_rel;
-        current_after_gap_vec = current_pattern_calc << current_gap_width;
-        next_before_gap_aligned = next_phase_pattern_calc << remaining_rel_q;
+        current_after_gap_63_comb =
+            current_pattern_63_comb << current_gap_width;
+        current_after_gap_127_comb =
+            current_pattern_127_comb << current_gap_width;
+        next_before_gap_63_comb =
+            next_phase_pattern_63_comb << remaining_rel_q;
+        next_before_gap_127_comb =
+            next_phase_pattern_127_comb << remaining_rel_q;
         next_after_shift = remaining_rel_q + next_gap_width;
-        next_after_gap_aligned = next_phase_pattern_calc << next_after_shift;
+        next_after_gap_63_comb =
+            next_phase_pattern_63_comb << next_after_shift;
+        next_after_gap_127_comb =
+            next_phase_pattern_127_comb << next_after_shift;
 
-        txdata_calc = 64'b0;
-        valid_mask_calc = 64'b0;
+        word_63_comb = 64'b0;
+        word_127_comb = 64'b0;
+        valid_63_comb = 64'b0;
+        valid_127_comb = 64'b0;
         word_active_calc = running && enable;
-        phase_start_calc = word_active_calc && phase_start_pending;
+        phase_start_63_comb = word_active_calc && phase_start_pending;
+        phase_start_127_comb = word_active_calc && phase_start_pending;
 
         for (lane = 0; lane < 64; lane = lane + 1) begin
             if (word_active_calc && (lane < remaining_rel_q)) begin
                 if ((lane >= current_gap_start_rel) &&
                     (lane < current_gap_end_rel)) begin
-                    txdata_calc[lane] = 1'b0;
-                    valid_mask_calc[lane] = 1'b0;
+                    word_63_comb[lane] = 1'b0;
+                    word_127_comb[lane] = 1'b0;
+                    valid_63_comb[lane] = 1'b0;
+                    valid_127_comb[lane] = 1'b0;
                 end else begin
-                    valid_mask_calc[lane] = 1'b1;
-                    if (lane < current_gap_start_rel)
-                        txdata_calc[lane] = current_pattern_calc[lane];
-                    else
-                        txdata_calc[lane] = current_after_gap_vec[lane];
+                    valid_63_comb[lane] = 1'b1;
+                    valid_127_comb[lane] = 1'b1;
+                    if (lane < current_gap_start_rel) begin
+                        word_63_comb[lane] = current_pattern_63_comb[lane];
+                        word_127_comb[lane] = current_pattern_127_comb[lane];
+                    end else begin
+                        word_63_comb[lane] = current_after_gap_63_comb[lane];
+                        word_127_comb[lane] = current_after_gap_127_comb[lane];
+                    end
                 end
-            end else if (word_active_calc && has_next_phase_calc &&
-                         (lane >= remaining_rel_q)) begin
+            end else if (word_active_calc && (lane >= remaining_rel_q)) begin
                 next_local_pos = lane - remaining_rel_q;
                 if ((next_local_pos >= next_gap_start_rel) &&
                     (next_local_pos < next_gap_end_rel)) begin
-                    txdata_calc[lane] = 1'b0;
-                    valid_mask_calc[lane] = 1'b0;
+                    word_63_comb[lane] = 1'b0;
+                    word_127_comb[lane] = 1'b0;
+                    valid_63_comb[lane] = 1'b0;
+                    valid_127_comb[lane] = 1'b0;
                 end else begin
-                    valid_mask_calc[lane] = 1'b1;
-                    if (next_local_pos < next_gap_start_rel)
-                        txdata_calc[lane] = next_before_gap_aligned[lane];
-                    else
-                        txdata_calc[lane] = next_after_gap_aligned[lane];
+                    if (has_next_phase_63_comb) begin
+                        valid_63_comb[lane] = 1'b1;
+                        if (next_local_pos < next_gap_start_rel)
+                            word_63_comb[lane] = next_before_gap_63_comb[lane];
+                        else
+                            word_63_comb[lane] = next_after_gap_63_comb[lane];
+                    end
+                    if (has_next_phase_127_comb) begin
+                        valid_127_comb[lane] = 1'b1;
+                        if (next_local_pos < next_gap_start_rel)
+                            word_127_comb[lane] = next_before_gap_127_comb[lane];
+                        else
+                            word_127_comb[lane] = next_after_gap_127_comb[lane];
+                    end
                 end
             end
         end
 
         if (word_active_calc && (phase_relation_q == 2'd0) &&
-            has_next_phase_calc)
-            phase_start_calc = 1'b1;
+            has_next_phase_63_comb)
+            phase_start_63_comb = 1'b1;
+        if (word_active_calc && (phase_relation_q == 2'd0) &&
+            has_next_phase_127_comb)
+            phase_start_127_comb = 1'b1;
+
+        // The only 63/127 selection in the output-word datapath is this
+        // final mux after both specialized networks are complete.
+        txdata_calc = pattern_mode_63_active ? word_63_comb : word_127_comb;
+        valid_mask_calc = pattern_mode_63_active ? valid_63_comb :
+                                                   valid_127_comb;
+        phase_start_calc = pattern_mode_63_active ? phase_start_63_comb :
+                                                   phase_start_127_comb;
 
         // Word-level next-state calculation.
         running_next = running;
@@ -299,7 +379,8 @@ module pattern_tx_engine (
                     (gap_end_remaining_state - 40'd64) : 40'd0;
                 current_valid_count = 7'd64 - current_gap_width;
                 pattern_index_next = advance_pattern_index(
-                    pattern_index, current_valid_count, len_is_63_active);
+                    pattern_index, current_valid_count,
+                    pattern_mode_63_active);
             end else if (phase_relation_q == 2'd1) begin
                 if (has_next_phase_calc) begin
                     phase_offset_next = next_phase_offset_calc;
@@ -334,7 +415,7 @@ module pattern_tx_engine (
                         40'd0;
                     pattern_index_next = advance_pattern_index(
                         next_phase_offset_calc[6:0],
-                        next_valid_count, len_is_63_active);
+                        next_valid_count, pattern_mode_63_active);
                     phase_start_pending_next = 1'b0;
                     if (last_phase_calc && loop_active)
                         done_next = 1'b1;
@@ -383,8 +464,7 @@ module pattern_tx_engine (
             done <= 1'b0;
             phase_offset <= 8'b0;
             current_state <= ST_IDLE;
-            len_active <= 8'd63;
-            len_is_63_active <= 1'b1;
+            pattern_mode_63_active <= 1'b1;
             phase_shift_active <= 1'b0;
             loop_active <= 1'b0;
             phase_total_active <= 40'd63;
@@ -414,8 +494,7 @@ module pattern_tx_engine (
             done <= 1'b0;
             phase_offset <= 8'b0;
             current_state <= ST_RUN;
-            len_active <= pattern_len;
-            len_is_63_active <= (pattern_len == 8'd63);
+            pattern_mode_63_active <= (pattern_len == 8'd63);
             phase_shift_active <= phase_shift_en;
             loop_active <= loop_en;
             phase_total_active <= phase_total_input;

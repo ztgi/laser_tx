@@ -107,6 +107,7 @@ Setup top-100 全部聚集在同一功能路径簇：
 | 4 | descriptor + `Performance_Explore` | -0.234 ns | -3.219 ns | 以 timing report 为准 | +0.054 ns | 未优于 post-route physopt |
 | 5 | 单 bit 63/127 mode + `Performance_Explore` | -0.222 ns | -1.099 ns | 以 timing report 为准 | +0.014 ns | 仍未签核 |
 | 6 | `pattern_index` 并行 modulo 候选 + `Performance_Explore` | -0.267 ns | -5.884 ns | 46 | +0.045 ns | A 类基本消除，但 C 类路由失败扩大，整体仍未签核 |
+| 7 | 分离 63/127 output-word 网络 + 末级 mode mux | +0.028 ns | 0 ns | 0 | +0.034 ns | setup/hold 首次全部通过 |
 
 另有两次探索性结构/strategy run 未纳入有效候选：一次切换 strategy 后未恢复 `OPT_DESIGN` 约束 hook，runtime clocks 缺失，结果无效；一次寄存整组 rotated pattern 导致 WNS 退化到 `-1.847 ns`，已撤销。当前尚未达到最低通过标准，未生成 release artifact。
 
@@ -303,3 +304,129 @@ SHA-256：
 本轮未达到 `WNS>=0`、`TNS=0`，因此停止生成 timing-clean bit/LTX/XSA，也未刷新 Vitis platform/BSP/ELF，未执行硬件测试。
 
 下一轮 C 类最小修改应保持独立：分别构造 63-bit 与 127-bit output-word 选择网络，只在末级选择模式，并优先用局部单 bit mode/geometry 信号替代 `len_active` 宽字段对输出网络的直接驱动；同时将仅供 ILA/debug 的扇出从功能组合锥隔离。只有该无 pipeline 方案仍无法得到稳定正裕量时，才评估增加一级 pattern-word pipeline，并同步处理 valid、enable、laser gate、mode、frame boundary 和 idle/quiesce 对齐。
+
+## 15. Iteration 7：分离 63/127 output-word 网络
+
+### 15.1 修改前 C 类 routed 结构确认
+
+修改 RTL 前，仅打开 iteration 6 归档 DCP 进行结构审计，没有重跑 baseline 或 implementation。审计报告保存于：
+
+`reports/ad9528_gt_rate_planner/timing_iteration6_c_path_audit/`
+
+确认结果如下：
+
+- C 类 setup top-50 全部终止于 `txdata_reg[*]/D`；
+- 最差路径为 `len_active_reg[5]/C -> txdata_reg[30]/D`，slack `-0.267 ns`；
+- 该路径有 12 个 logic levels，logic delay `0.739 ns`、route delay `5.388 ns`；
+- 完整 `len_active` 参与 `last_phase_calc`，然后进入 phase-offset 和 output-word 组合锥；
+- `p_0_in[5]`、`p_0_in[6]` 是 phase-offset 相关综合网，各有 162 fanout，并驱动大量 `txdata` 选择 LUT；
+- 原 RTL 使用一个带 `sequence_is_63` 输入的通用 `rotate_sequence()`，63/127 模式判断被综合进输出网络；
+- `len_active`、`phase_offset`、`pattern_index` 相关功能节点没有直接驱动 ILA load，因此当前 C 类失败不能归因于 ILA probe。
+
+该证据支持只处理 C 类 output-word 网络，不再改动 iteration 6 已完成的 A 类并行 modulo 结构。
+
+### 15.2 Iteration 7 RTL 结构
+
+sequence 启动时只锁存单 bit `pattern_mode_63_active`；原 `len_active[7:0]` 状态及高速发送期间的完整长度比较被删除。固定长度网络改为：
+
+1. `rotate_sequence_63()` 只接收 `pattern_base_active[62:0]` 和 `pattern_index[5:0]`；
+2. `rotate_sequence_127()` 只接收 `pattern_base_active[126:0]` 和 `pattern_index[6:0]`；
+3. 分别形成 `word_63_comb/valid_63_comb` 与 `word_127_comb/valid_127_comb`；
+4. 63/127 各自独立处理 current pattern、next-phase pattern、gap 对齐和 phase-boundary valid；
+5. 只在完整 candidate word 形成后，由 `pattern_mode_63_active` 在末级选择 `txdata_calc`、`valid_mask_calc` 和 `phase_start_calc`。
+
+两个专用网络内部没有 `len_active` 动态判断、动态 modulus、`%`、divider 或通用可变长度 rotate。`advance_pattern_index()` 的 iteration 6 并行 `sum/sub63/sub126/sub127` 实现保持不变。未增加 pipeline，`PIPELINE_LATENCY=0`。
+
+### 15.3 功能回归
+
+修改后重新运行完整 direct self-checking regression，覆盖：
+
+- 63-bit phase/gap/wrap；
+- 127-bit direct/gap/wrap；
+- disable/quiesce 后 restart；
+- reset；
+- runtime clock period change；
+- 同周期 data/valid golden-model 比较。
+
+结果：
+
+`PATTERN_TX_ENGINE_TIMING_REGRESSION_PASS`
+
+因此当前自动验证支持 `PIPELINE_LATENCY=0` 下的功能等价性结论；尚未执行硬件波形或板级回归。
+
+### 15.4 OOC 与实现配置
+
+强制重建 `system_laser_tx_core_0_0_synth_1` 后，OOC 签名为：
+
+| RTL 签名 | 数量 | 判定 |
+|---|---:|---|
+| `pattern_index_reg` | 21 | A 类优化仍存在 |
+| `pattern_cursor_reg` | 0 | 旧结构不存在 |
+| `pattern_mode_63_active` | 2 | 单 bit mode 寄存器存在 |
+| `len_active_reg` | 0 | 完整长度状态已退出高速网络 |
+| 失败实验结构 | 0 | 未混入历史失败结构 |
+
+implementation 使用与 iteration 6 完全相同的 `Performance_Explore`、runtime clock hook、`TXUSRCLK=3.103 ns` 和 `TXUSRCLK2=6.206 ns`。没有改变时钟约束，也没有使用 timing exception。
+
+### 15.5 Timing、失败路径与 fanout
+
+| Metric | Iteration 6 | Iteration 7 | 解释 |
+|---|---:|---:|---|
+| Setup WNS | -0.267 ns | +0.028 ns | setup 首次通过 |
+| Setup TNS | -5.884 ns | 0 ns | 无 setup failing endpoint |
+| Setup failing endpoints | 46 | 0 | A/C 失败路径均清零 |
+| Hold WHS | +0.045 ns | +0.034 ns | hold 通过 |
+| Hold THS | 0 ns | 0 ns | hold 通过 |
+| Unrouted nets | 0 | 0 | route 完整 |
+| DRC errors | 0 | 0 | 无 DRC error |
+
+由于 iteration 7 没有负 slack，A 类失败路径数/TNS 为 `0/0 ns`，C 类失败路径数/TNS 也为 `0/0 ns`。最新 setup top-20 均为正 slack：其中 16 条仍属于 C 类 output-word 路径，3 条属于 word-geometry descriptor，1 条属于 gap/control；最差路径为：
+
+`phase_offset_reg[3]/C -> txdata_reg[62]/D`
+
+其 slack 为 `+0.028 ns`，11 个 logic levels，logic delay `0.878 ns`、route delay `4.919 ns`。相比 iteration 6 的 C 类最差路径，route delay 从 `5.388 ns` 降为 `4.919 ns`，且完整 `len_active` 已不再作为起点。
+
+iteration 6 的 `p_0_in[5]/p_0_in[6]` fanout-162 网络在 iteration 7 归档的 selected-net 审计中不再出现。新的 `pattern_mode_63_active` fanout 为 161 个 loads（flat pin count 162），但这些负载属于专用 candidate word 完成后的末级选择，且 ILA load count 为 0；它没有形成负 slack endpoint。
+
+### 15.6 Resource 变化
+
+| Resource | Iteration 6 | Iteration 7 | 变化 |
+|---|---:|---:|---:|
+| Top LUT | 27843 | 29140 | +1297 |
+| Top logic LUT | 24277 | 25574 | +1297 |
+| Top FF | 28361 | 28362 | +1 |
+| Pattern engine LUT | 7134 | 8437 | +1303 |
+| Pattern engine FF | 699 | 700 | +1 |
+| RAMB36 | 68 | 68 | 0 |
+| RAMB18 | 2 | 2 | 0 |
+
+LUT 增加来自同时实现两个固定 modulus output-word 网络；FF 仅增加单 bit mode 状态。该修改以组合资源换取较短、较局部的固定选择网络，没有增加 pipeline 或 BRAM/DSP。
+
+### 15.7 归档、结论与停止点
+
+iteration 7 routed DCP 和报告已独立归档到：
+
+`reports/ad9528_gt_rate_planner/timing_iteration7_split_output_network/`
+
+归档 DCP：
+
+`iteration7_split_output_network_routed.dcp`
+
+SHA-256：
+
+`85c585c413abc8522c262a93e09f78a7288d5e38139ed5e4f95e74a6d21b8a8a`
+
+当前结果满足本轮最低停止条件：
+
+```text
+WNS >= 0
+TNS = 0
+WHS >= 0
+THS = 0
+DRC error = 0
+unrouted net = 0
+```
+
+因此停止继续修改 RTL，不增加 pattern-word pipeline，也不再盲试 implementation strategy。当前 WNS 只有 `+0.028 ns`，低于建议的 `+0.15 ns` 工程余量，所以在后续生成 timing-clean artifact 时仍需保留该风险说明，并确认重新生成 bitstream 的实现结果没有发生负向漂移。
+
+本轮尚未生成 bit/LTX/XSA，未刷新 Vitis platform/BSP/ELF，也未执行 hardware test。下一独立阶段才进行 timing-clean artifact、XSA 和软件平台刷新，不与本轮 C 类 RTL 提交混合。
