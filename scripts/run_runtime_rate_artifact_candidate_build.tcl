@@ -50,6 +50,9 @@ foreach source $wrapper_sources {
 set bd_file [get_files -quiet */system.bd]
 if {![llength $bd_file]} { error "system.bd not found" }
 generate_target all $bd_file
+# Child IPI cores must be managed through their parent block design.  Calling
+# create_ip_run on an individual child XCI is rejected by Vivado 2022.2.
+create_ip_run $bd_file
 update_compile_order -fileset sources_1
 
 # Every child checkpoint loaded by the managed implementation flow must have a
@@ -77,9 +80,11 @@ foreach ip_name $required_ips {
     if {![llength $ip]} { error "required managed IP not found: $ip_name" }
     set run_name ${ip_name}_synth_1
     if {![llength [get_runs -quiet $run_name]]} {
-        create_ip_run $ip
+        error "managed OOC run was not created through system.bd: $run_name"
     }
-    config_ip_cache -disable_for_ip $ip
+    # Some cores (notably PS7) do not expose a cache checksum.  The reset/run
+    # below is still mandatory; cache disabling is applied where supported.
+    catch {config_ip_cache -disable_for_ip $ip}
     lappend ooc_runs $run_name
 }
 
