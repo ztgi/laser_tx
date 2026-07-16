@@ -4,6 +4,7 @@ set script_dir [file dirname [file normalize [info script]]]
 set root [file normalize [file join $script_dir ..]]
 set out [file join $root reports ad9528_gt_rate_planner artifact_build]
 set artifact_dir [file join $out artifacts]
+set resume_after_ooc [expr {$argc > 0 && [lindex $argv 0] eq "resume_after_ooc"}]
 file mkdir $out
 file mkdir $artifact_dir
 
@@ -17,9 +18,11 @@ proc require_complete {run_name} {
 }
 
 proc sha256_file {path} {
-    set escaped [string map {' ''} [file normalize $path]]
-    return [string trim [exec powershell.exe -NoProfile -Command \
-        "(Get-FileHash -LiteralPath '$escaped' -Algorithm SHA256).Hash"]]
+    set output [exec certutil.exe -hashfile [file nativename [file normalize $path]] SHA256]
+    if {![regexp -nocase {([0-9a-f]{64})} $output -> hash]} {
+        error "unable to parse SHA-256 for $path: $output"
+    }
+    return [string toupper $hash]
 }
 
 proc report_contains_zero {path check_name} {
@@ -51,9 +54,12 @@ set bd_file [get_files -quiet */system.bd]
 if {![llength $bd_file]} { error "system.bd not found" }
 # A clean composite regeneration is the supported freshness mechanism for IPI
 # children which Vivado does not expose as independent synth runs.
-set bd_regeneration_start [clock seconds]
-reset_target all $bd_file
-generate_target all $bd_file
+set bd_regeneration_start 0
+if {!$resume_after_ooc} {
+    set bd_regeneration_start [clock seconds]
+    reset_target all $bd_file
+    generate_target all $bd_file
+}
 # Child IPI cores must be managed through their parent block design.  Calling
 # create_ip_run on an individual child XCI is rejected by Vivado 2022.2.
 create_ip_run $bd_file
@@ -89,11 +95,15 @@ foreach ip_name $required_ips {
     }
 }
 
-foreach run_name $ooc_runs { reset_run $run_name }
-launch_runs $ooc_runs -jobs 4
-foreach run_name $ooc_runs {
-    wait_on_run $run_name
-    require_complete $run_name
+if {!$resume_after_ooc} {
+    foreach run_name $ooc_runs { reset_run $run_name }
+    launch_runs $ooc_runs -jobs 4
+    foreach run_name $ooc_runs {
+        wait_on_run $run_name
+        require_complete $run_name
+    }
+} else {
+    foreach run_name $ooc_runs { require_complete $run_name }
 }
 
 # For IPs with independent managed runs, require the generated composite DCP and
