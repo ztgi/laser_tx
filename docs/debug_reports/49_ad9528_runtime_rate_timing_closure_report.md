@@ -430,3 +430,24 @@ unrouted net = 0
 因此停止继续修改 RTL，不增加 pattern-word pipeline，也不再盲试 implementation strategy。当前 WNS 只有 `+0.028 ns`，低于建议的 `+0.15 ns` 工程余量，所以在后续生成 timing-clean artifact 时仍需保留该风险说明，并确认重新生成 bitstream 的实现结果没有发生负向漂移。
 
 本轮尚未生成 bit/LTX/XSA，未刷新 Vitis platform/BSP/ELF，也未执行 hardware test。下一独立阶段才进行 timing-clean artifact、XSA 和软件平台刷新，不与本轮 C 类 RTL 提交混合。
+
+## 16. Iteration 7 timing-clean RTL baseline manifest
+
+为避免后续 artifact 生成阶段无法追溯 Iteration 7 的真实实现输入，本阶段新增机器可读 baseline manifest：
+
+`reports/ad9528_gt_rate_planner/timing_iteration7_split_output_network/timing_clean_rtl_baseline_manifest.json`
+
+manifest 不重新推导时序数值，而是从本次已归档的 `audit_metrics.txt`、`ooc_rtl_signature.txt`、`project_run_metadata.txt`、`route_status.rpt`、`drc.rpt` 和 regression log 解析。它记录：
+
+- RTL 源码 commit 与捕获时的 dirty 状态；
+- Vivado 2022.2、`xc7z100ffg900-2`、top 和 `Performance_Explore` directives；
+- `TXUSRCLK=3.103 ns`、`TXUSRCLK2=6.206 ns`；
+- routed DCP、OOC DCP、runtime clock hook、timing summary 和 regression log 的 SHA-256；
+- 当前实现实际加载的全部 XDC 路径及逐文件 SHA-256；
+- Iteration 7 OOC RTL 签名；
+- WNS/TNS/WHS/THS、failing endpoints、route errors 和 DRC errors；
+- `PATTERN_TX_ENGINE_TIMING_REGRESSION_PASS` 与 `PIPELINE_LATENCY=0`。
+
+其中 manifest 的 `git_commit` 表示被捕获的功能 RTL 源码 commit。由于文件无法在自身提交前预知并稳定保存“包含自身的 commit hash”，承载 manifest 的聚焦 commit 由后续 annotated tag 标识，避免制造不可实现的自引用哈希。
+
+clean reproducibility build 脚本同时增加完整 OOC 签名门禁：必须满足 `pattern_index_reg > 0`、`pattern_mode_63_active > 0`、`pattern_cursor_reg = 0`、`len_active_reg = 0`，且历史失败实验结构均为 0，才允许继续 top synthesis/implementation。该增强只验证实现输入，没有修改功能 RTL、时钟约束或 pipeline latency。

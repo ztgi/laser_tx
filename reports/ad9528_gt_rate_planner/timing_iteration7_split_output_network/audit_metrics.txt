@@ -1,0 +1,9 @@
+txusrclk_period_ns=3.103
+txusrclk2_period_ns=6.206
+setup_wns_ns=0.028
+setup_tns_ns=0.0
+setup_failing_endpoints=0
+hold_whs_ns=0.034
+hold_ths_ns=0.0
+hold_failing_endpoints=0
+bitstream_generated=0

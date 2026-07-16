@@ -1,0 +1,9 @@
+vivado_version=2022.2
+device=xc7z100ffg900-2
+top=laser_tx_board_top
+strategy=Performance_Explore
+opt_design=Explore
+place_design=Explore
+phys_opt_design=Explore
+route_design=Explore
+runtime_clock_hook=D:/FPGA_Learn/laser_tx/scripts/gt_profile0_impl_pre.tcl

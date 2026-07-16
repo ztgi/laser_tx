@@ -50,9 +50,19 @@ if {![string match "*Complete*" $core_ooc_status]} {
 open_run $core_ooc_run
 set pattern_index_cells [llength [get_cells -quiet -hier *pattern_index_reg*]]
 set pattern_cursor_cells [llength [get_cells -quiet -hier *pattern_cursor_reg*]]
+set pattern_mode_63_active_cells [llength [get_cells -quiet -hier *pattern_mode_63_active*]]
+set len_active_cells [llength [get_cells -quiet -hier *len_active_reg*]]
+set next_phase_pattern_base_q_cells [llength [get_cells -quiet -hier *next_phase_pattern_base_q*]]
+set cross_next_valid_count_q_cells [llength [get_cells -quiet -hier *cross_next_valid_count_q*]]
+set current_pattern_q_cells [llength [get_cells -quiet -hier *current_pattern_q*]]
+set rotated_pattern_reg_cells [llength [get_cells -quiet -hier *rotated_pattern_reg*]]
 close_design
-if {$pattern_index_cells == 0 || $pattern_cursor_cells != 0} {
-    error "stale laser_tx_core OOC DCP: pattern_index=$pattern_index_cells pattern_cursor=$pattern_cursor_cells"
+if {$pattern_index_cells == 0 || $pattern_mode_63_active_cells == 0 ||
+        $pattern_cursor_cells != 0 || $len_active_cells != 0 ||
+        $next_phase_pattern_base_q_cells != 0 ||
+        $cross_next_valid_count_q_cells != 0 ||
+        $current_pattern_q_cells != 0 || $rotated_pattern_reg_cells != 0} {
+    error "unexpected laser_tx_core OOC RTL signature: pattern_index=$pattern_index_cells pattern_mode_63_active=$pattern_mode_63_active_cells pattern_cursor=$pattern_cursor_cells len_active=$len_active_cells next_phase_pattern_base_q=$next_phase_pattern_base_q_cells cross_next_valid_count_q=$cross_next_valid_count_q_cells current_pattern_q=$current_pattern_q_cells rotated_pattern_reg=$rotated_pattern_reg_cells"
 }
 
 reset_run impl_1
@@ -118,6 +128,12 @@ puts $fd "implementation_strategy=$impl_strategy"
 puts $fd "core_ooc_status=$core_ooc_status"
 puts $fd "pattern_index_cells=$pattern_index_cells"
 puts $fd "pattern_cursor_cells=$pattern_cursor_cells"
+puts $fd "pattern_mode_63_active_cells=$pattern_mode_63_active_cells"
+puts $fd "len_active_cells=$len_active_cells"
+puts $fd "next_phase_pattern_base_q_cells=$next_phase_pattern_base_q_cells"
+puts $fd "cross_next_valid_count_q_cells=$cross_next_valid_count_q_cells"
+puts $fd "current_pattern_q_cells=$current_pattern_q_cells"
+puts $fd "rotated_pattern_reg_cells=$rotated_pattern_reg_cells"
 puts $fd "txusrclk_period_ns=$txusrclk_period"
 puts $fd "txusrclk2_period_ns=$txusrclk2_period"
 puts $fd "synth_status=$synth_status"

@@ -1,0 +1,9 @@
+ooc_dcp=D:/FPGA_Learn/laser_tx/laser_tx.runs/system_laser_tx_core_0_0_synth_1/system_laser_tx_core_0_0.dcp
+pattern_index_reg=21
+pattern_cursor_reg=0
+pattern_mode_63_active=2
+len_active_reg=0
+next_phase_pattern_base_q=0
+cross_next_valid_count_q=0
+current_pattern_q=0
+rotated_pattern_reg=0
