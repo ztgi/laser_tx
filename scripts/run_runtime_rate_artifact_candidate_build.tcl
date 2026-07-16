@@ -49,6 +49,10 @@ foreach source $wrapper_sources {
 
 set bd_file [get_files -quiet */system.bd]
 if {![llength $bd_file]} { error "system.bd not found" }
+# A clean composite regeneration is the supported freshness mechanism for IPI
+# children which Vivado does not expose as independent synth runs.
+set bd_regeneration_start [clock seconds]
+reset_target all $bd_file
 generate_target all $bd_file
 # Child IPI cores must be managed through their parent block design.  Calling
 # create_ip_run on an individual child XCI is rejected by Vivado 2022.2.
@@ -79,13 +83,10 @@ foreach ip_name $required_ips {
     set ip [get_ips -quiet $ip_name]
     if {![llength $ip]} { error "required managed IP not found: $ip_name" }
     set run_name ${ip_name}_synth_1
-    if {![llength [get_runs -quiet $run_name]]} {
-        error "managed OOC run was not created through system.bd: $run_name"
+    if {[llength [get_runs -quiet $run_name]]} {
+        catch {config_ip_cache -disable_for_ip $ip}
+        lappend ooc_runs $run_name
     }
-    # Some cores (notably PS7) do not expose a cache checksum.  The reset/run
-    # below is still mandatory; cache disabling is applied where supported.
-    catch {config_ip_cache -disable_for_ip $ip}
-    lappend ooc_runs $run_name
 }
 
 foreach run_name $ooc_runs { reset_run $run_name }
@@ -95,14 +96,14 @@ foreach run_name $ooc_runs {
     require_complete $run_name
 }
 
-# Require the generated composite checkpoint and its managed-run checkpoint to
-# be byte-identical.  This is the freshness gate for any retained Project 1-840.
+# For IPs with independent managed runs, require the generated composite DCP and
+# run DCP to be byte-identical.  Other IPI children are clean-generated only by
+# their parent BD; require their DCP to have been written by this invocation.
 set hash_fp [open [file join $out ooc_dcp_freshness.tsv] w]
-puts $hash_fp "ip\trun_dcp\tgenerated_dcp\trun_sha256\tgenerated_sha256\tmatch"
+puts $hash_fp "ip\tprovenance\trun_dcp\tgenerated_dcp\trun_sha256\tgenerated_sha256\tmatch\tgenerated_mtime"
 foreach ip_name $required_ips {
     set run_name ${ip_name}_synth_1
-    set run_dir [file normalize [get_property DIRECTORY [get_runs $run_name]]]
-    set run_dcp [file join $run_dir ${ip_name}.dcp]
+    set run_dcp ""
     set candidates [get_files -quiet -all */${ip_name}.dcp]
     set generated_dcp ""
     foreach candidate $candidates {
@@ -112,14 +113,26 @@ foreach ip_name $required_ips {
             break
         }
     }
-    if {![file exists $run_dcp] || $generated_dcp eq "" || ![file exists $generated_dcp]} {
+    if {$generated_dcp eq "" || ![file exists $generated_dcp]} {
         error "missing OOC freshness input for $ip_name: run=$run_dcp generated=$generated_dcp"
     }
-    set run_hash [sha256_file $run_dcp]
     set generated_hash [sha256_file $generated_dcp]
-    set match [expr {[string equal -nocase $run_hash $generated_hash] ? 1 : 0}]
-    puts $hash_fp [join [list $ip_name $run_dcp $generated_dcp $run_hash $generated_hash $match] "\t"]
-    if {!$match} { error "stale generated OOC checkpoint detected for $ip_name" }
+    set generated_mtime [file mtime $generated_dcp]
+    if {[llength [get_runs -quiet $run_name]]} {
+        set run_dir [file normalize [get_property DIRECTORY [get_runs $run_name]]]
+        set run_dcp [file join $run_dir ${ip_name}.dcp]
+        if {![file exists $run_dcp]} { error "managed OOC DCP missing: $run_dcp" }
+        set run_hash [sha256_file $run_dcp]
+        set match [expr {[string equal -nocase $run_hash $generated_hash] ? 1 : 0}]
+        set provenance MANAGED_OOC_RUN_AND_BD_EXPORT
+        if {!$match} { error "stale generated OOC checkpoint detected for $ip_name" }
+    } else {
+        set run_hash NA
+        set match [expr {$generated_mtime >= $bd_regeneration_start ? 1 : 0}]
+        set provenance CLEAN_PARENT_BD_GENERATION
+        if {!$match} { error "child DCP was not regenerated in this build: $generated_dcp" }
+    }
+    puts $hash_fp [join [list $ip_name $provenance $run_dcp $generated_dcp $run_hash $generated_hash $match $generated_mtime] "\t"]
 }
 close $hash_fp
 

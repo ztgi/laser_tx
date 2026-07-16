@@ -71,9 +71,10 @@ def main() -> None:
                     "child-IP DCP directly to the in-memory implementation design"
                 ),
                 "planned_fix": (
-                    "create/rebuild the managed OOC run, regenerate BD targets, "
-                    "require generated/run DCP SHA-256 equality, then accept the "
-                    "diagnostic only when freshness evidence passes"
+                    "clean-regenerate the parent BD target; when a managed child "
+                    "OOC run exists, rebuild it and require generated/run DCP "
+                    "SHA-256 equality; otherwise require a newly generated child "
+                    "DCP timestamp/hash before accepting the diagnostic"
                 ),
             }
         )
