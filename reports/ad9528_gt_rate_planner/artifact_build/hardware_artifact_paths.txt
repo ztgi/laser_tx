@@ -1,0 +1,4 @@
+bit=D:/FPGA_Learn/laser_tx/reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top.bit
+ltx=D:/FPGA_Learn/laser_tx/reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top.ltx
+xsa=D:/FPGA_Learn/laser_tx/reports/ad9528_gt_rate_planner/artifact_build/artifacts/laser_tx_board_top_runtime_rate_switch.xsa
+routed_dcp=D:/FPGA_Learn/laser_tx/reports/ad9528_gt_rate_planner/artifact_build/routed.dcp
