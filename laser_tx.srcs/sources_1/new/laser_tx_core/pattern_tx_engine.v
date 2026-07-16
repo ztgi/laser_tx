@@ -36,6 +36,7 @@ module pattern_tx_engine (
     // Active configuration is captured at start and remains local to this
     // clock domain for the complete sequence.
     reg [7:0]   len_active;
+    reg         len_is_63_active;
     reg         phase_shift_active;
     reg         loop_active;
     reg [39:0]  phase_total_active;
@@ -43,14 +44,30 @@ module pattern_tx_engine (
     reg [39:0]  gap_end_active;
     reg         gap_present_active;
 
-    // phase_pattern holds S_k.  pattern_cursor bit zero is the next valid
-    // pattern bit.  In 63-bit mode the sequence is repeated across all 127
-    // bits so a complete 64-bit word is directly addressable.
-    reg [126:0] phase_pattern;
-    reg [126:0] pattern_cursor;
-    reg [39:0]  phase_pos;
+    // The periodic pattern itself is held constant for a sequence.  A small
+    // logical index identifies the next valid pattern bit.  The previous
+    // implementation fed a 127-bit variable rotation back into itself every
+    // cycle; that made phase_pos -> pattern_cursor a 27-level single-cycle
+    // path.  Keeping only the index in the feedback path preserves the bit
+    // sequence while reducing the state update to bounded 7-bit arithmetic.
+    reg [126:0] pattern_base_active;
+    reg [6:0]   pattern_index;
+    reg [39:0]  phase_remaining_state;
+    reg [39:0]  gap_start_remaining_state;
+    reg [39:0]  gap_end_remaining_state;
     reg         running;
     reg         phase_start_pending;
+
+    // Registered word geometry splits the wide phase/gap arithmetic from the
+    // pattern-index feedback and TX-data selection.  The descriptor always
+    // describes the word emitted in the current cycle; wide counters prepare
+    // only the following descriptor.
+    reg [1:0]   phase_relation_q; // 0: <64, 1: ==64, 2: >64
+    reg [6:0]   remaining_rel_q;
+    reg [6:0]   current_gap_start_rel_q;
+    reg [6:0]   current_gap_end_rel_q;
+    reg [6:0]   initial_gap_start_rel_active;
+    reg [6:0]   initial_gap_end_rel_active;
 
     wire [39:0] repeat_wide = {8'b0, repeat_cycles};
     wire [39:0] insert_wide = {24'b0, insert_after};
@@ -72,12 +89,12 @@ module pattern_tx_engine (
     function [126:0] rotate_sequence;
         input [126:0] sequence_in;
         input [6:0]   count;
-        input [7:0]   sequence_len;
+        input         sequence_is_63;
         reg [253:0] doubled;
         reg [253:0] shifted;
         reg [62:0]  rotated63;
         begin
-            if (sequence_len == 8'd63) begin
+            if (sequence_is_63) begin
                 doubled = 254'b0;
                 // sequence_in already contains 127 periodic bits in 63-bit
                 // mode, enough for a 63-bit window after advancing up to 64.
@@ -89,6 +106,46 @@ module pattern_tx_engine (
                 doubled = {sequence_in, sequence_in};
                 shifted = doubled >> count;
                 rotate_sequence = shifted[126:0];
+            end
+        end
+    endfunction
+
+    // Advance a periodic pattern index by at most one 64-bit word.  The sum
+    // can cross the 63-bit modulus twice, but can cross the 127-bit modulus
+    // only once.  No divider or general modulo operator is inferred.
+    function [6:0] advance_pattern_index;
+        input [6:0] index_in;
+        input [6:0] count;
+        input       sequence_is_63;
+        reg [8:0] sum_ext;
+        reg [8:0] sub63_ext;
+        reg [8:0] sub126_ext;
+        reg [8:0] sub127_ext;
+        reg       ge63;
+        reg       ge126;
+        reg       ge127;
+        begin
+            // All modulo candidates are formed in parallel.  The MSB of an
+            // extended unsigned subtraction is the borrow indication for
+            // the valid 0..190 sum range, so no separate wide comparators or
+            // serial compare-then-subtract chains are required.
+            sum_ext    = {2'b00, index_in} + {2'b00, count};
+            sub63_ext  = sum_ext - 9'd63;
+            sub126_ext = sum_ext - 9'd126;
+            sub127_ext = sum_ext - 9'd127;
+            ge63       = ~sub63_ext[8];
+            ge126      = ~sub126_ext[8];
+            ge127      = ~sub127_ext[8];
+
+            if (sequence_is_63) begin
+                case ({ge126, ge63})
+                    2'b11:  advance_pattern_index = sub126_ext[6:0];
+                    2'b01:  advance_pattern_index = sub63_ext[6:0];
+                    default: advance_pattern_index = sum_ext[6:0];
+                endcase
+            end else begin
+                advance_pattern_index = ge127 ? sub127_ext[6:0]
+                                              : sum_ext[6:0];
             end
         end
     endfunction
@@ -110,10 +167,9 @@ module pattern_tx_engine (
 
     integer lane;
     integer next_local_pos;
-    reg [39:0] phase_remaining;
-    reg [39:0] wide_delta_start;
-    reg [39:0] wide_delta_end;
-    reg [6:0]  remaining_rel;
+    reg [39:0] phase_remaining_next;
+    reg [39:0] gap_start_remaining_next;
+    reg [39:0] gap_end_remaining_next;
     reg [6:0]  current_gap_start_rel;
     reg [6:0]  current_gap_end_rel;
     reg [6:0]  next_gap_start_rel;
@@ -126,6 +182,7 @@ module pattern_tx_engine (
     reg [7:0]  next_phase_offset_calc;
     reg         last_phase_calc;
     reg         has_next_phase_calc;
+    reg [126:0] current_pattern_calc;
     reg [126:0] next_phase_pattern_calc;
     reg [126:0] current_after_gap_vec;
     reg [126:0] next_before_gap_aligned;
@@ -140,62 +197,42 @@ module pattern_tx_engine (
     reg         running_next;
     reg         done_next;
     reg [7:0]   phase_offset_next;
-    reg [39:0]  phase_pos_next;
-    reg [126:0] phase_pattern_next;
-    reg [126:0] pattern_cursor_next;
+    reg [6:0]   pattern_index_next;
     reg         phase_start_pending_next;
-    reg [126:0] cursor_update_base;
-    reg [6:0]   cursor_update_count;
+
+    reg [1:0]   phase_relation_next_q;
+    reg [6:0]   remaining_rel_next_q;
+    reg [6:0]   current_gap_start_rel_next_q;
+    reg [6:0]   current_gap_end_rel_next_q;
 
     always @* begin
-        phase_remaining = phase_total_active - phase_pos;
-        remaining_rel = (phase_remaining >= 40'd64) ?
-                        7'd64 : phase_remaining[6:0];
-
         last_phase_calc = (!phase_shift_active) ||
                           (phase_offset == (len_active - 1'b1));
         has_next_phase_calc = loop_active || !last_phase_calc;
         next_phase_offset_calc = last_phase_calc ? 8'd0 :
                                                   (phase_offset + 1'b1);
 
-        if (len_active == 8'd63)
-            next_phase_pattern_calc = rotate_sequence(phase_pattern, 7'd1, 8'd63);
-        else
-            next_phase_pattern_calc = rotate_sequence(phase_pattern, 7'd1, 8'd127);
+        current_pattern_calc = rotate_sequence(
+            pattern_base_active, pattern_index, len_is_63_active);
+        next_phase_pattern_calc = rotate_sequence(
+            pattern_base_active, next_phase_offset_calc[6:0], len_is_63_active);
 
-        // Reduce the current phase's absolute gap interval to this word.
-        current_gap_start_rel = 7'd64;
-        current_gap_end_rel = 7'd64;
-        if (gap_present_active && (phase_pos < gap_end_active)) begin
-            if (phase_pos >= gap_start_active) begin
-                current_gap_start_rel = 7'd0;
-                wide_delta_end = gap_end_active - phase_pos;
-                current_gap_end_rel = (wide_delta_end >= 40'd64) ?
-                                      7'd64 : wide_delta_end[6:0];
-            end else begin
-                wide_delta_start = gap_start_active - phase_pos;
-                wide_delta_end = gap_end_active - phase_pos;
-                current_gap_start_rel = (wide_delta_start >= 40'd64) ?
-                                        7'd64 : wide_delta_start[6:0];
-                current_gap_end_rel = (wide_delta_end >= 40'd64) ?
-                                      7'd64 : wide_delta_end[6:0];
-            end
-        end
+        current_gap_start_rel = current_gap_start_rel_q;
+        current_gap_end_rel = current_gap_end_rel_q;
 
         // Relative gap interval for a possible next phase in this word.
         next_gap_start_rel = 7'd64;
         next_gap_end_rel = 7'd64;
-        if (gap_present_active && (gap_start_active < 40'd64)) begin
-            next_gap_start_rel = gap_start_active[6:0];
-            next_gap_end_rel = (gap_end_active >= 40'd64) ?
-                               7'd64 : gap_end_active[6:0];
+        if (gap_present_active) begin
+            next_gap_start_rel = initial_gap_start_rel_active;
+            next_gap_end_rel = initial_gap_end_rel_active;
         end
 
         current_gap_width = current_gap_end_rel - current_gap_start_rel;
         next_gap_width = next_gap_end_rel - next_gap_start_rel;
-        current_after_gap_vec = pattern_cursor << current_gap_width;
-        next_before_gap_aligned = next_phase_pattern_calc << remaining_rel;
-        next_after_shift = remaining_rel + next_gap_width;
+        current_after_gap_vec = current_pattern_calc << current_gap_width;
+        next_before_gap_aligned = next_phase_pattern_calc << remaining_rel_q;
+        next_after_shift = remaining_rel_q + next_gap_width;
         next_after_gap_aligned = next_phase_pattern_calc << next_after_shift;
 
         txdata_calc = 64'b0;
@@ -204,7 +241,7 @@ module pattern_tx_engine (
         phase_start_calc = word_active_calc && phase_start_pending;
 
         for (lane = 0; lane < 64; lane = lane + 1) begin
-            if (word_active_calc && (lane < remaining_rel)) begin
+            if (word_active_calc && (lane < remaining_rel_q)) begin
                 if ((lane >= current_gap_start_rel) &&
                     (lane < current_gap_end_rel)) begin
                     txdata_calc[lane] = 1'b0;
@@ -212,13 +249,13 @@ module pattern_tx_engine (
                 end else begin
                     valid_mask_calc[lane] = 1'b1;
                     if (lane < current_gap_start_rel)
-                        txdata_calc[lane] = pattern_cursor[lane];
+                        txdata_calc[lane] = current_pattern_calc[lane];
                     else
                         txdata_calc[lane] = current_after_gap_vec[lane];
                 end
             end else if (word_active_calc && has_next_phase_calc &&
-                         (lane >= remaining_rel)) begin
-                next_local_pos = lane - remaining_rel;
+                         (lane >= remaining_rel_q)) begin
+                next_local_pos = lane - remaining_rel_q;
                 if ((next_local_pos >= next_gap_start_rel) &&
                     (next_local_pos < next_gap_end_rel)) begin
                     txdata_calc[lane] = 1'b0;
@@ -233,7 +270,7 @@ module pattern_tx_engine (
             end
         end
 
-        if (word_active_calc && (phase_remaining < 40'd64) &&
+        if (word_active_calc && (phase_relation_q == 2'd0) &&
             has_next_phase_calc)
             phase_start_calc = 1'b1;
 
@@ -241,31 +278,35 @@ module pattern_tx_engine (
         running_next = running;
         done_next = done;
         phase_offset_next = phase_offset;
-        phase_pos_next = phase_pos;
-        phase_pattern_next = phase_pattern;
-        pattern_cursor_next = pattern_cursor;
+        pattern_index_next = pattern_index;
         phase_start_pending_next = phase_start_pending;
-        cursor_update_base = pattern_cursor;
-        cursor_update_count = 7'd0;
+        phase_remaining_next = phase_remaining_state;
+        gap_start_remaining_next = gap_start_remaining_state;
+        gap_end_remaining_next = gap_end_remaining_state;
         current_valid_count = 7'd0;
         next_consumed_count = 7'd0;
         next_valid_count = 7'd0;
 
         if (word_active_calc) begin
             phase_start_pending_next = 1'b0;
-            if (phase_remaining > 40'd64) begin
-                phase_pos_next = phase_pos + 40'd64;
+            if (phase_relation_q == 2'd2) begin
+                phase_remaining_next = phase_remaining_state - 40'd64;
+                gap_start_remaining_next =
+                    (gap_start_remaining_state > 40'd64) ?
+                    (gap_start_remaining_state - 40'd64) : 40'd0;
+                gap_end_remaining_next =
+                    (gap_end_remaining_state > 40'd64) ?
+                    (gap_end_remaining_state - 40'd64) : 40'd0;
                 current_valid_count = 7'd64 - current_gap_width;
-                cursor_update_base = pattern_cursor;
-                cursor_update_count = current_valid_count;
-                pattern_cursor_next = rotate_sequence(
-                    cursor_update_base, cursor_update_count, len_active);
-            end else if (phase_remaining == 40'd64) begin
+                pattern_index_next = advance_pattern_index(
+                    pattern_index, current_valid_count, len_is_63_active);
+            end else if (phase_relation_q == 2'd1) begin
                 if (has_next_phase_calc) begin
                     phase_offset_next = next_phase_offset_calc;
-                    phase_pos_next = 40'd0;
-                    phase_pattern_next = next_phase_pattern_calc;
-                    pattern_cursor_next = next_phase_pattern_calc;
+                    phase_remaining_next = phase_total_active;
+                    gap_start_remaining_next = gap_start_active;
+                    gap_end_remaining_next = gap_end_active;
+                    pattern_index_next = next_phase_offset_calc[6:0];
                     phase_start_pending_next = 1'b1;
                     if (last_phase_calc && loop_active)
                         done_next = 1'b1;
@@ -275,18 +316,25 @@ module pattern_tx_engine (
                 end
             end else begin
                 if (has_next_phase_calc) begin
-                    next_consumed_count = 7'd64 - remaining_rel;
+                    next_consumed_count = 7'd64 - remaining_rel_q;
                     next_valid_count = next_consumed_count -
                         gap_bits_before(next_consumed_count,
                                         next_gap_start_rel,
                                         next_gap_end_rel);
                     phase_offset_next = next_phase_offset_calc;
-                    phase_pos_next = {33'b0, next_consumed_count};
-                    phase_pattern_next = next_phase_pattern_calc;
-                    cursor_update_base = next_phase_pattern_calc;
-                    cursor_update_count = next_valid_count;
-                    pattern_cursor_next = rotate_sequence(
-                        cursor_update_base, cursor_update_count, len_active);
+                    phase_remaining_next = phase_total_active -
+                                           {33'b0, next_consumed_count};
+                    gap_start_remaining_next =
+                        (gap_start_active > {33'b0, next_consumed_count}) ?
+                        (gap_start_active - {33'b0, next_consumed_count}) :
+                        40'd0;
+                    gap_end_remaining_next =
+                        (gap_end_active > {33'b0, next_consumed_count}) ?
+                        (gap_end_active - {33'b0, next_consumed_count}) :
+                        40'd0;
+                    pattern_index_next = advance_pattern_index(
+                        next_phase_offset_calc[6:0],
+                        next_valid_count, len_is_63_active);
                     phase_start_pending_next = 1'b0;
                     if (last_phase_calc && loop_active)
                         done_next = 1'b1;
@@ -295,6 +343,30 @@ module pattern_tx_engine (
                     done_next = 1'b1;
                 end
             end
+        end
+
+        // Prepare the following word descriptor.  Only these descriptor
+        // registers see the wide phase/gap counter arithmetic.
+        if (phase_remaining_next > 40'd64) begin
+            phase_relation_next_q = 2'd2;
+            remaining_rel_next_q = 7'd64;
+        end else if (phase_remaining_next == 40'd64) begin
+            phase_relation_next_q = 2'd1;
+            remaining_rel_next_q = 7'd64;
+        end else begin
+            phase_relation_next_q = 2'd0;
+            remaining_rel_next_q = phase_remaining_next[6:0];
+        end
+
+        current_gap_start_rel_next_q = 7'd64;
+        current_gap_end_rel_next_q = 7'd64;
+        if (gap_present_active && (gap_end_remaining_next != 40'd0)) begin
+            current_gap_start_rel_next_q =
+                (gap_start_remaining_next >= 40'd64) ?
+                7'd64 : gap_start_remaining_next[6:0];
+            current_gap_end_rel_next_q =
+                (gap_end_remaining_next >= 40'd64) ?
+                7'd64 : gap_end_remaining_next[6:0];
         end
     end
 
@@ -312,17 +384,26 @@ module pattern_tx_engine (
             phase_offset <= 8'b0;
             current_state <= ST_IDLE;
             len_active <= 8'd63;
+            len_is_63_active <= 1'b1;
             phase_shift_active <= 1'b0;
             loop_active <= 1'b0;
             phase_total_active <= 40'd63;
             gap_start_active <= 40'd0;
             gap_end_active <= 40'd0;
             gap_present_active <= 1'b0;
-            phase_pattern <= 127'b0;
-            pattern_cursor <= 127'b0;
-            phase_pos <= 40'b0;
+            pattern_base_active <= 127'b0;
+            pattern_index <= 7'b0;
+            phase_remaining_state <= 40'd63;
+            gap_start_remaining_state <= 40'd0;
+            gap_end_remaining_state <= 40'd0;
             running <= 1'b0;
             phase_start_pending <= 1'b0;
+            phase_relation_q <= 2'd0;
+            remaining_rel_q <= 7'd63;
+            current_gap_start_rel_q <= 7'd64;
+            current_gap_end_rel_q <= 7'd64;
+            initial_gap_start_rel_active <= 7'd64;
+            initial_gap_end_rel_active <= 7'd64;
         end else if (start && enable && pattern_valid) begin
             txdata <= 64'b0;
             valid_mask <= 64'b0;
@@ -334,17 +415,36 @@ module pattern_tx_engine (
             phase_offset <= 8'b0;
             current_state <= ST_RUN;
             len_active <= pattern_len;
+            len_is_63_active <= (pattern_len == 8'd63);
             phase_shift_active <= phase_shift_en;
             loop_active <= loop_en;
             phase_total_active <= phase_total_input;
             gap_start_active <= gap_start_input;
             gap_end_active <= gap_end_input;
             gap_present_active <= (gap_len_bits != 0);
-            phase_pattern <= expanded_pattern_input;
-            pattern_cursor <= expanded_pattern_input;
-            phase_pos <= 40'b0;
+            pattern_base_active <= expanded_pattern_input;
+            pattern_index <= 7'b0;
+            phase_remaining_state <= phase_total_input;
+            gap_start_remaining_state <= gap_start_input;
+            gap_end_remaining_state <= gap_end_input;
             running <= 1'b1;
             phase_start_pending <= 1'b1;
+            phase_relation_q <= (phase_total_input > 40'd64) ? 2'd2 :
+                                ((phase_total_input == 40'd64) ? 2'd1 : 2'd0);
+            remaining_rel_q <= (phase_total_input >= 40'd64) ?
+                               7'd64 : phase_total_input[6:0];
+            current_gap_start_rel_q <=
+                ((gap_len_bits != 0) && (gap_start_input < 40'd64)) ?
+                gap_start_input[6:0] : 7'd64;
+            current_gap_end_rel_q <=
+                ((gap_len_bits != 0) && (gap_end_input < 40'd64)) ?
+                gap_end_input[6:0] : 7'd64;
+            initial_gap_start_rel_active <=
+                ((gap_len_bits != 0) && (gap_start_input < 40'd64)) ?
+                gap_start_input[6:0] : 7'd64;
+            initial_gap_end_rel_active <=
+                ((gap_len_bits != 0) && (gap_end_input < 40'd64)) ?
+                gap_end_input[6:0] : 7'd64;
         end else if (!enable) begin
             txdata <= 64'b0;
             valid_mask <= 64'b0;
@@ -364,11 +464,16 @@ module pattern_tx_engine (
             done <= done_next;
             phase_offset <= phase_offset_next;
             current_state <= word_active_calc ? ST_RUN : ST_DONE;
-            phase_pos <= phase_pos_next;
-            phase_pattern <= phase_pattern_next;
-            pattern_cursor <= pattern_cursor_next;
+            pattern_index <= pattern_index_next;
+            phase_remaining_state <= phase_remaining_next;
+            gap_start_remaining_state <= gap_start_remaining_next;
+            gap_end_remaining_state <= gap_end_remaining_next;
             running <= running_next;
             phase_start_pending <= phase_start_pending_next;
+            phase_relation_q <= phase_relation_next_q;
+            remaining_rel_q <= remaining_rel_next_q;
+            current_gap_start_rel_q <= current_gap_start_rel_next_q;
+            current_gap_end_rel_q <= current_gap_end_rel_next_q;
         end else begin
             txdata <= 64'b0;
             valid_mask <= 64'b0;
