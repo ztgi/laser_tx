@@ -182,8 +182,9 @@ reset_run synth_1
 set synth_run [get_runs synth_1]
 # A release-candidate reproducibility build must not consume the prior top-level
 # automatic incremental checkpoint recorded in the project.
-set_property AUTO_INCREMENTAL_CHECKPOINT false $synth_run
-set_property INCREMENTAL_CHECKPOINT {} $synth_run
+set_property AUTO_INCREMENTAL_CHECKPOINT 0 $synth_run
+set_property INCREMENTAL_CHECKPOINT "" $synth_run
+set_property STEPS.SYNTH_DESIGN.ARGS.INCREMENTAL_MODE off $synth_run
 set impl_run [get_runs impl_1]
 set_property strategy Performance_Explore $impl_run
 set_property STEPS.OPT_DESIGN.TCL.PRE \
