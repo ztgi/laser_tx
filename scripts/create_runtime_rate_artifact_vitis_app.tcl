@@ -30,7 +30,13 @@ if {[file exists [file join $workspace $app_name]]} {
 
 app create -name $app_name -platform $platform_name -domain $domain_name \
     -template {Empty Application(C)}
-importsources -name $app_name -path $source_dir
+# Keep the application sources linked to their repository location.  Several
+# production sources intentionally include repository-level generated tables
+# via relative paths; copying only src/ into the workspace breaks that layout.
+importsources -name $app_name -path $source_dir -soft-link
+# The managed linker rule consumes ../src/lscript.ld as a physical file;
+# linked-resource metadata alone is not visible to GNU make.
+importsources -name $app_name -path [file join $source_dir lscript.ld]
 app clean -name $app_name
 app build -name $app_name
 

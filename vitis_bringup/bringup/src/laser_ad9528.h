@@ -98,7 +98,7 @@ typedef struct {
     uint8_t failed_actual;
 } LaserAd9528CandidateStatus;
 
-typedef struct {
+typedef struct LaserAd9528RuntimeState {
     uint32_t chip_id_raw;
     uint32_t pll1_ctrl_raw;
     uint8_t pll2_ctrl_raw;
