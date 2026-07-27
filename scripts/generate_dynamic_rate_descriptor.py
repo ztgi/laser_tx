@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SPEC = {
     "magic": 0x31505452,
-    "version": 1,
+    "version": 2,
     "descriptor_words": 64,
     "max_mmcm_writes": 16,
     "crc_word": 3,
@@ -20,7 +20,7 @@ SPEC = {
         "ACTUAL_RATE_HI": 0x08, "ERROR_PPM": 0x09, "GT_PLL": 0x0A,
         "GT_TXOUT": 0x0B, "VERIFY_EXPECTED": 0x0C,
         "VERIFY_TOLERANCE": 0x0D, "MMCM_COUNT": 0x0E,
-        "RESERVED": 0x0F, "MMCM_BASE": 0x20,
+        "EOM_CONFIG": 0x0F, "MMCM_BASE": 0x20,
         "STATUS_SEQUENCE": 0x60, "STATUS_ERROR": 0x61,
         "STATUS_PREVIOUS_GT": 0x62, "STATUS_FINAL_GT": 0x63,
     },

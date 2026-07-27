@@ -161,6 +161,61 @@ static const RuntimeMmcmRecipe *select_mmcm_recipe(uint64_t line_num,
     return best;
 }
 
+static uint8_t select_eom_subdiv_log2(uint32_t txusrclk2_hz,
+                                      uint8_t mmcm_mult)
+{
+    int log2_k;
+    for (log2_k = 6; log2_k >= 0; --log2_k) {
+        uint32_t k = 1U << (unsigned)log2_k;
+        uint32_t output_divide;
+        uint64_t eom_hz;
+        if (((2U * (uint32_t)mmcm_mult) % k) != 0U) continue;
+        output_divide = (2U * (uint32_t)mmcm_mult) / k;
+        eom_hz = (uint64_t)txusrclk2_hz * k;
+        if (output_divide >= 1U && output_divide <= 128U &&
+            eom_hz <= UINT32_C(200000000)) {
+            return (uint8_t)log2_k;
+        }
+    }
+    return 0U;
+}
+
+/* Vitis 2022.2 xvphy_mmcme2.c / XAPP888 divider encoding. */
+static void mmcm_clkout_divider_encoding(uint32_t divide,
+                                         uint16_t *reg1,
+                                         uint16_t *reg2)
+{
+    uint32_t high;
+    uint32_t low;
+    if (divide == 1U) {
+        *reg1 = 0x1041U;
+        *reg2 = 0x00c0U;
+        return;
+    }
+    high = divide / 2U;
+    low = divide - high;
+    *reg1 = (uint16_t)(0x1000U | (low & 0x3fU) |
+                       ((high & 0x3fU) << 6));
+    *reg2 = (uint16_t)((divide & 1U) ? 0x0080U : 0x0000U);
+}
+
+static void configure_eom_mmcm_output(RuntimeRatePlan *plan)
+{
+    uint32_t k;
+    uint32_t output_divide;
+    uint16_t reg1;
+    uint16_t reg2;
+    plan->eom_subdiv_log2 = select_eom_subdiv_log2(
+        plan->txusrclk2_hz, plan->mmcm_mult);
+    k = 1U << plan->eom_subdiv_log2;
+    output_divide = (2U * (uint32_t)plan->mmcm_mult) / k;
+    mmcm_clkout_divider_encoding(output_divide, &reg1, &reg2);
+    /* The shared 15-write recipe fixes CLKOUT2 at entries 8/9 (0x0c/0x0d). */
+    plan->mmcm_writes[8].value = reg1;
+    plan->mmcm_writes[9].value = reg2;
+    plan->eom_clk_hz = plan->txusrclk2_hz * k;
+    plan->serial_bits_per_eom_tick = (uint8_t)(64U / k);
+}
 static void fill_ad9528_writes(RuntimeRatePlan *plan)
 {
     uint16_t calibration = (uint16_t)(plan->ad9528_m1 * plan->ad9528_n2);
@@ -310,6 +365,7 @@ static int evaluate_candidate(const RuntimeRatePlanRequest *request,
     candidate->plan.txoutclk_hz = (uint32_t)round_fraction(line_num, line_den * 32ULL);
     candidate->plan.txusrclk_hz = candidate->plan.txoutclk_hz;
     candidate->plan.txusrclk2_hz = (uint32_t)round_fraction(line_num, line_den * 64ULL);
+    configure_eom_mmcm_output(&candidate->plan);
     candidate->plan.verify_expected_count = (uint32_t)round_fraction(line_num, line_den * 64000ULL);
     candidate->plan.verify_tolerance = (candidate->plan.verify_expected_count + 99U) / 100U;
     candidate->plan.implementation_path = LASER_RUNTIME_PATH_AD9528_OUT0;

@@ -1,205 +1,169 @@
 `timescale 1ns/1ps
-
 module tb_pattern_tx_engine_timing;
-    logic clk = 1'b0;
-    logic rst = 1'b1;
-    logic start = 1'b0;
-    logic enable = 1'b1;
-    logic pattern_valid = 1'b1;
+    logic clk=0, rst=1, start=0, enable=1, pattern_valid=1;
     logic [126:0] base_pattern;
-    logic [7:0] pattern_len;
-    logic [31:0] repeat_cycles;
-    logic [15:0] insert_after;
-    logic [7:0] gap_len_bits;
-    logic phase_shift_en;
-    logic loop_en;
-    wire [63:0] txdata;
-    wire [63:0] valid_mask;
-    wire phase_active;
-    wire phase_start_pulse;
-    wire sequence_active;
-    wire busy;
-    wire done;
-    wire [7:0] phase_offset;
-    wire [7:0] current_state;
+    logic [7:0] pattern_len, head_delay_bits;
+    logic [4:0] repeat_cycles;
+    logic [119:0] gap_len_bits;
+    logic phase_shift_en, loop_en;
+    logic eom_geometry_armed=0, eom_tx_start_level=0;
+    logic eom_request_valid=0, eom_done_pulse=0;
+    wire engine_start_accept_pulse;
+    wire [63:0] txdata, valid_mask;
+    wire phase_active, phase_start_pulse, sequence_active, busy, done;
+    wire [7:0] phase_offset, current_state;
+    realtime half_period=3.103;
+    integer errors=0, expected_bits=0;
+    reg exp_data[0:399999];
+    reg exp_valid[0:399999];
 
-    realtime half_period = 3.103;
-    integer errors = 0;
+    always #(half_period) clk=~clk;
+    pattern_tx_engine dut(
+      .clk(clk),.rst(rst),.start(start),.enable(enable),.pattern_valid(pattern_valid),
+      .base_pattern(base_pattern),.pattern_len(pattern_len),.repeat_cycles(repeat_cycles),
+      .head_delay_bits(head_delay_bits),.gap_len_bits(gap_len_bits),
+      .phase_shift_en(phase_shift_en),.loop_en(loop_en),
+      .eom_geometry_armed(eom_geometry_armed),
+      .eom_tx_start_level(eom_tx_start_level),
+      .eom_request_valid(eom_request_valid),
+      .eom_done_pulse(eom_done_pulse),
+      .engine_start_accept_pulse(engine_start_accept_pulse),
+      .txdata(txdata),.valid_mask(valid_mask),
+      .phase_active(phase_active),.phase_start_pulse(phase_start_pulse),
+      .sequence_active(sequence_active),.busy(busy),.done(done),
+      .phase_offset(phase_offset),.current_state(current_state));
 
-    always begin
-        #(half_period) clk = ~clk;
-    end
-
-    pattern_tx_engine dut (
-        .clk(clk), .rst(rst), .start(start), .enable(enable),
-        .pattern_valid(pattern_valid), .base_pattern(base_pattern),
-        .pattern_len(pattern_len), .repeat_cycles(repeat_cycles),
-        .insert_after(insert_after), .gap_len_bits(gap_len_bits),
-        .phase_shift_en(phase_shift_en), .loop_en(loop_en),
-        .txdata(txdata), .valid_mask(valid_mask),
-        .phase_active(phase_active), .phase_start_pulse(phase_start_pulse),
-        .sequence_active(sequence_active), .busy(busy), .done(done),
-        .phase_offset(phase_offset), .current_state(current_state)
-    );
-
-    task automatic fail(input string message);
-        begin
-            $display("ERROR @ %0t: %s", $time, message);
-            errors = errors + 1;
-        end
-    endtask
-
-    function automatic logic expected_pattern_bit(
-        input integer phase,
-        input integer data_pos
-    );
-        integer idx;
-        begin
-            idx = data_pos % pattern_len;
-            if (phase_shift_en)
-                idx = (idx + phase) % pattern_len;
-            expected_pattern_bit = base_pattern[idx];
-        end
+    task automatic fail(input string s); begin
+      $display("ERROR @%0t %s",$time,s); errors++;
+    end endtask
+    function automatic [7:0] gap_at(input integer i);
+      gap_at=gap_len_bits[i*8 +: 8];
     endfunction
-
-    task automatic pulse_start;
-        begin
-            @(negedge clk);
-            start = 1'b1;
-            @(negedge clk);
-            start = 1'b0;
+    task automatic append_delay(input integer n); integer i; begin
+      for(i=0;i<n;i++) begin
+        exp_data[expected_bits]=0; exp_valid[expected_bits]=0; expected_bits++;
+      end
+    end endtask
+    task automatic append_pattern(input integer phase); integer i,idx; begin
+      for(i=0;i<pattern_len;i++) begin
+        idx=phase_shift_en?((i+phase)%pattern_len):i;
+        exp_data[expected_bits]=base_pattern[idx];
+        exp_valid[expected_bits]=1;
+        expected_bits++;
+      end
+    end endtask
+    task automatic build_expected; integer p,r,pc; begin
+      expected_bits=0; pc=phase_shift_en?pattern_len:1;
+      for(p=0;p<pc;p++) begin
+        append_delay(head_delay_bits);
+        for(r=0;r<repeat_cycles;r++) begin
+          append_pattern(p);
+          if(r+1<repeat_cycles) append_delay(gap_at(r));
         end
-    endtask
-
-    task automatic run_and_check(input string case_name);
-        integer phase_bits;
-        integer phase_total;
-        integer phase_count;
-        integer total_bits;
-        integer global_pos;
-        integer lane;
-        integer absolute_pos;
-        integer phase;
-        integer local_pos;
-        integer data_pos;
-        integer word_count;
-        integer timeout;
-        logic exp_valid;
-        logic exp_data;
-        begin
-            phase_bits = pattern_len * repeat_cycles;
-            phase_total = phase_bits + gap_len_bits;
-            phase_count = phase_shift_en ? pattern_len : 1;
-            total_bits = phase_total * phase_count;
-            global_pos = 0;
-            word_count = 0;
-
-            pulse_start();
-            timeout = 0;
-            while (!busy && timeout < 10) begin
-                @(posedge clk); #0.1;
-                timeout = timeout + 1;
-            end
-            if (timeout == 10)
-                fail($sformatf("%s failed to enter busy", case_name));
-
-            while (!done && word_count < ((total_bits + 63) / 64 + 4)) begin
-                @(posedge clk); #0.1;
-                if (phase_active) begin
-                    for (lane = 0; lane < 64; lane = lane + 1) begin
-                        absolute_pos = global_pos + lane;
-                        if (absolute_pos < total_bits) begin
-                            phase = absolute_pos / phase_total;
-                            local_pos = absolute_pos % phase_total;
-                            exp_valid = !((local_pos >= (insert_after * pattern_len)) &&
-                                          (local_pos < ((insert_after * pattern_len) + gap_len_bits)));
-                            if (local_pos < (insert_after * pattern_len))
-                                data_pos = local_pos;
-                            else if (local_pos >= ((insert_after * pattern_len) + gap_len_bits))
-                                data_pos = local_pos - gap_len_bits;
-                            else
-                                data_pos = 0;
-                            exp_data = exp_valid ? expected_pattern_bit(phase, data_pos) : 1'b0;
-                        end else begin
-                            exp_valid = 1'b0;
-                            exp_data = 1'b0;
-                        end
-                        if (valid_mask[lane] !== exp_valid)
-                            fail($sformatf("%s mask word=%0d lane=%0d", case_name, word_count, lane));
-                        if (txdata[lane] !== exp_data)
-                            fail($sformatf("%s data word=%0d lane=%0d", case_name, word_count, lane));
-                    end
-                    global_pos = global_pos + 64;
-                    word_count = word_count + 1;
-                end
-            end
-            if (!done)
-                fail($sformatf("%s did not finish", case_name));
-            if (global_pos < total_bits)
-                fail($sformatf("%s ended early at %0d of %0d bits", case_name, global_pos, total_bits));
-            $display("PASS %s words=%0d", case_name, word_count);
+      end
+    end endtask
+    task automatic pulse_start; begin
+      @(negedge clk); start=1; @(negedge clk); start=0;
+    end endtask
+    task automatic arm_and_start(input string name); integer timeout; begin
+      timeout=0;
+      while(!engine_start_accept_pulse && timeout<5000) begin
+        @(posedge clk); #0.05; timeout++;
+      end
+      if(!engine_start_accept_pulse) fail({name," no accept"});
+      @(negedge clk);
+      eom_geometry_armed=1;
+      eom_tx_start_level=1;
+      @(posedge clk); #0.05;
+      @(negedge clk);
+      eom_tx_start_level=0;
+    end endtask
+    task automatic run_case(input string name); integer w,l,pos,words,timeout; begin
+      build_expected(); eom_geometry_armed=0; pulse_start();
+      arm_and_start(name);
+      words=(expected_bits+63)/64;
+      for(w=0;w<words;w++) begin
+        @(posedge clk); #0.05;
+        for(l=0;l<64;l++) begin
+          pos=w*64+l;
+          if(valid_mask[l] !== ((pos<expected_bits)?exp_valid[pos]:1'b0))
+            fail($sformatf("%s mask w=%0d l=%0d",name,w,l));
+          if(txdata[l] !== ((pos<expected_bits)?exp_data[pos]:1'b0))
+            fail($sformatf("%s data w=%0d l=%0d",name,w,l));
         end
+      end
+      timeout=0;
+      while(!done && timeout<8) begin @(posedge clk); #0.05; timeout++; end
+      if(!done) fail({name," no done"});
+      $display("PASS %s bits=%0d words=%0d",name,expected_bits,words);
+      repeat(2) @(posedge clk);
+    end endtask
+    task automatic set_gap(input integer idx,input integer value);
+      gap_len_bits[idx*8 +:8]=value[7:0];
     endtask
+    task automatic run_loop_one_accept_case; integer cycles,accepts; begin
+      pattern_len=63;repeat_cycles=2;head_delay_bits=0;gap_len_bits=0;
+      set_gap(0,1);phase_shift_en=0;loop_en=1;
+      eom_geometry_armed=0; pulse_start(); accepts=0;
+      while(!engine_start_accept_pulse) begin @(posedge clk);#0.05;end
+      accepts++;
+      @(negedge clk);eom_geometry_armed=1;eom_tx_start_level=1;
+      @(posedge clk);#0.05;@(negedge clk);eom_tx_start_level=0;
+      for(cycles=0;cycles<12;cycles++) begin
+        @(posedge clk);#0.05;if(engine_start_accept_pulse)accepts++;
+      end
+      if(accepts!=1||!busy||done)
+        fail($sformatf("loop one-accept semantics accepts=%0d busy=%0b done=%0b",
+                       accepts,busy,done));
+      enable=0;repeat(2)@(posedge clk);#0.05;
+      if(busy||valid_mask!=0)fail("loop disable did not quiesce");
+      enable=1;loop_en=0;eom_geometry_armed=0;repeat(2)@(posedge clk);
+      pulse_start();arm_and_start("new accepted task");
+      $display("PASS loop boundary does not reaccept; new task does");
+      while(!done)@(posedge clk);repeat(2)@(posedge clk);
+    end endtask
 
     initial begin
-        base_pattern = 127'h5A69_36C5_17E2_4B89_2D73_4E1A_6B5C_7D3F;
-        pattern_len = 8'd63;
-        repeat_cycles = 32'd4;
-        insert_after = 16'd2;
-        gap_len_bits = 8'd5;
-        phase_shift_en = 1'b1;
-        loop_en = 1'b0;
-
-        repeat (4) @(posedge clk);
-        rst = 1'b0;
-        run_and_check("63-bit phase/gap/wrap");
-
-        repeat (3) @(posedge clk);
-        pattern_len = 8'd127;
-        repeat_cycles = 32'd2;
-        insert_after = 16'd1;
-        gap_len_bits = 8'd11;
-        phase_shift_en = 1'b0;
-        run_and_check("127-bit direct/gap/wrap");
-
-        // Disable is the existing quiesce semantic: it aborts the active
-        // sequence and returns the engine to IDLE rather than pausing state.
-        pattern_len = 8'd63;
-        repeat_cycles = 32'd8;
-        insert_after = 16'd3;
-        gap_len_bits = 8'd7;
-        phase_shift_en = 1'b1;
-        pulse_start();
-        repeat (4) @(posedge clk);
-        enable = 1'b0;
-        repeat (2) @(posedge clk); #0.1;
-        if (busy || phase_active || valid_mask != 64'b0 || current_state != 8'd0)
-            fail("disable/quiesce did not return engine to IDLE");
-        enable = 1'b1;
-        run_and_check("restart after disable/quiesce");
-
-        // Reset while active must clear all externally visible activity.
-        pulse_start();
-        repeat (3) @(posedge clk);
-        rst = 1'b1;
-        repeat (2) @(posedge clk); #0.1;
-        if (busy || done || phase_active || valid_mask != 64'b0)
-            fail("reset did not clear engine outputs");
-        rst = 1'b0;
-
-        // A runtime user-clock change must not alter word sequence semantics.
-        half_period = 1.5515;
-        pattern_len = 8'd127;
-        repeat_cycles = 32'd1;
-        insert_after = 16'd1;
-        gap_len_bits = 8'd0;
-        phase_shift_en = 1'b0;
-        run_and_check("runtime clock period change");
-
-        if (errors == 0)
-            $display("PATTERN_TX_ENGINE_TIMING_REGRESSION_PASS");
-        else
-            $display("PATTERN_TX_ENGINE_TIMING_REGRESSION_FAIL errors=%0d", errors);
-        $finish;
+      base_pattern=127'h52A55AA5765432100123456789ABCDEF;
+      pattern_len=63; repeat_cycles=1; head_delay_bits=0; gap_len_bits=0;
+      phase_shift_en=0; loop_en=0;
+      repeat(4) @(posedge clk); rst=0;
+      run_case("repeat1_head0");
+      head_delay_bits=64;run_case("repeat1_head64");head_delay_bits=0;
+      repeat_cycles=2; set_gap(0,1); run_case("repeat2_gap1");
+      // Directed descriptor-boundary coverage: a 63-bit pattern with zero
+      // gaps alternates between partial and whole-pattern append cases.
+      pattern_len=63;repeat_cycles=6;head_delay_bits=0;gap_len_bits=0;
+      run_case("append63_zero_gap_boundary_chain");
+      // A one-bit head offset exercises a different append alignment while
+      // retaining back-to-back descriptor consumption.
+      repeat_cycles=6;head_delay_bits=1;gap_len_bits=0;
+      run_case("append63_head1_zero_gap_chain");
+      // 127-bit patterns cover the partial append followed by the remaining
+      // 64/63-bit stream split.
+      pattern_len=127;repeat_cycles=4;head_delay_bits=0;gap_len_bits=0;
+      run_case("append127_zero_gap_boundary_chain");
+      pattern_len=63;
+      repeat_cycles=5; gap_len_bits=0; set_gap(0,0);set_gap(1,2);
+      set_gap(2,63);set_gap(3,65);head_delay_bits=1;
+      run_case("repeat5_mixed_gaps");
+      repeat_cycles=16;gap_len_bits=0;set_gap(0,3);set_gap(1,64);
+      set_gap(2,127);set_gap(3,128);set_gap(4,255);head_delay_bits=255;
+      run_case("repeat16_boundaries");
+      pattern_len=63;repeat_cycles=3;gap_len_bits=0;set_gap(0,0);
+      set_gap(1,1);head_delay_bits=0;phase_shift_en=1;
+      run_case("phase_precompute_repeat_reuse_63");
+      repeat_cycles=2;gap_len_bits=0;set_gap(0,0);head_delay_bits=63;
+      phase_shift_en=1;run_case("direct63_all_phases_same_repeat");
+      pattern_len=127;repeat_cycles=2;head_delay_bits=65;set_gap(0,3);
+      phase_shift_en=1;run_case("direct127_all_phases");
+      phase_shift_en=0;repeat_cycles=1;head_delay_bits=127;gap_len_bits=0;
+      half_period=1.5515;run_case("runtime_clock_change");
+      half_period=3.103;run_loop_one_accept_case();
+      if(errors==0)
+        $display("PATTERN_TX_ENGINE_TIMING_REGRESSION_PASS");
+      else
+        $display("PATTERN_TX_ENGINE_TIMING_REGRESSION_FAIL errors=%0d",errors);
+      $finish;
     end
 endmodule

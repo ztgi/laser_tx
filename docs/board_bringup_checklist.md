@@ -1,90 +1,124 @@
-# Laser TX first-stage board bring-up checklist
+# TX Sequence V2 low-speed board bring-up checklist
 
-本阶段只验证 PS→BRAM/GPIO→PL 数据流和同步信号。不要连接激光器，不配置 AD9528，不做 GTX 动态速率切换。
+> 当前 V2 routed 结果存在公共 EOM CDC 与 setup/hold 违例。本清单只定义
+> 后续通过 timing/CDC 后的上板步骤；在 53 号报告的 blocker 关闭前，不应
+> 下载当前 V2 artifact。
 
-## 1. Build preparation
+## 1. Build gate
 
-- [ ] 执行 `scripts/bd_connect_laser_tx_core.tcl`。
-- [ ] 当前无 GT Wizard 时确认日志出现临时 FCLK0 警告。
-- [ ] 执行 `scripts/bd_add_laser_ila.tcl`。
-- [ ] 打开 `constraints/laser_sync_pins_template.xdc`，根据板卡原理图填写管脚和电压；不确定时保持注释，不连接外部激光硬件。
-- [ ] Validate Design 无错误。
-- [ ] 执行 `scripts/run_build_bitstream.tcl`，确认 synthesis、implementation、bitstream 完成。
-- [ ] 检查 `txusrclk2` 时钟域 timing summary，不接受 unconstrained path。
-- [ ] 用生成的 `laser_tx.xsa` 创建/更新 Vitis platform，构建 `vitis_bringup` 裸机程序。
+- [ ] Module Reference 已 refresh，两个 EOM RTL 均进入 compile order。
+- [ ] `validate_bd_design` 无 error。
+- [ ] HDL wrapper 与 BD 一致。
+- [ ] OOC synthesis 和 top synthesis/implementation 均基于 refresh 后源码。
+- [ ] route fully routed，无 unrouted nets。
+- [ ] DRC error=0。
+- [ ] setup WNS>=0、TNS=0。
+- [ ] hold WHS>=0、THS=0。
+- [ ] EOM request/geometry/clock-safe CDC 无 Critical。
+- [ ] 四个同步输出的板级 output-delay 模型已明确。
+- [ ] 生成同一 build 的 bit/LTX/XSA。
+- [ ] Vitis platform/BSP 使用该 XSA，clean build 配套 ELF。
 
-## 2. Common test procedure
+## 2. V2 common procedure
 
-每次测试都执行：
+每个配置执行：
 
-1. `enable=0`。
-2. 置位再清除 `soft_reset`。
-3. 向指定 `index` 的 BRAM 区域写入全部 8 个 32-bit word。
-4. 立即读回比较 8 个 word，全部一致才继续。
-5. 设置 `config_index`、source select 和 direct length select。
-6. 翻转 `apply_toggle`；不要生成窄脉冲，也不要强制每次写 1。
-7. AXI ILA 确认 Port B 读取 `base+0x00 ... base+0x1c`。
-8. 等待 `cfg_valid=1 && cfg_error=0`；非法测试则等待 `cfg_error=1`。
-9. 合法测试拉高 `enable`。
-10. TX ILA 检查数据、mask、EOM、SOA 和 ACQ。
+1. `DISABLE`；
+2. 必要时 `SOFT_RESET`；
+3. 执行唯一 V2 `WRITE_CONFIG`；
+4. 确认返回 `format=2 words=16`；
+5. `SELECT_CONFIG <index>`，index 必须为 0..127；
+6. `APPLY`；
+7. AXI ILA 检查 16-word loader、CRC 和 active update；
+8. 确认 config valid、无 loader error；
+9. `ENABLE`；
+10. TX/EOM ILA 检查 sequence 与单次 EOM。
 
-## 3. Test A — Direct 63 bit
+旧 8-word、`insert_after` 和公共 gap 命令不得使用。
 
-- [ ] `index=0`，direct source，63-bit length。
-- [ ] seed `0x3f`，order 6，repeat 2，无 gap，phase shift 关闭，loop 关闭。
-- [ ] pattern words：`55555555 2aaaaaaa 00000000 00000000`。
-- [ ] `cfg_valid=1`，`pattern_valid=1`，随后 busy 拉高。
-- [ ] TXDATA 只使用 direct pattern 的 `[62:0]`，不存在第 64/128 bit。
-- [ ] Phase shift 关闭时 phase offset 保持 0，最终 done 拉高。
+## 3. Record / CRC / atomicity
 
-## 4. Test B — Direct 63 bit plus gap
+- [ ] magic=`0x5458`、version=2、commit valid=1。
+- [ ] word13 sequence mirror 与 word0 相同。
+- [ ] word13 metadata 为 words=16、max repeat=16、gap width=8。
+- [ ] reserved fields 全为 0。
+- [ ] word15 CRC 覆盖 word1..14。
+- [ ] 半写 payload 时 active config 不改变。
+- [ ] CRC 错误时 active config 不改变。
+- [ ] commit 期间 header 变化时 active config 不改变。
+- [ ] 正确 record 只原子更新一次。
 
-- [ ] repeat 4，insert after 2，gap 128，phase shift 关闭。
-- [ ] 触发 `valid_mask==0`，至少捕获一个纯 gap word。
-- [ ] 纯 gap word：`txdata=0`、`valid_mask=0`、`eom_out=0`。
-- [ ] 同一个 gap word：`soa_gate_out=1`、`acq_gate_out=1`。
-- [ ] Gap 结束后 pattern 数据继续，不能提前结束 phase。
+## 4. Sequence cases
 
-## 5. Test C — PRBS6
+### A. repeat=1
 
-- [ ] seed `0x3f`，order 6，repeat 4，insert after 2，gap 5。
-- [ ] phase shift 开启、loop 关闭。
-- [ ] phase offset 覆盖 0 到 62，没有 63。
-- [ ] 每个 phase 开头 `acq_trig_out` 仅持续一个 TX user clock。
-- [ ] 部分 gap word 中 `valid_mask` 对应 lane 为 0，`eom_out` 仍等于 mask 的 OR。
+- [ ] 不提供 gap 参数。
+- [ ] 每个 phase 为 HEAD→pattern。
+- [ ] 不访问 gap0。
+- [ ] EOM global index 0 选择第一个 pattern。
 
-## 6. Optional extension — Direct 127 / PRBS7
+### B. repeat=2
 
-- [ ] Direct 127 使用 `{pattern_top[30:0], high, mid, low}`，明确忽略 top bit 31。
-- [ ] PRBS7 使用 order 7 和非零 7-bit seed。
-- [ ] phase offset 覆盖 0 到 126，不出现 127。
+- [ ] 提供 gap0。
+- [ ] 每个 phase 为 HEAD→pattern0→gap0→pattern1。
+- [ ] pattern1 后无 gap。
+- [ ] 两个 repeat 都从当前 phase 初始 offset 开始。
 
-## 7. Test D — Illegal configuration
+### C. mixed gaps
 
-- [ ] 设置 `repeat_cycles=0` 并 apply。
-- [ ] `cfg_error=1`、`cfg_valid=0`、`busy=0`。
-- [ ] `error_code=0x01`。
-- [ ] 没有新的 `acq_trig_out`，TXDATA/valid mask 保持空闲。
-- [ ] 可继续测试 order 5 → error `0x02`，insert_after 大于 repeat → error `0x03`。
+- [ ] repeat=5，提供四个不同 gap。
+- [ ] gap0..gap3 的顺序和持续 bit 数分别正确。
+- [ ] gap 期间 `valid_mask=0`，pattern 恢复后数据相位正确。
 
-## 8. Pass criteria before GT integration
+### D. repeat=16 boundary
 
-- [ ] PS BRAM 写入和读回完全一致。
-- [ ] apply 后 AXI ILA 看到正确的 8-word Port B 读取。
-- [ ] GPIO status 合法/非法状态符合预期。
-- [ ] 四类 pattern 测试的 phase 范围正确。
-- [ ] Gap、EOM、SOA、ACQ 波形关系正确。
-- [ ] 两个 ILA 均工作且无跨时钟采样。
-- [ ] 临时 FCLK0 验证不连接激光器或 GTX 串行输出。
+- [ ] 提供 gap0..gap14。
+- [ ] 未使用的 gap 字段不存在。
+- [ ] 15 个 gap 均逐项匹配，最后 pattern 后无 gap。
 
-## 9. When to connect GT Wizard
+### E. phase
 
-以上检查全部通过后再添加 GT Wizard。届时必须：
+- [ ] Direct/PRBS 63-bit：phase 0..62。
+- [ ] Direct/PRBS 127-bit：phase 0..126。
+- [ ] 每个 phase 都重新执行 HEAD 与全部 repeat/gap。
 
-1. 配置 64-bit TX user interface；宽度不符时修改 Wizard，不能截断 `txdata`。
-2. `txdata[63:0]` 接 Wizard 对应通道 `txdata_in[63:0]`。
-3. TXOUTCLK 经 Wizard/example clock helper 生成两路同源 TX user clock：`TXUSRCLK` 驱动 GT `txusrclk`，`TXUSRCLK2` 驱动 GT `txusrclk2` 与 `laser_tx_core/txusrclk2`。
-4. 删除 FCLK0→`txusrclk2` 和 peripheral_reset→`tx_rst` 的临时连接。
-5. 用 `txusrclk2` 域同步复位，并在 GT TX reset done 前保持 core reset。
-6. `valid_mask` 仍然只接 ILA，不接 GTX。
-7. 重新实现、检查 TX 时钟约束和 timing，再考虑连接外部激光驱动。
+## 5. Global one-shot EOM
+
+- [ ] global index 采用 phase-major、repeat-minor。
+- [ ] index 合法时每个任务最多一脉冲。
+- [ ] lead/trail 以当前 EOM tick 表达。
+- [ ] loop 数据循环时 EOM 不重复。
+- [ ] 新任务才重新 arm。
+- [ ] invalid index/eom disabled 不输出脉冲。
+- [ ] reset/abort/MMCM/GT not-ready 时 EOM 立即为低。
+- [ ] 时钟恢复后不会 stale reopen。
+
+## 6. 低速档核对
+
+| Rate | TXUSRCLK2 | EOM clock | K | tick |
+|---:|---:|---:|---:|---:|
+| 500M | 7.8125 MHz | 125 MHz | 16 | 8 ns |
+| 1000M | 15.625 MHz | 125 MHz | 8 | 8 ns |
+| 2000M | 31.25 MHz | 125 MHz | 4 | 8 ns |
+
+- [ ] 500M：63/127-bit pattern 为 126/254 ns。
+- [ ] 1000M：63/127-bit pattern 为 63/127 ns。
+- [ ] 2000M：63/127-bit pattern 为 31.5/63.5 ns。
+- [ ] HEAD/gap 时间等于配置 serial bits 除以 line rate。
+
+## 7. Pass criteria
+
+- [ ] 三档 rate set 均为 target=current、DONE、error=0。
+- [ ] GT/MMCM lock、TXRESETDONE、gt_ready 正常。
+- [ ] V2 loader/CRC/atomicity 全部通过。
+- [ ] sequence cases A..E 全部通过。
+- [ ] global one-shot EOM 全部通过。
+- [ ] reset/abort/clock-unsafe 安全拉低通过。
+- [ ] 实际 ILA/UART/UDP 证据已归档。
+
+在真实完成上述上板步骤前：
+
+```text
+Hardware test was not run.
+board_verified remains 0.
+```

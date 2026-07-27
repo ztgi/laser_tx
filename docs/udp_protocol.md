@@ -1,193 +1,157 @@
-# UDP 协议与 Phase A dry-run 速率命令说明
+# UDP 协议：TX Sequence V2 与动态速率控制
 
-## 当前状态
+## 1. 当前边界
 
-当前工程已经进入固定 Profile 控制层和 Phase A dry-run rate controller 阶段：
+当前软件保留既有动态 rate planner/executor 命令，并将 TX 配置升级为唯一的 V2 record。V2 不兼容旧 8-word 配置和旧 `WRITE_CONFIG` 参数格式。
 
-```text
-UDP / lwIP 控制层：已具备 PING、READ_STATUS、READ_GT_STATUS、WRITE_CONFIG、SELECT_CONFIG、APPLY、ENABLE、DISABLE、SOFT_RESET 等基础命令；
-Phase A rate controller：仅实现 dry-run，不执行 GTX DRP，不执行 MMCM DRP，不改变 TXOUT_DIV，不改变 TXUSRCLK/TXUSRCLK2；
-真实 500M <-> 1000M 动态速率切换：仍未实现。
-```
-
-因此，本文件中的 `rate set <Mbps>` 只表示 dry-run 请求链路已经打通，不代表硬件真实 line rate 已改变。
-
-## 固定 Profile 控制命令
-
-当前 UDP server 支持以下业务控制命令：
+常用命令：
 
 ```text
 PING
 READ_STATUS
 READ_GT_STATUS
-WRITE_CONFIG
-SELECT_CONFIG
+WRITE_CONFIG ...
+SELECT_CONFIG <index>
 APPLY
 ENABLE
 DISABLE
 SOFT_RESET
 rate status
-rate plan <Mbps>
+rate list
+rate plan <Mbps> [nearest]
 rate set <Mbps>
+ad9528 status|dump|measure status|profile plan|candidate set/status/restore
 ```
 
-其中 `WRITE_CONFIG`、`SELECT_CONFIG`、`APPLY`、`ENABLE` 仍用于控制 `laser_tx_core` 的 BRAM/GPIO 配置和发送启动流程，不改变 GTX line rate。
+动态速率支持状态以 `rate list` 和统一 profile table 为准；本文不再保留早期 500M/1000M dry-run 描述。普通 `rate set` 只允许 exact、verified profile，unsupported/nearest 规划不得静默触发 PL。
 
-## Phase A dry-run rate 命令
+## 2. WRITE_CONFIG V2
 
-### `rate status`
-
-读取 dry-run rate controller 当前状态。
-
-示例：
+语法：
 
 ```text
-rate status
-OK RATE_STATUS mode=dry-run current_static_rate=1000 current_rate=1000 target_rate=none rate_state=IDLE dry_run=1 gt_drp_written=0 mmcm_drp_written=0 error_code=0
+WRITE_CONFIG index seed repeat prbs direct direct127 phase loop head \
+  gap0 ... gap(repeat-2) \
+  eom_enable eom_global_index eom_lead_ticks eom_trail_ticks \
+  pattern_low pattern_mid pattern_high pattern_top
 ```
 
-字段含义：
+参数约束：
+
+| 参数 | 约束 |
+|---|---|
+| index | 0..127 |
+| repeat | 1..16 |
+| prbs | 6 或 7 |
+| direct/direct127/phase/loop/eom_enable | 0 或 1 |
+| head | 0..255 serial bits |
+| gap0..gap14 | 每项 0..255 serial bits；只提供 repeat-1 项 |
+| eom_global_index | 0..2047，且 enable 时必须落入本任务实例范围 |
+| lead/trail | 0..65535 EOM ticks |
+| pattern_top bit31 | 必须为 0 |
+
+成功响应：
 
 ```text
-mode=dry-run            当前仅为 dry-run 模式；
-current_static_rate     当前 bitstream 的静态基线速率；
-current_rate            软件不得在 dry-run 后伪装改变，仍等于静态基线速率；
-target_rate             最近一次 dry-run 目标速率，未请求时为 none；
-rate_state              dry-run FSM 状态；
-dry_run=1               明确标记本阶段不做真实切换；
-gt_drp_written=0        未写 GTX DRP；
-mmcm_drp_written=0      未写 MMCM DRP；
-error_code              dry-run 错误码。
+OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> format=2 words=16
 ```
 
-### `rate plan <Mbps>`
-
-查询目标速率对应的规划参数。当前只支持：
+错误响应包括：
 
 ```text
-500
-1000
-```
-
-示例：
-
-```text
-rate plan 500
-OK RATE_PLAN target_rate=500 TXOUT_DIV=8 TXOUTCLK=15625000Hz TXUSRCLK=15625000Hz TXUSRCLK2=7812500Hz requires_gt_drp=1 requires_mmcm_drp=1 executed=0 dry_run_only=1
-
-rate plan 1000
-OK RATE_PLAN target_rate=1000 TXOUT_DIV=4 TXOUTCLK=31250000Hz TXUSRCLK=31250000Hz TXUSRCLK2=15625000Hz requires_gt_drp=1 requires_mmcm_drp=1 executed=0 dry_run_only=1
-```
-
-非法目标速率示例：
-
-```text
-rate plan 750
-ERROR unsupported_rate target=750
-```
-
-### `rate set <Mbps>`
-
-Phase A 中 `rate set` 只执行 dry-run：
-
-```text
-1. 解析目标速率；
-2. 检查目标速率是否在 500M/1000M 参数表中；
-3. 检查发送侧是否可 quiesce；
-4. 检查当前静态 GT ready/status；
-5. 触发 AXI/FCLK 域 dry-run request toggle；
-6. 不写 GTX DRP；
-7. 不写 MMCM DRP；
-8. 不改变真实 line rate。
+ERR WRITE_CONFIG_ARGS
+ERR WRITE_CONFIG_RANGE
+ERR WRITE_CONFIG_GAP index=<n>
+ERR WRITE_CONFIG_SEMANTICS
+ERR WRITE_CONFIG_VERIFY
 ```
 
 示例：
 
 ```text
-rate set 500
-OK RATE_SET_DRY_RUN target=500 actual_rate_unchanged=1 current_rate=1000 gt_drp_written=0 mmcm_drp_written=0
+# repeat=1，无 gap 参数
+WRITE_CONFIG 0 0x3f 1 6 1 0 0 0 0 1 0 0 0 0x55555555 0x2aaaaaaa 0 0
 
-rate set 1000
-OK RATE_SET_DRY_RUN target=1000 actual_rate_unchanged=1 current_rate=1000 gt_drp_written=0 mmcm_drp_written=0
+# repeat=4，依次提供 gap0=5、gap1=13、gap2=21
+WRITE_CONFIG 1 0x3f 4 6 1 0 1 0 8 5 13 21 1 7 2 3 0x55555555 0x2aaaaaaa 0 0
 ```
 
-非法目标速率示例：
+## 3. SELECT_CONFIG / APPLY / ENABLE
 
 ```text
-rate set 750
-ERROR unsupported_rate target=750
+SELECT_CONFIG <index>
+APPLY
+ENABLE
 ```
 
-注意：`current_rate` 示例中的 `1000` 表示当前 ELF 编译时的静态基线速率。若用于 500M Profile0 bitstream，应以编译宏或工程配置将 `LASER_STATIC_RATE_MBPS` 设为 `500`，避免串口/UDP 状态误报。
+- `SELECT_CONFIG` 只接受 0..127，不再接收 source/length 等额外参数；
+- source、length、phase、loop 等均在 V2 record 内；
+- `APPLY` 翻转既有 toggle，PL 加载并验证整条 record；
+- `ENABLE` 只在配置成功后启动任务。
 
-## 500M / 1000M 参数摘要
-
-| 参数 | 500M static | 1000M static |
-| --- | ---: | ---: |
-| TX line rate | 500 Mb/s | 1000 Mb/s |
-| TXDATA width | 64 bit | 64 bit |
-| encoding | None | None |
-| internal datawidth | 32 | 32 |
-| TXOUT_DIV | 8 | 4 |
-| TXOUTCLK | 15.625 MHz | 31.25 MHz |
-| TXUSRCLK | 15.625 MHz | 31.25 MHz |
-| TXUSRCLK2 | 7.8125 MHz | 15.625 MHz |
-| requires_gt_drp | 1 | 1 |
-| requires_mmcm_drp | 1 | 1 |
-| Phase A executed | 0 | 0 |
-
-## 明确禁止误解
-
-不能把 Phase A dry-run 写成：
+推荐顺序：
 
 ```text
-真实 rate set 500/1000 已完成；
-GTX DRP 已完成；
-MMCM DRP 已完成；
-TXOUT_DIV 已在运行时改变；
-TXUSRCLK/TXUSRCLK2 已在运行时改变；
-外部光口动态切换已经验证通过。
+DISABLE
+WRITE_CONFIG ...
+SELECT_CONFIG <index>
+APPLY
+READ_STATUS
+ENABLE
+READ_STATUS
 ```
 
-可以写成：
+## 4. 原子性与 CRC
+
+PS 按 invalid header → payload/CRC → readback → DMB → valid header 的顺序发布。PL 只有在 header 稳定、format/metadata/reserved 合法且 CRC32(words1..14) 匹配后才更新 active config。任一校验失败都不得覆盖 last-good config。
+
+## 5. phase/repeat/gap/global EOM
+
+每个 phase 结构：
 
 ```text
-Phase A dry-run rate controller 已实现；
-500M/1000M 参数表与 UDP rate status/plan/set dry-run 命令已接入；
-rate set 500/1000 仅触发 dry-run 状态机，不改变真实速率；
-GTX/MMCM DRP 和真实动态切换仍属于后续阶段。
+HEAD → pattern0 → gap0 → pattern1 → ... → gapN-2 → patternN-1
 ```
 
-## AD9528 OUT0 软件频率回读
+每个 repeat 从 phase 初始 offset 重新开始。global EOM index 按 phase-major、repeat-minor 编号。每个被接受任务最多产生一个 EOM；loop 不重新 arm。
 
-> 本文前部保留早期 Phase A dry-run 描述用于追溯；当前 rate planner/profile 状态以最新 integration report 和实际 `rate list/status` 为准。本节命令不修改普通 rate 命令。
+详细 record 与时序语义见：
 
-新增纯只读命令：
+- `bram_config_map.md`
+- `tx_phase_repeat_gap_global_eom.md`
+
+## 6. rate 命令安全规则
+
+- `rate list` 来自统一 verified profile table；
+- `rate plan <Mbps>` 返回 EXACT/UNSUPPORTED；
+- 显式 `nearest` 只给建议，不写 GPIO；
+- `rate set <Mbps>` 只接受 exact verified profile；
+- unsupported 请求不翻转 request toggle；
+- DONE 成功还必须匹配 requested/current rate id；
+- current rate 只在 VERIFY_RATE 成功后更新。
+
+3000M 继续保持 blocked/unsupported，普通 `rate set 3000` 不得映射到 3125M。
+
+## 7. AD9528 OUT0 只读测量
 
 ```text
 ad9528 measure status
 ```
 
-有效 snapshot 示例格式：
+有效 snapshot：
 
 ```text
-OK AD9528_MEASURE state=VALID_IN_RANGE valid=1 in_range=1 alive=1 sequence=<n> odiv2_count=61437 measured_odiv2_hz=61437000 measured_out0_hz=122874000 window_us=1000
+OK AD9528_MEASURE state=VALID_IN_RANGE valid=1 in_range=1 alive=1 \
+sequence=<n> odiv2_count=<n> measured_odiv2_hz=<n> \
+measured_out0_hz=<n> window_us=1000
 ```
 
-无有效完整窗口时不返回旧缓存值：
+无有效窗口时不得返回旧缓存频率。candidate status 的 `board_verified` 不因 FPGA 内部计数自动置 1；外部仪器和最终系统验证仍是独立边界。
+
+## 8. 兼容性提示
 
 ```text
-OK AD9528_MEASURE state=NOT_VALID valid=0 in_range=<0|1> alive=<0|1> sequence=<n> odiv2_count=UNKNOWN measured_odiv2_hz=UNKNOWN measured_out0_hz=UNKNOWN window_us=1000
+Functional behavior changed intentionally
 ```
 
-读取采用 `status_before -> count -> status_after`，sequence 跨窗口变化时最多重试 4 次。format/version 不匹配或读取无法收敛时返回 `ERROR AD9528_MEASURE`。
-
-以下 candidate 命令的原有字段和 apply/restore 语义保持不变，并追加 measurement 字段：
-
-```text
-ad9528 candidate set vcxo_122p88
-ad9528 candidate status
-ad9528 candidate restore
-```
-
-candidate set/restore 成功后，软件等待新的 measurement sequence，避免把切换前 snapshot 当成当前频率。`in_range=0` 只表示该完整窗口不在 60000～62900 的 ODIV2 count 候选范围，不等同于 AD9528 SPI/apply 失败。本接口不修改 AD9528、GT 或 supported rate list，且不会自动把 candidate 标记为 `board_verified`。
+旧 ELF、旧 bitstream、旧 8-word BRAM 内容和旧 UDP `WRITE_CONFIG` 命令不兼容。必须配套使用同一 V2 版本的 software 与 bitstream。

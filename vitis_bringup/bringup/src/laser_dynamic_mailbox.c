@@ -56,6 +56,7 @@ static int build_descriptor(const RuntimeRatePlan *plan, uint32_t sequence,
     words[LASER_DYN_WORD_VERIFY_EXPECTED] = plan->verify_expected_count;
     words[LASER_DYN_WORD_VERIFY_TOLERANCE] = plan->verify_tolerance;
     words[LASER_DYN_WORD_MMCM_COUNT] = plan->mmcm_write_count;
+    words[LASER_DYN_WORD_EOM_CONFIG] = plan->eom_subdiv_log2 & 0x7U;
     for (i = 0U; i < plan->mmcm_write_count; ++i) {
         words[LASER_DYN_WORD_MMCM_BASE + i * 2U] =
             plan->mmcm_writes[i].address;

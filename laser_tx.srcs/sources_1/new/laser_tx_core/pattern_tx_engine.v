@@ -1,566 +1,778 @@
 `timescale 1ns/1ps
 
-// 64-bit-per-clock phase scheduler and gap inserter.
-//
-// The implementation works at word granularity.  A phase is at least 63 bits,
-// therefore one 64-bit word can cross at most one phase boundary.  Gap bounds
-// are reduced to 0..64 once per word and every output lane is then selected in
-// parallel.  This avoids the former 64-step state dependency chain.
-module pattern_tx_engine (
-    input  wire         clk,
-    input  wire         rst,
-    input  wire         start,
-    input  wire         enable,
-    input  wire         pattern_valid,
-    input  wire [126:0] base_pattern,
-    input  wire [7:0]   pattern_len,
-    input  wire [31:0]  repeat_cycles,
-    input  wire [15:0]  insert_after,
-    input  wire [7:0]   gap_len_bits,
-    input  wire         phase_shift_en,
-    input  wire         loop_en,
-    output reg  [63:0]  txdata,
-    output reg  [63:0]  valid_mask,
-    output reg          phase_active,
-    output reg          phase_start_pulse,
-    output reg          sequence_active,
-    output reg          busy,
-    output reg          done,
-    output reg  [7:0]   phase_offset,
-    output reg  [7:0]   current_state
+// TX sequence V2 scheduler. Delay bits always drive data and valid low. Each
+// repeated pattern restarts from the active phase's precomputed pattern image.
+module pattern_tx_engine #(parameter integer MAX_REPEAT_CYCLES = 16) (
+    input wire clk, input wire rst, input wire start, input wire enable,
+    input wire pattern_valid, input wire [126:0] base_pattern,
+    input wire [7:0] pattern_len, input wire [4:0] repeat_cycles,
+    input wire [7:0] head_delay_bits, input wire [119:0] gap_len_bits,
+    input wire phase_shift_en, input wire loop_en,
+    input wire eom_geometry_armed, input wire eom_tx_start_level,
+    input wire eom_request_valid,
+    input wire eom_done_pulse,
+    output reg engine_start_accept_pulse,
+    output reg [63:0] txdata, output reg [63:0] valid_mask,
+    output reg phase_active, output reg phase_start_pulse,
+    output reg sequence_active, output reg busy, output reg done,
+    output reg [7:0] phase_offset, output reg [7:0] current_state
 );
-    localparam ST_IDLE = 8'd0;
-    localparam ST_RUN  = 8'd1;
-    localparam ST_DONE = 8'd2;
+    localparam [7:0] ST_IDLE=0, ST_PRECOMPUTE=1, ST_ARM=2, ST_HEAD=3,
+                     ST_PATTERN=4, ST_GAP=5, ST_WAIT_EOM=6,
+                     ST_DONE=7, ST_ERROR=8'h80;
+    localparam SEG_DELAY=1'b0, SEG_PATTERN=1'b1;
 
-    // Active configuration is captured at start and remains local to this
-    // clock domain for the complete sequence.
-    reg         pattern_mode_63_active;
-    reg         phase_shift_active;
-    reg         loop_active;
-    reg [39:0]  phase_total_active;
-    reg [39:0]  gap_start_active;
-    reg [39:0]  gap_end_active;
-    reg         gap_present_active;
+    // A descriptor names the segment following the current pattern. The
+    // pattern field is already phase-rotated and the delay field is the exact
+    // delay before that segment, so neither the full gap array nor phase/repeat
+    // scheduling enters the 64-lane output mux.
+    localparam integer DESC_PATTERN_LSB = 0;
+    localparam integer DESC_GAP_PHASE   = 127;
+    localparam integer DESC_DELAY_LSB   = 128;
+    localparam integer DESC_PHASE_LSB   = 137;
+    localparam integer DESC_REPEAT_LSB  = 145;
+    localparam integer DESC_VALID       = 149;
+    localparam integer DESC_WIDTH       = 150;
+    localparam integer WORD_PLAN_WIDTH  = 128;
+    localparam integer APPEND_DATA_LSB  = 0;
+    localparam integer APPEND_MASK_LSB  = 64;
+    localparam integer APPEND_COUNT_LSB = 128;
+    localparam integer APPEND_PHASE_START = 136;
+    localparam integer APPEND_PLAN_WIDTH = 137;
 
-    // The periodic pattern itself is held constant for a sequence.  A small
-    // logical index identifies the next valid pattern bit.  The previous
-    // implementation fed a 127-bit variable rotation back into itself every
-    // cycle; that made phase_pos -> pattern_cursor a 27-level single-cycle
-    // path.  Keeping only the index in the feedback path preserves the bit
-    // sequence while reducing the state update to bounded 7-bit arithmetic.
-    reg [126:0] pattern_base_active;
-    reg [6:0]   pattern_index;
-    reg [39:0]  phase_remaining_state;
-    reg [39:0]  gap_start_remaining_state;
-    reg [39:0]  gap_end_remaining_state;
-    reg         running;
-    reg         phase_start_pending;
+    reg segment_state, running;
+    reg pattern_mode_63_active, phase_shift_active, loop_active;
+    reg [4:0] repeat_count_active;
+    reg [7:0] head_delay_active;
+    reg [119:0] gap_len_active;
+    reg [126:0] phase_zero_pattern_state;
+    reg [126:0] pattern_stream_state;
+    reg [DESC_WIDTH-1:0] next_descriptor_state;
+    reg [DESC_WIDTH-1:0] after_descriptor_state;
+    reg [DESC_WIDTH-1:0] third_descriptor_state;
+    // Registered output plans isolate the 64-lane TX packer from the wide
+    // descriptor and its phase/repeat/gap scheduling logic.
+    reg [63:0] pattern_word_data_state;
+    reg [63:0] pattern_word_mask_state;
+    reg [63:0] append_word_data_state;
+    reg [63:0] append_word_mask_state;
+    reg [7:0] append_word_count_state;
+    reg append_phase_start_state;
+    reg [3:0] repeat_index_state;
+    reg [7:0] phase_index_state;
+    // Retained as a local debug/state cursor, but it no longer drives the
+    // 64-lane output data selection.
+    reg [6:0] pattern_index_state;
+    reg [7:0] pattern_remaining_state;
+    reg [8:0] delay_remaining_state;
+    reg delay_has_pattern_state, delay_phase_active_state;
+    reg pattern_start_pending;
 
-    // Registered word geometry splits the wide phase/gap arithmetic from the
-    // pattern-index feedback and TX-data selection.  The descriptor always
-    // describes the word emitted in the current cycle; wide counters prepare
-    // only the following descriptor.
-    reg [1:0]   phase_relation_q; // 0: <64, 1: ==64, 2: >64
-    reg [6:0]   remaining_rel_q;
-    reg [6:0]   current_gap_start_rel_q;
-    reg [6:0]   current_gap_end_rel_q;
-    reg [6:0]   initial_gap_start_rel_active;
-    reg [6:0]   initial_gap_end_rel_active;
+    reg waiting_geometry, waiting_eom;
+    reg eom_request_active, eom_complete_seen;
 
-    wire [39:0] repeat_wide = {8'b0, repeat_cycles};
-    wire [39:0] insert_wide = {24'b0, insert_after};
-    wire [39:0] pattern_bits_input =
-        (pattern_len == 8'd63) ? ((repeat_wide << 6) - repeat_wide) :
-                                 ((repeat_wide << 7) - repeat_wide);
-    wire [39:0] gap_start_input =
-        (pattern_len == 8'd63) ? ((insert_wide << 6) - insert_wide) :
-                                 ((insert_wide << 7) - insert_wide);
-    wire [39:0] gap_end_input = gap_start_input + {32'b0, gap_len_bits};
-    wire [39:0] phase_total_input = pattern_bits_input + {32'b0, gap_len_bits};
-    wire [126:0] expanded_pattern_input =
-        (pattern_len == 8'd63) ?
-        {base_pattern[0], base_pattern[62:0], base_pattern[62:0]} :
-        base_pattern;
-
-    // Dedicated 63-bit rotate network.  Only the 63-bit pattern and the
-    // bounded 6-bit index enter this cone; no runtime length or mode test is
-    // replicated through the output-word variable select.
-    function [126:0] rotate_sequence_63;
-        input [62:0] sequence_in;
-        input [5:0]  count;
-        reg [125:0] doubled;
-        reg [125:0] shifted;
-        reg [62:0]  rotated;
+    function [7:0] gap_value;
+        input [119:0] gaps;
+        input [3:0] index;
         begin
-            doubled = {sequence_in, sequence_in};
-            shifted = doubled >> count;
-            rotated = shifted[62:0];
-            rotate_sequence_63 = {rotated[0], rotated, rotated};
+            case(index)
+                0: gap_value=gaps[7:0];       1: gap_value=gaps[15:8];
+                2: gap_value=gaps[23:16];     3: gap_value=gaps[31:24];
+                4: gap_value=gaps[39:32];     5: gap_value=gaps[47:40];
+                6: gap_value=gaps[55:48];     7: gap_value=gaps[63:56];
+                8: gap_value=gaps[71:64];     9: gap_value=gaps[79:72];
+                10: gap_value=gaps[87:80];    11: gap_value=gaps[95:88];
+                12: gap_value=gaps[103:96];   13: gap_value=gaps[111:104];
+                14: gap_value=gaps[119:112];  default: gap_value=0;
+            endcase
         end
     endfunction
 
-    // Dedicated 127-bit rotate network.  The modulus is fixed by structure;
-    // the full seven-bit index is the only variable-select control.
-    function [126:0] rotate_sequence_127;
-        input [126:0] sequence_in;
-        input [6:0]   count;
-        reg [253:0] doubled;
-        reg [253:0] shifted;
+    function [126:0] normalize_phase_zero;
+        input [126:0] value;
+        input is_63;
         begin
-            doubled = {sequence_in, sequence_in};
-            shifted = doubled >> count;
-            rotate_sequence_127 = shifted[126:0];
+            normalize_phase_zero = is_63 ?
+                {value[0], value[62:0], value[62:0]} : value;
         end
     endfunction
 
-    // Advance a periodic pattern index by at most one 64-bit word.  The sum
-    // can cross the 63-bit modulus twice, but can cross the 127-bit modulus
-    // only once.  No divider or general modulo operator is inferred.
-    function [6:0] advance_pattern_index;
+    // Advancing one phase is a fixed one-bit permutation. It replaces the
+    // variable 63/127-bit rotate formerly driven by phase_index_state.
+    function [126:0] rotate_phase_once;
+        input [126:0] value;
+        input is_63;
+        reg [62:0] rotated63;
+        begin
+            if (is_63) begin
+                rotated63 = {value[0], value[62:1]};
+                rotate_phase_once =
+                    {rotated63[0], rotated63, rotated63};
+            end else begin
+                rotate_phase_once = {value[0], value[126:1]};
+            end
+        end
+    endfunction
+
+    function [6:0] advance_index;
         input [6:0] index_in;
         input [6:0] count;
-        input       sequence_is_63;
-        reg [8:0] sum_ext;
-        reg [8:0] sub63_ext;
-        reg [8:0] sub126_ext;
-        reg [8:0] sub127_ext;
-        reg       ge63;
-        reg       ge126;
-        reg       ge127;
+        input is_63;
+        reg [8:0] sum, sub63, sub126, sub127;
         begin
-            // All modulo candidates are formed in parallel.  The MSB of an
-            // extended unsigned subtraction is the borrow indication for
-            // the valid 0..190 sum range, so no separate wide comparators or
-            // serial compare-then-subtract chains are required.
-            sum_ext    = {2'b00, index_in} + {2'b00, count};
-            sub63_ext  = sum_ext - 9'd63;
-            sub126_ext = sum_ext - 9'd126;
-            sub127_ext = sum_ext - 9'd127;
-            ge63       = ~sub63_ext[8];
-            ge126      = ~sub126_ext[8];
-            ge127      = ~sub127_ext[8];
-
-            if (sequence_is_63) begin
-                case ({ge126, ge63})
-                    2'b11:  advance_pattern_index = sub126_ext[6:0];
-                    2'b01:  advance_pattern_index = sub63_ext[6:0];
-                    default: advance_pattern_index = sum_ext[6:0];
-                endcase
+            sum={2'b0,index_in}+{2'b0,count};
+            sub63=sum-63; sub126=sum-126; sub127=sum-127;
+            if(is_63) begin
+                if(!sub126[8]) advance_index=sub126[6:0];
+                else if(!sub63[8]) advance_index=sub63[6:0];
+                else advance_index=sum[6:0];
             end else begin
-                advance_pattern_index = ge127 ? sub127_ext[6:0]
-                                              : sum_ext[6:0];
+                advance_index=!sub127[8]?sub127[6:0]:sum[6:0];
             end
         end
     endfunction
 
-    // Number of gap bits before position within a 0..64 word window.
-    function [6:0] gap_bits_before;
-        input [6:0] position;
-        input [6:0] gap_start_rel;
-        input [6:0] gap_end_rel;
+    function [DESC_WIDTH-1:0] make_next_descriptor;
+        input [3:0] current_repeat;
+        input [7:0] current_phase;
+        input [126:0] current_phase_pattern;
+        input [4:0] repeat_count;
+        input phase_shift;
+        input loop_mode;
+        input mode_63;
+        input [7:0] head_delay;
+        input [119:0] gaps;
+        input [126:0] phase_zero_pattern;
+        reg [DESC_WIDTH-1:0] descriptor;
+        reg [3:0] next_repeat;
+        reg [7:0] next_phase;
+        reg [8:0] next_delay;
+        reg next_gap_phase;
+        reg [126:0] next_pattern;
         begin
-            if (position <= gap_start_rel)
-                gap_bits_before = 7'd0;
-            else if (position >= gap_end_rel)
-                gap_bits_before = gap_end_rel - gap_start_rel;
-            else
-                gap_bits_before = position - gap_start_rel;
+            descriptor=0;
+            next_repeat=0;
+            next_phase=current_phase;
+            next_delay=0;
+            next_gap_phase=0;
+            next_pattern=current_phase_pattern;
+            if ({1'b0,current_repeat}+1 < repeat_count) begin
+                descriptor[DESC_VALID]=1'b1;
+                next_repeat=current_repeat+1'b1;
+                next_delay={1'b0,gap_value(gaps,current_repeat)};
+                next_gap_phase=1'b1;
+            end else if (phase_shift &&
+                         ((mode_63 && current_phase<8'd62) ||
+                          (!mode_63 && current_phase<8'd126))) begin
+                descriptor[DESC_VALID]=1'b1;
+                next_repeat=0;
+                next_phase=current_phase+1'b1;
+                next_delay={1'b0,head_delay};
+                next_pattern=rotate_phase_once(current_phase_pattern,mode_63);
+            end else if (loop_mode) begin
+                descriptor[DESC_VALID]=1'b1;
+                next_repeat=0;
+                next_phase=0;
+                next_delay={1'b0,head_delay};
+                next_pattern=phase_zero_pattern;
+            end
+            descriptor[DESC_PATTERN_LSB +: 127]=next_pattern;
+            descriptor[DESC_GAP_PHASE]=next_gap_phase;
+            descriptor[DESC_DELAY_LSB +: 9]=next_delay;
+            descriptor[DESC_PHASE_LSB +: 8]=next_phase;
+            descriptor[DESC_REPEAT_LSB +: 4]=next_repeat;
+            make_next_descriptor=descriptor;
         end
     endfunction
 
-    integer lane;
-    integer next_local_pos;
-    reg [39:0] phase_remaining_next;
-    reg [39:0] gap_start_remaining_next;
-    reg [39:0] gap_end_remaining_next;
-    reg [6:0]  current_gap_start_rel;
-    reg [6:0]  current_gap_end_rel;
-    reg [6:0]  next_gap_start_rel;
-    reg [6:0]  next_gap_end_rel;
-    reg [6:0]  current_gap_width;
-    reg [6:0]  next_gap_width;
-    reg [6:0]  current_valid_count;
-    reg [6:0]  next_consumed_count;
-    reg [6:0]  next_valid_count;
-    reg [7:0]  next_phase_offset_calc;
-    reg [7:0]  next_phase_offset_63_comb;
-    reg [7:0]  next_phase_offset_127_comb;
-    reg         last_phase_calc;
-    reg         last_phase_63_comb;
-    reg         last_phase_127_comb;
-    reg         has_next_phase_calc;
-    reg         has_next_phase_63_comb;
-    reg         has_next_phase_127_comb;
-    reg [126:0] current_pattern_63_comb;
-    reg [126:0] current_pattern_127_comb;
-    reg [126:0] next_phase_pattern_63_comb;
-    reg [126:0] next_phase_pattern_127_comb;
-    reg [126:0] current_after_gap_63_comb;
-    reg [126:0] current_after_gap_127_comb;
-    reg [126:0] next_before_gap_63_comb;
-    reg [126:0] next_before_gap_127_comb;
-    reg [126:0] next_after_gap_63_comb;
-    reg [126:0] next_after_gap_127_comb;
-    reg [7:0]   next_after_shift;
+    function [WORD_PLAN_WIDTH-1:0] make_pattern_word_plan;
+        input [126:0] pattern_stream;
+        input [7:0] pattern_remaining;
+        integer word_lane;
+        begin
+            make_pattern_word_plan=0;
+            for (word_lane=0;word_lane<64;word_lane=word_lane+1) begin
+                if (word_lane<pattern_remaining) begin
+                    make_pattern_word_plan[word_lane]=
+                        pattern_stream[word_lane];
+                    make_pattern_word_plan[64+word_lane]=1'b1;
+                end
+            end
+        end
+    endfunction
 
-    reg [63:0]  word_63_comb;
-    reg [63:0]  word_127_comb;
-    reg [63:0]  valid_63_comb;
-    reg [63:0]  valid_127_comb;
-    reg [63:0]  txdata_calc;
-    reg [63:0]  valid_mask_calc;
-    reg         phase_start_63_comb;
-    reg         phase_start_127_comb;
-    reg         phase_start_calc;
-    reg         word_active_calc;
+    // Prepare the portion of the following pattern that can share the current
+    // 64-bit TX word. This work is registered with the segment state, so the
+    // active output cycle does not contain descriptor decode plus a 64-lane
+    // variable select.
+    function [APPEND_PLAN_WIDTH-1:0] make_append_word_plan;
+        input [7:0] current_pattern_remaining;
+        input [DESC_WIDTH-1:0] following_descriptor;
+        integer current_count;
+        integer room_count;
+        integer append_start;
+        integer append_count;
+        reg [126:0] following_pattern;
+        reg [8:0] following_delay;
+        reg [3:0] following_repeat;
+        reg [63:0] shifted_append_data;
+        reg [63:0] shifted_append_mask;
+        begin
+            make_append_word_plan=0;
+            current_count=current_pattern_remaining>=64?
+                          64:current_pattern_remaining;
+            room_count=64-current_count;
+            following_pattern=
+                following_descriptor[DESC_PATTERN_LSB +: 127];
+            following_delay=
+                following_descriptor[DESC_DELAY_LSB +: 9];
+            following_repeat=
+                following_descriptor[DESC_REPEAT_LSB +: 4];
+            if (following_descriptor[DESC_VALID] &&
+                current_count!=0 &&
+                following_delay<room_count) begin
+                append_start=current_count+following_delay;
+                append_count=room_count-following_delay;
+                // A real append always follows at least one bit from the
+                // current pattern, hence room_count is at most 63. Both
+                // supported pattern lengths (63/127) therefore contain every
+                // bit that can be appended. Build the aligned word with one
+                // barrel shift instead of 64 replicated lane compares and
+                // variable bit selects.
+                shifted_append_data=
+                    following_pattern[63:0] << append_start;
+                shifted_append_mask=
+                    64'hFFFF_FFFF_FFFF_FFFF << append_start;
+                make_append_word_plan[
+                    APPEND_DATA_LSB +: 64]=shifted_append_data;
+                make_append_word_plan[
+                    APPEND_MASK_LSB +: 64]=shifted_append_mask;
+                make_append_word_plan[
+                    APPEND_COUNT_LSB +: 8]=append_count[7:0];
+                make_append_word_plan[APPEND_PHASE_START]=
+                    (following_repeat==0)&&(append_count!=0);
+            end
+        end
+    endfunction
 
-    reg         running_next;
-    reg         done_next;
-    reg [7:0]   phase_offset_next;
-    reg [6:0]   pattern_index_next;
-    reg         phase_start_pending_next;
+    wire next_valid_state=next_descriptor_state[DESC_VALID];
+    wire [3:0] next_repeat_state=
+        next_descriptor_state[DESC_REPEAT_LSB +: 4];
+    wire [7:0] next_phase_state=
+        next_descriptor_state[DESC_PHASE_LSB +: 8];
+    wire [8:0] next_delay_state=
+        next_descriptor_state[DESC_DELAY_LSB +: 9];
+    wire next_gap_phase_state=next_descriptor_state[DESC_GAP_PHASE];
+    wire [126:0] next_pattern_state=
+        next_descriptor_state[DESC_PATTERN_LSB +: 127];
 
-    reg [1:0]   phase_relation_next_q;
-    reg [6:0]   remaining_rel_next_q;
-    reg [6:0]   current_gap_start_rel_next_q;
-    reg [6:0]   current_gap_end_rel_next_q;
+    // The descriptor look-ahead queue is registered. In particular, the
+    // descriptor following "next" is not rebuilt in the same cycle that an
+    // append data/mask plan is generated.
+    wire [DESC_WIDTH-1:0] after_descriptor_calc =
+        after_descriptor_state;
+    wire after_valid_calc=after_descriptor_calc[DESC_VALID];
+    wire [3:0] after_repeat_calc=
+        after_descriptor_calc[DESC_REPEAT_LSB +: 4];
+    wire [7:0] after_phase_calc=
+        after_descriptor_calc[DESC_PHASE_LSB +: 8];
+    wire [8:0] after_delay_calc=
+        after_descriptor_calc[DESC_DELAY_LSB +: 9];
+    wire after_gap_phase_calc=after_descriptor_calc[DESC_GAP_PHASE];
+    wire [126:0] after_pattern_calc=
+        after_descriptor_calc[DESC_PATTERN_LSB +: 127];
 
+    wire [DESC_WIDTH-1:0] third_descriptor_calc =
+        third_descriptor_state;
+    wire third_valid_calc=third_descriptor_calc[DESC_VALID];
+    wire [3:0] third_repeat_calc=
+        third_descriptor_calc[DESC_REPEAT_LSB +: 4];
+    wire [7:0] third_phase_calc=
+        third_descriptor_calc[DESC_PHASE_LSB +: 8];
+    wire [126:0] third_pattern_calc=
+        third_descriptor_calc[DESC_PATTERN_LSB +: 127];
+    wire [DESC_WIDTH-1:0] fourth_descriptor_calc =
+        make_next_descriptor(
+            third_repeat_calc, third_phase_calc, third_pattern_calc,
+            repeat_count_active, phase_shift_active, loop_active,
+            pattern_mode_63_active, head_delay_active, gap_len_active,
+            phase_zero_pattern_state);
+    wire fourth_valid_calc=fourth_descriptor_calc[DESC_VALID];
+    wire [3:0] fourth_repeat_calc=
+        fourth_descriptor_calc[DESC_REPEAT_LSB +: 4];
+    wire [7:0] fourth_phase_calc=
+        fourth_descriptor_calc[DESC_PHASE_LSB +: 8];
+    wire [126:0] fourth_pattern_calc=
+        fourth_descriptor_calc[DESC_PATTERN_LSB +: 127];
+    wire [DESC_WIDTH-1:0] fifth_descriptor_calc =
+        make_next_descriptor(
+            fourth_repeat_calc, fourth_phase_calc, fourth_pattern_calc,
+            repeat_count_active, phase_shift_active, loop_active,
+            pattern_mode_63_active, head_delay_active, gap_len_active,
+            phase_zero_pattern_state);
+
+    wire task_mode_63=(pattern_len==8'd63);
+    wire [126:0] task_phase_zero_pattern=
+        normalize_phase_zero(base_pattern,task_mode_63);
+    wire [DESC_WIDTH-1:0] task_next_descriptor=
+        make_next_descriptor(
+            4'd0,8'd0,task_phase_zero_pattern,repeat_cycles,
+            phase_shift_en,loop_en,task_mode_63,head_delay_bits,
+            gap_len_bits,task_phase_zero_pattern);
+    wire [DESC_WIDTH-1:0] task_after_descriptor=
+        make_next_descriptor(
+            task_next_descriptor[DESC_REPEAT_LSB +: 4],
+            task_next_descriptor[DESC_PHASE_LSB +: 8],
+            task_next_descriptor[DESC_PATTERN_LSB +: 127],
+            repeat_cycles,phase_shift_en,loop_en,task_mode_63,
+            head_delay_bits,gap_len_bits,task_phase_zero_pattern);
+    wire [DESC_WIDTH-1:0] task_third_descriptor=
+        make_next_descriptor(
+            task_after_descriptor[DESC_REPEAT_LSB +: 4],
+            task_after_descriptor[DESC_PHASE_LSB +: 8],
+            task_after_descriptor[DESC_PATTERN_LSB +: 127],
+            repeat_cycles,phase_shift_en,loop_en,task_mode_63,
+            head_delay_bits,gap_len_bits,task_phase_zero_pattern);
+
+    reg [63:0] txdata_calc, valid_calc;
+    reg phase_active_calc, phase_start_calc;
+    reg running_next, done_next, segment_next;
+    reg [3:0] repeat_next;
+    reg [7:0] phase_next;
+    reg [6:0] index_next;
+    reg [7:0] pattern_remaining_next;
+    reg [8:0] delay_remaining_next;
+    reg delay_has_pattern_next, delay_phase_active_next;
+    reg pattern_start_pending_next;
+    reg [126:0] pattern_stream_next;
+    reg [DESC_WIDTH-1:0] next_descriptor_next;
+    reg [DESC_WIDTH-1:0] after_descriptor_next;
+    reg [DESC_WIDTH-1:0] third_descriptor_next;
+    reg [DESC_WIDTH-1:0] append_source_descriptor_next;
+    wire [WORD_PLAN_WIDTH-1:0] pattern_word_plan_next =
+        (running_next && segment_next==SEG_PATTERN) ?
+        make_pattern_word_plan(
+            pattern_stream_next,pattern_remaining_next) : 0;
+    wire [APPEND_PLAN_WIDTH-1:0] append_word_plan_next =
+        (running_next && segment_next==SEG_PATTERN) ?
+        make_append_word_plan(
+            pattern_remaining_next,append_source_descriptor_next) : 0;
+    wire [WORD_PLAN_WIDTH-1:0] task_pattern_word_plan =
+        make_pattern_word_plan(task_phase_zero_pattern,pattern_len);
+    wire [APPEND_PLAN_WIDTH-1:0] task_append_word_plan =
+        make_append_word_plan(pattern_len,task_next_descriptor);
+    integer lane, first_count, available, delay_count;
+    integer second_count, active_pattern_len;
+
+    // The output packer consumes only registered, already aligned segment
+    // descriptors. Phase/gap/loop scheduling is isolated in the descriptor
+    // builder above and cannot directly select any TX output lane.
     always @* begin
-        last_phase_63_comb = (!phase_shift_active) ||
-                             (phase_offset == 8'd62);
-        last_phase_127_comb = (!phase_shift_active) ||
-                              (phase_offset == 8'd126);
-        has_next_phase_63_comb = loop_active || !last_phase_63_comb;
-        has_next_phase_127_comb = loop_active || !last_phase_127_comb;
-        next_phase_offset_63_comb = last_phase_63_comb ? 8'd0 :
-                                                          (phase_offset + 1'b1);
-        next_phase_offset_127_comb = last_phase_127_comb ? 8'd0 :
-                                                            (phase_offset + 1'b1);
+        txdata_calc=0;
+        valid_calc=0;
+        phase_active_calc=0;
+        phase_start_calc=0;
+        running_next=running;
+        done_next=done;
+        segment_next=segment_state;
+        repeat_next=repeat_index_state;
+        phase_next=phase_index_state;
+        index_next=pattern_index_state;
+        pattern_remaining_next=pattern_remaining_state;
+        delay_remaining_next=delay_remaining_state;
+        delay_has_pattern_next=delay_has_pattern_state;
+        delay_phase_active_next=delay_phase_active_state;
+        pattern_start_pending_next=pattern_start_pending;
+        pattern_stream_next=pattern_stream_state;
+        next_descriptor_next=next_descriptor_state;
+        after_descriptor_next=after_descriptor_state;
+        third_descriptor_next=third_descriptor_state;
+        append_source_descriptor_next=next_descriptor_state;
+        first_count=0;
+        available=0;
+        delay_count=0;
+        second_count=0;
+        active_pattern_len=pattern_mode_63_active?63:127;
 
-        // The active mode is used only after both fixed-modulus candidates
-        // have been built.  It is not an input to either rotate network.
-        last_phase_calc = pattern_mode_63_active ? last_phase_63_comb :
-                                                   last_phase_127_comb;
-        has_next_phase_calc = pattern_mode_63_active ?
-                              has_next_phase_63_comb :
-                              has_next_phase_127_comb;
-        next_phase_offset_calc = pattern_mode_63_active ?
-                                 next_phase_offset_63_comb :
-                                 next_phase_offset_127_comb;
+        if (running && enable && segment_state==SEG_PATTERN) begin
+            first_count=pattern_remaining_state>=64?
+                        64:pattern_remaining_state;
+            txdata_calc=pattern_word_data_state;
+            valid_calc=pattern_word_mask_state;
+            phase_active_calc=1'b1;
+            phase_start_calc=pattern_start_pending;
+            pattern_start_pending_next=1'b0;
 
-        current_pattern_63_comb = rotate_sequence_63(
-            pattern_base_active[62:0], pattern_index[5:0]);
-        current_pattern_127_comb = rotate_sequence_127(
-            pattern_base_active, pattern_index);
-        next_phase_pattern_63_comb = rotate_sequence_63(
-            pattern_base_active[62:0], next_phase_offset_63_comb[5:0]);
-        next_phase_pattern_127_comb = rotate_sequence_127(
-            pattern_base_active, next_phase_offset_127_comb[6:0]);
-
-        current_gap_start_rel = current_gap_start_rel_q;
-        current_gap_end_rel = current_gap_end_rel_q;
-
-        // Relative gap interval for a possible next phase in this word.
-        next_gap_start_rel = 7'd64;
-        next_gap_end_rel = 7'd64;
-        if (gap_present_active) begin
-            next_gap_start_rel = initial_gap_start_rel_active;
-            next_gap_end_rel = initial_gap_end_rel_active;
-        end
-
-        current_gap_width = current_gap_end_rel - current_gap_start_rel;
-        next_gap_width = next_gap_end_rel - next_gap_start_rel;
-        current_after_gap_63_comb =
-            current_pattern_63_comb << current_gap_width;
-        current_after_gap_127_comb =
-            current_pattern_127_comb << current_gap_width;
-        next_before_gap_63_comb =
-            next_phase_pattern_63_comb << remaining_rel_q;
-        next_before_gap_127_comb =
-            next_phase_pattern_127_comb << remaining_rel_q;
-        next_after_shift = remaining_rel_q + next_gap_width;
-        next_after_gap_63_comb =
-            next_phase_pattern_63_comb << next_after_shift;
-        next_after_gap_127_comb =
-            next_phase_pattern_127_comb << next_after_shift;
-
-        word_63_comb = 64'b0;
-        word_127_comb = 64'b0;
-        valid_63_comb = 64'b0;
-        valid_127_comb = 64'b0;
-        word_active_calc = running && enable;
-        phase_start_63_comb = word_active_calc && phase_start_pending;
-        phase_start_127_comb = word_active_calc && phase_start_pending;
-
-        for (lane = 0; lane < 64; lane = lane + 1) begin
-            if (word_active_calc && (lane < remaining_rel_q)) begin
-                if ((lane >= current_gap_start_rel) &&
-                    (lane < current_gap_end_rel)) begin
-                    word_63_comb[lane] = 1'b0;
-                    word_127_comb[lane] = 1'b0;
-                    valid_63_comb[lane] = 1'b0;
-                    valid_127_comb[lane] = 1'b0;
-                end else begin
-                    valid_63_comb[lane] = 1'b1;
-                    valid_127_comb[lane] = 1'b1;
-                    if (lane < current_gap_start_rel) begin
-                        word_63_comb[lane] = current_pattern_63_comb[lane];
-                        word_127_comb[lane] = current_pattern_127_comb[lane];
+            if (pattern_remaining_state>64) begin
+                pattern_stream_next=pattern_stream_state>>64;
+                pattern_remaining_next=pattern_remaining_state-64;
+                index_next=advance_index(
+                    pattern_index_state,7'd64,pattern_mode_63_active);
+            end else begin
+                available=64-first_count;
+                if (append_word_count_state!=0) begin
+                    second_count=append_word_count_state;
+                    txdata_calc=
+                        pattern_word_data_state|append_word_data_state;
+                    valid_calc=
+                        pattern_word_mask_state|append_word_mask_state;
+                    if (append_phase_start_state)
+                        phase_start_calc=1'b1;
+                    repeat_next=next_repeat_state;
+                    phase_next=next_phase_state;
+                    if (second_count<active_pattern_len) begin
+                        segment_next=SEG_PATTERN;
+                        pattern_stream_next=
+                            next_pattern_state>>second_count;
+                        pattern_remaining_next=
+                            active_pattern_len-second_count;
+                        index_next=second_count[6:0];
+                        next_descriptor_next=after_descriptor_calc;
+                        after_descriptor_next=third_descriptor_calc;
+                        third_descriptor_next=fourth_descriptor_calc;
+                        append_source_descriptor_next=
+                            after_descriptor_calc;
+                    end else if (after_valid_calc) begin
+                        repeat_next=after_repeat_calc;
+                        phase_next=after_phase_calc;
+                        pattern_stream_next=after_pattern_calc;
+                        pattern_remaining_next=active_pattern_len;
+                        index_next=0;
+                        next_descriptor_next=third_descriptor_calc;
+                        after_descriptor_next=fourth_descriptor_calc;
+                        third_descriptor_next=fifth_descriptor_calc;
+                        append_source_descriptor_next=
+                            third_descriptor_calc;
+                        if (after_delay_calc==0) begin
+                            segment_next=SEG_PATTERN;
+                            pattern_start_pending_next=
+                                after_repeat_calc==0;
+                        end else begin
+                            segment_next=SEG_DELAY;
+                            delay_remaining_next=after_delay_calc;
+                            delay_has_pattern_next=1'b1;
+                            delay_phase_active_next=
+                                after_gap_phase_calc;
+                        end
                     end else begin
-                        word_63_comb[lane] = current_after_gap_63_comb[lane];
-                        word_127_comb[lane] = current_after_gap_127_comb[lane];
+                        running_next=1'b0;
+                        done_next=1'b1;
                     end
-                end
-            end else if (word_active_calc && (lane >= remaining_rel_q)) begin
-                next_local_pos = lane - remaining_rel_q;
-                if ((next_local_pos >= next_gap_start_rel) &&
-                    (next_local_pos < next_gap_end_rel)) begin
-                    word_63_comb[lane] = 1'b0;
-                    word_127_comb[lane] = 1'b0;
-                    valid_63_comb[lane] = 1'b0;
-                    valid_127_comb[lane] = 1'b0;
+                end else if (next_valid_state) begin
+                    repeat_next=next_repeat_state;
+                    phase_next=next_phase_state;
+                    pattern_stream_next=next_pattern_state;
+                    pattern_remaining_next=active_pattern_len;
+                    index_next=0;
+                    next_descriptor_next=after_descriptor_calc;
+                    after_descriptor_next=third_descriptor_calc;
+                    third_descriptor_next=fourth_descriptor_calc;
+                    append_source_descriptor_next=after_descriptor_calc;
+                    if (next_delay_state==available) begin
+                        segment_next=SEG_PATTERN;
+                        pattern_start_pending_next=next_repeat_state==0;
+                    end else begin
+                        segment_next=SEG_DELAY;
+                        delay_remaining_next=next_delay_state-available;
+                        delay_has_pattern_next=1'b1;
+                        delay_phase_active_next=next_gap_phase_state;
+                    end
                 end else begin
-                    if (has_next_phase_63_comb) begin
-                        valid_63_comb[lane] = 1'b1;
-                        if (next_local_pos < next_gap_start_rel)
-                            word_63_comb[lane] = next_before_gap_63_comb[lane];
-                        else
-                            word_63_comb[lane] = next_after_gap_63_comb[lane];
-                    end
-                    if (has_next_phase_127_comb) begin
-                        valid_127_comb[lane] = 1'b1;
-                        if (next_local_pos < next_gap_start_rel)
-                            word_127_comb[lane] = next_before_gap_127_comb[lane];
-                        else
-                            word_127_comb[lane] = next_after_gap_127_comb[lane];
-                    end
+                    running_next=1'b0;
+                    done_next=1'b1;
                 end
             end
-        end
-
-        if (word_active_calc && (phase_relation_q == 2'd0) &&
-            has_next_phase_63_comb)
-            phase_start_63_comb = 1'b1;
-        if (word_active_calc && (phase_relation_q == 2'd0) &&
-            has_next_phase_127_comb)
-            phase_start_127_comb = 1'b1;
-
-        // The only 63/127 selection in the output-word datapath is this
-        // final mux after both specialized networks are complete.
-        txdata_calc = pattern_mode_63_active ? word_63_comb : word_127_comb;
-        valid_mask_calc = pattern_mode_63_active ? valid_63_comb :
-                                                   valid_127_comb;
-        phase_start_calc = pattern_mode_63_active ? phase_start_63_comb :
-                                                   phase_start_127_comb;
-
-        // Word-level next-state calculation.
-        running_next = running;
-        done_next = done;
-        phase_offset_next = phase_offset;
-        pattern_index_next = pattern_index;
-        phase_start_pending_next = phase_start_pending;
-        phase_remaining_next = phase_remaining_state;
-        gap_start_remaining_next = gap_start_remaining_state;
-        gap_end_remaining_next = gap_end_remaining_state;
-        current_valid_count = 7'd0;
-        next_consumed_count = 7'd0;
-        next_valid_count = 7'd0;
-
-        if (word_active_calc) begin
-            phase_start_pending_next = 1'b0;
-            if (phase_relation_q == 2'd2) begin
-                phase_remaining_next = phase_remaining_state - 40'd64;
-                gap_start_remaining_next =
-                    (gap_start_remaining_state > 40'd64) ?
-                    (gap_start_remaining_state - 40'd64) : 40'd0;
-                gap_end_remaining_next =
-                    (gap_end_remaining_state > 40'd64) ?
-                    (gap_end_remaining_state - 40'd64) : 40'd0;
-                current_valid_count = 7'd64 - current_gap_width;
-                pattern_index_next = advance_pattern_index(
-                    pattern_index, current_valid_count,
-                    pattern_mode_63_active);
-            end else if (phase_relation_q == 2'd1) begin
-                if (has_next_phase_calc) begin
-                    phase_offset_next = next_phase_offset_calc;
-                    phase_remaining_next = phase_total_active;
-                    gap_start_remaining_next = gap_start_active;
-                    gap_end_remaining_next = gap_end_active;
-                    pattern_index_next = next_phase_offset_calc[6:0];
-                    phase_start_pending_next = 1'b1;
-                    if (last_phase_calc && loop_active)
-                        done_next = 1'b1;
+        end else if (running && enable) begin
+            delay_count=delay_remaining_state>=64?
+                        64:delay_remaining_state;
+            available=64-delay_count;
+            phase_active_calc=delay_phase_active_state;
+            if (delay_remaining_state>64) begin
+                delay_remaining_next=delay_remaining_state-64;
+            end else if (delay_has_pattern_state) begin
+                second_count=available;
+                if (second_count>active_pattern_len)
+                    second_count=active_pattern_len;
+                for (lane=0;lane<64;lane=lane+1) begin
+                    if (lane>=delay_count &&
+                        lane<delay_count+second_count) begin
+                        txdata_calc[lane]=
+                            pattern_stream_state[lane-delay_count];
+                        valid_calc[lane]=1'b1;
+                    end
+                end
+                phase_start_calc=
+                    (repeat_index_state==0)&&(second_count!=0);
+                phase_active_calc=
+                    phase_active_calc||(second_count!=0);
+                if (second_count==0) begin
+                    segment_next=SEG_PATTERN;
+                    pattern_start_pending_next=repeat_index_state==0;
+                end else if (second_count<active_pattern_len) begin
+                    segment_next=SEG_PATTERN;
+                    pattern_stream_next=
+                        pattern_stream_state>>second_count;
+                    index_next=second_count[6:0];
+                    pattern_remaining_next=
+                        active_pattern_len-second_count;
+                    pattern_start_pending_next=1'b0;
+                end else if (next_valid_state) begin
+                    repeat_next=next_repeat_state;
+                    phase_next=next_phase_state;
+                    pattern_stream_next=next_pattern_state;
+                    pattern_remaining_next=active_pattern_len;
+                    index_next=0;
+                    next_descriptor_next=after_descriptor_calc;
+                    after_descriptor_next=third_descriptor_calc;
+                    third_descriptor_next=fourth_descriptor_calc;
+                    append_source_descriptor_next=after_descriptor_calc;
+                    if (next_delay_state==0) begin
+                        segment_next=SEG_PATTERN;
+                        pattern_start_pending_next=next_repeat_state==0;
+                    end else begin
+                        segment_next=SEG_DELAY;
+                        delay_remaining_next=next_delay_state;
+                        delay_has_pattern_next=1'b1;
+                        delay_phase_active_next=next_gap_phase_state;
+                    end
                 end else begin
-                    running_next = 1'b0;
-                    done_next = 1'b1;
+                    running_next=1'b0;
+                    done_next=1'b1;
                 end
             end else begin
-                if (has_next_phase_calc) begin
-                    next_consumed_count = 7'd64 - remaining_rel_q;
-                    next_valid_count = next_consumed_count -
-                        gap_bits_before(next_consumed_count,
-                                        next_gap_start_rel,
-                                        next_gap_end_rel);
-                    phase_offset_next = next_phase_offset_calc;
-                    phase_remaining_next = phase_total_active -
-                                           {33'b0, next_consumed_count};
-                    gap_start_remaining_next =
-                        (gap_start_active > {33'b0, next_consumed_count}) ?
-                        (gap_start_active - {33'b0, next_consumed_count}) :
-                        40'd0;
-                    gap_end_remaining_next =
-                        (gap_end_active > {33'b0, next_consumed_count}) ?
-                        (gap_end_active - {33'b0, next_consumed_count}) :
-                        40'd0;
-                    pattern_index_next = advance_pattern_index(
-                        next_phase_offset_calc[6:0],
-                        next_valid_count, pattern_mode_63_active);
-                    phase_start_pending_next = 1'b0;
-                    if (last_phase_calc && loop_active)
-                        done_next = 1'b1;
-                end else begin
-                    running_next = 1'b0;
-                    done_next = 1'b1;
-                end
+                running_next=1'b0;
+                done_next=1'b1;
             end
-        end
-
-        // Prepare the following word descriptor.  Only these descriptor
-        // registers see the wide phase/gap counter arithmetic.
-        if (phase_remaining_next > 40'd64) begin
-            phase_relation_next_q = 2'd2;
-            remaining_rel_next_q = 7'd64;
-        end else if (phase_remaining_next == 40'd64) begin
-            phase_relation_next_q = 2'd1;
-            remaining_rel_next_q = 7'd64;
-        end else begin
-            phase_relation_next_q = 2'd0;
-            remaining_rel_next_q = phase_remaining_next[6:0];
-        end
-
-        current_gap_start_rel_next_q = 7'd64;
-        current_gap_end_rel_next_q = 7'd64;
-        if (gap_present_active && (gap_end_remaining_next != 40'd0)) begin
-            current_gap_start_rel_next_q =
-                (gap_start_remaining_next >= 40'd64) ?
-                7'd64 : gap_start_remaining_next[6:0];
-            current_gap_end_rel_next_q =
-                (gap_end_remaining_next >= 40'd64) ?
-                7'd64 : gap_end_remaining_next[6:0];
         end
     end
 
-    // Output and state commit.  TXDATA, valid_mask, phase/gate source status,
-    // and phase_start_pulse all cross the same register boundary.
     always @(posedge clk) begin
         if (rst) begin
-            txdata <= 64'b0;
-            valid_mask <= 64'b0;
-            phase_active <= 1'b0;
-            phase_start_pulse <= 1'b0;
-            sequence_active <= 1'b0;
-            busy <= 1'b0;
-            done <= 1'b0;
-            phase_offset <= 8'b0;
-            current_state <= ST_IDLE;
-            pattern_mode_63_active <= 1'b1;
-            phase_shift_active <= 1'b0;
-            loop_active <= 1'b0;
-            phase_total_active <= 40'd63;
-            gap_start_active <= 40'd0;
-            gap_end_active <= 40'd0;
-            gap_present_active <= 1'b0;
-            pattern_base_active <= 127'b0;
-            pattern_index <= 7'b0;
-            phase_remaining_state <= 40'd63;
-            gap_start_remaining_state <= 40'd0;
-            gap_end_remaining_state <= 40'd0;
-            running <= 1'b0;
-            phase_start_pending <= 1'b0;
-            phase_relation_q <= 2'd0;
-            remaining_rel_q <= 7'd63;
-            current_gap_start_rel_q <= 7'd64;
-            current_gap_end_rel_q <= 7'd64;
-            initial_gap_start_rel_active <= 7'd64;
-            initial_gap_end_rel_active <= 7'd64;
-        end else if (start && enable && pattern_valid) begin
-            txdata <= 64'b0;
-            valid_mask <= 64'b0;
-            phase_active <= 1'b0;
-            phase_start_pulse <= 1'b0;
-            sequence_active <= 1'b1;
-            busy <= 1'b1;
-            done <= 1'b0;
-            phase_offset <= 8'b0;
-            current_state <= ST_RUN;
-            pattern_mode_63_active <= (pattern_len == 8'd63);
-            phase_shift_active <= phase_shift_en;
-            loop_active <= loop_en;
-            phase_total_active <= phase_total_input;
-            gap_start_active <= gap_start_input;
-            gap_end_active <= gap_end_input;
-            gap_present_active <= (gap_len_bits != 0);
-            pattern_base_active <= expanded_pattern_input;
-            pattern_index <= 7'b0;
-            phase_remaining_state <= phase_total_input;
-            gap_start_remaining_state <= gap_start_input;
-            gap_end_remaining_state <= gap_end_input;
-            running <= 1'b1;
-            phase_start_pending <= 1'b1;
-            phase_relation_q <= (phase_total_input > 40'd64) ? 2'd2 :
-                                ((phase_total_input == 40'd64) ? 2'd1 : 2'd0);
-            remaining_rel_q <= (phase_total_input >= 40'd64) ?
-                               7'd64 : phase_total_input[6:0];
-            current_gap_start_rel_q <=
-                ((gap_len_bits != 0) && (gap_start_input < 40'd64)) ?
-                gap_start_input[6:0] : 7'd64;
-            current_gap_end_rel_q <=
-                ((gap_len_bits != 0) && (gap_end_input < 40'd64)) ?
-                gap_end_input[6:0] : 7'd64;
-            initial_gap_start_rel_active <=
-                ((gap_len_bits != 0) && (gap_start_input < 40'd64)) ?
-                gap_start_input[6:0] : 7'd64;
-            initial_gap_end_rel_active <=
-                ((gap_len_bits != 0) && (gap_end_input < 40'd64)) ?
-                gap_end_input[6:0] : 7'd64;
-        end else if (!enable) begin
-            txdata <= 64'b0;
-            valid_mask <= 64'b0;
-            phase_active <= 1'b0;
-            phase_start_pulse <= 1'b0;
-            sequence_active <= 1'b0;
-            busy <= 1'b0;
-            running <= 1'b0;
-            current_state <= ST_IDLE;
-        end else if (running) begin
-            txdata <= txdata_calc;
-            valid_mask <= valid_mask_calc;
-            phase_active <= word_active_calc;
-            phase_start_pulse <= phase_start_calc;
-            sequence_active <= word_active_calc;
-            busy <= word_active_calc;
-            done <= done_next;
-            phase_offset <= phase_offset_next;
-            current_state <= word_active_calc ? ST_RUN : ST_DONE;
-            pattern_index <= pattern_index_next;
-            phase_remaining_state <= phase_remaining_next;
-            gap_start_remaining_state <= gap_start_remaining_next;
-            gap_end_remaining_state <= gap_end_remaining_next;
-            running <= running_next;
-            phase_start_pending <= phase_start_pending_next;
-            phase_relation_q <= phase_relation_next_q;
-            remaining_rel_q <= remaining_rel_next_q;
-            current_gap_start_rel_q <= current_gap_start_rel_next_q;
-            current_gap_end_rel_q <= current_gap_end_rel_next_q;
+            txdata<=0;
+            valid_mask<=0;
+            phase_active<=0;
+            phase_start_pulse<=0;
+            sequence_active<=0;
+            busy<=0;
+            done<=0;
+            phase_offset<=0;
+            current_state<=ST_IDLE;
+            engine_start_accept_pulse<=0;
+            segment_state<=SEG_DELAY;
+            running<=0;
+            pattern_mode_63_active<=1;
+            phase_shift_active<=0;
+            loop_active<=0;
+            repeat_count_active<=1;
+            head_delay_active<=0;
+            gap_len_active<=0;
+            phase_zero_pattern_state<=0;
+            pattern_stream_state<=0;
+            next_descriptor_state<=0;
+            after_descriptor_state<=0;
+            third_descriptor_state<=0;
+            pattern_word_data_state<=0;
+            pattern_word_mask_state<=0;
+            append_word_data_state<=0;
+            append_word_mask_state<=0;
+            append_word_count_state<=0;
+            append_phase_start_state<=0;
+            repeat_index_state<=0;
+            phase_index_state<=0;
+            pattern_index_state<=0;
+            pattern_remaining_state<=63;
+            delay_remaining_state<=0;
+            delay_has_pattern_state<=0;
+            delay_phase_active_state<=0;
+            pattern_start_pending<=0;
+            waiting_geometry<=0;
+            waiting_eom<=0;
+            eom_request_active<=0;
+            eom_complete_seen<=0;
         end else begin
-            txdata <= 64'b0;
-            valid_mask <= 64'b0;
-            phase_active <= 1'b0;
-            phase_start_pulse <= 1'b0;
-            sequence_active <= 1'b0;
-            busy <= 1'b0;
-            current_state <= done ? ST_DONE : ST_IDLE;
+            engine_start_accept_pulse<=1'b0;
+            phase_start_pulse<=1'b0;
+            if (eom_done_pulse)
+                eom_complete_seen<=1'b1;
+
+            if (start && !busy) begin
+                txdata<=0;
+                valid_mask<=0;
+                phase_active<=0;
+                done<=0;
+                if (enable && pattern_valid &&
+                    repeat_cycles>=1 &&
+                    repeat_cycles<=MAX_REPEAT_CYCLES &&
+                    (pattern_len==63 || pattern_len==127)) begin
+                    engine_start_accept_pulse<=1'b1;
+                    sequence_active<=1'b1;
+                    busy<=1'b1;
+                    current_state<=ST_PRECOMPUTE;
+                    waiting_geometry<=1'b1;
+                    waiting_eom<=1'b0;
+                    running<=1'b0;
+                    eom_request_active<=1'b0;
+                    eom_complete_seen<=1'b0;
+                    segment_state<=
+                        head_delay_bits==0?SEG_PATTERN:SEG_DELAY;
+                    pattern_mode_63_active<=task_mode_63;
+                    phase_shift_active<=phase_shift_en;
+                    loop_active<=loop_en;
+                    repeat_count_active<=repeat_cycles;
+                    head_delay_active<=head_delay_bits;
+                    gap_len_active<=gap_len_bits;
+                    phase_zero_pattern_state<=task_phase_zero_pattern;
+                    pattern_stream_state<=task_phase_zero_pattern;
+                    next_descriptor_state<=task_next_descriptor;
+                    after_descriptor_state<=task_after_descriptor;
+                    third_descriptor_state<=task_third_descriptor;
+                    if (head_delay_bits==0) begin
+                        pattern_word_data_state<=
+                            task_pattern_word_plan[63:0];
+                        pattern_word_mask_state<=
+                            task_pattern_word_plan[127:64];
+                        append_word_data_state<=
+                            task_append_word_plan[
+                                APPEND_DATA_LSB +: 64];
+                        append_word_mask_state<=
+                            task_append_word_plan[
+                                APPEND_MASK_LSB +: 64];
+                        append_word_count_state<=
+                            task_append_word_plan[
+                                APPEND_COUNT_LSB +: 8];
+                        append_phase_start_state<=
+                            task_append_word_plan[APPEND_PHASE_START];
+                    end else begin
+                        pattern_word_data_state<=0;
+                        pattern_word_mask_state<=0;
+                        append_word_data_state<=0;
+                        append_word_mask_state<=0;
+                        append_word_count_state<=0;
+                        append_phase_start_state<=0;
+                    end
+                    repeat_index_state<=0;
+                    phase_index_state<=0;
+                    pattern_index_state<=0;
+                    pattern_remaining_state<=pattern_len;
+                    delay_remaining_state<={1'b0,head_delay_bits};
+                    delay_has_pattern_state<=1'b1;
+                    delay_phase_active_state<=1'b0;
+                    pattern_start_pending<=head_delay_bits==0;
+                    phase_offset<=0;
+                end else begin
+                    sequence_active<=0;
+                    busy<=0;
+                    running<=0;
+                    waiting_geometry<=0;
+                    waiting_eom<=0;
+                    current_state<=ST_ERROR;
+                end
+            end else if (!enable) begin
+                txdata<=0;
+                valid_mask<=0;
+                phase_active<=0;
+                sequence_active<=0;
+                busy<=0;
+                running<=0;
+                waiting_geometry<=0;
+                waiting_eom<=0;
+                eom_request_active<=0;
+                eom_complete_seen<=0;
+                pattern_word_data_state<=0;
+                pattern_word_mask_state<=0;
+                append_word_data_state<=0;
+                append_word_mask_state<=0;
+                append_word_count_state<=0;
+                append_phase_start_state<=0;
+                current_state<=ST_IDLE;
+            end else if (waiting_geometry) begin
+                txdata<=0;
+                valid_mask<=0;
+                phase_active<=0;
+                if (eom_geometry_armed && eom_tx_start_level) begin
+                    // This TX word boundary is the first output boundary. The
+                    // related EOM controller labels the same physical edge as
+                    // task tick zero.
+                    waiting_geometry<=1'b0;
+                    eom_request_active<=eom_request_valid;
+                    running<=1'b1;
+                    busy<=1'b1;
+                    sequence_active<=1'b1;
+                    current_state<=
+                        head_delay_active==0?ST_PATTERN:ST_HEAD;
+                end
+            end else if (running) begin
+                txdata<=txdata_calc;
+                valid_mask<=valid_calc;
+                phase_active<=phase_active_calc;
+                phase_start_pulse<=phase_start_calc;
+                phase_offset<=phase_next;
+                segment_state<=segment_next;
+                repeat_index_state<=repeat_next;
+                phase_index_state<=phase_next;
+                pattern_index_state<=index_next;
+                pattern_remaining_state<=pattern_remaining_next;
+                delay_remaining_state<=delay_remaining_next;
+                delay_has_pattern_state<=delay_has_pattern_next;
+                delay_phase_active_state<=delay_phase_active_next;
+                pattern_start_pending<=pattern_start_pending_next;
+                pattern_stream_state<=pattern_stream_next;
+                next_descriptor_state<=next_descriptor_next;
+                after_descriptor_state<=after_descriptor_next;
+                third_descriptor_state<=third_descriptor_next;
+                pattern_word_data_state<=pattern_word_plan_next[63:0];
+                pattern_word_mask_state<=pattern_word_plan_next[127:64];
+                append_word_data_state<=
+                    append_word_plan_next[APPEND_DATA_LSB +: 64];
+                append_word_mask_state<=
+                    append_word_plan_next[APPEND_MASK_LSB +: 64];
+                append_word_count_state<=
+                    append_word_plan_next[APPEND_COUNT_LSB +: 8];
+                append_phase_start_state<=
+                    append_word_plan_next[APPEND_PHASE_START];
+                running<=running_next;
+                if (!running_next && done_next) begin
+                    if (eom_request_active &&
+                        !(eom_complete_seen || eom_done_pulse)) begin
+                        waiting_eom<=1'b1;
+                        busy<=1'b1;
+                        done<=1'b0;
+                        sequence_active<=1'b1;
+                        current_state<=ST_WAIT_EOM;
+                    end else begin
+                        waiting_eom<=1'b0;
+                        busy<=1'b0;
+                        done<=1'b1;
+                        sequence_active<=1'b0;
+                        current_state<=ST_DONE;
+                    end
+                end else begin
+                    busy<=1'b1;
+                    done<=1'b0;
+                    sequence_active<=1'b1;
+                    current_state<=segment_next==SEG_PATTERN?
+                                   ST_PATTERN:
+                                   (delay_phase_active_next?ST_GAP:ST_HEAD);
+                end
+            end else if (waiting_eom) begin
+                txdata<=0;
+                valid_mask<=0;
+                phase_active<=0;
+                if (eom_complete_seen || eom_done_pulse) begin
+                    waiting_eom<=1'b0;
+                    busy<=1'b0;
+                    done<=1'b1;
+                    sequence_active<=1'b0;
+                    current_state<=ST_DONE;
+                end
+            end else begin
+                txdata<=0;
+                valid_mask<=0;
+                phase_active<=0;
+                sequence_active<=0;
+                busy<=0;
+                current_state<=done?ST_DONE:ST_IDLE;
+            end
         end
     end
 endmodule

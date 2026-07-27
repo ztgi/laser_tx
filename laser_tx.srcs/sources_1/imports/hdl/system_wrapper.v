@@ -1,7 +1,7 @@
 //Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2022.2 (win64) Build 3671981 Fri Oct 14 05:00:03 MDT 2022
-//Date        : Wed Jul 15 11:51:36 2026
+//Date        : Thu Jul 23 11:08:26 2026
 //Host        : LAPTOP-ITN6KOP9 running 64-bit major release  (build 9200)
 //Command     : generate_target system_wrapper.bd
 //Design      : system_wrapper
@@ -95,7 +95,10 @@ module system_wrapper
     dynamic_mailbox_control_out,
     dynamic_mailbox_status_in,
     dynamic_rate_debug_bus,
+    eom_clk,
+    eom_clock_safe,
     eom_out_0,
+    eom_subdiv_log2,
     gpio_ctrl_to_gt,
     gpio_status_to_gt,
     gt_ctrl_clk,
@@ -192,7 +195,10 @@ module system_wrapper
   output [3:0]dynamic_mailbox_control_out;
   input [31:0]dynamic_mailbox_status_in;
   input [31:0]dynamic_rate_debug_bus;
+  input eom_clk;
+  input eom_clock_safe;
   output eom_out_0;
+  input [2:0]eom_subdiv_log2;
   output [31:0]gpio_ctrl_to_gt;
   output [31:0]gpio_status_to_gt;
   output gt_ctrl_clk;
@@ -302,7 +308,10 @@ module system_wrapper
   wire [3:0]dynamic_mailbox_control_out;
   wire [31:0]dynamic_mailbox_status_in;
   wire [31:0]dynamic_rate_debug_bus;
+  wire eom_clk;
+  wire eom_clock_safe;
   wire eom_out_0;
+  wire [2:0]eom_subdiv_log2;
   wire [31:0]gpio_ctrl_to_gt;
   wire [31:0]gpio_status_to_gt;
   wire gt_ctrl_clk;
@@ -429,7 +438,10 @@ module system_wrapper
         .dynamic_mailbox_control_out(dynamic_mailbox_control_out),
         .dynamic_mailbox_status_in(dynamic_mailbox_status_in),
         .dynamic_rate_debug_bus(dynamic_rate_debug_bus),
+        .eom_clk(eom_clk),
+        .eom_clock_safe(eom_clock_safe),
         .eom_out_0(eom_out_0),
+        .eom_subdiv_log2(eom_subdiv_log2),
         .gpio_ctrl_to_gt(gpio_ctrl_to_gt),
         .gpio_status_to_gt(gpio_status_to_gt),
         .gt_ctrl_clk(gt_ctrl_clk),

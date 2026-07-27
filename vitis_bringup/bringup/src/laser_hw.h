@@ -124,7 +124,7 @@
 #error "Dynamic descriptor AXI BRAM macro is missing. Regenerate BSP from the timing-clean XSA."
 #endif
 
-#define LASER_CONFIG_STRIDE_BYTES 32U
-#define LASER_CONFIG_WORD_COUNT    8U
+#define LASER_CONFIG_STRIDE_BYTES 64U
+#define LASER_CONFIG_WORD_COUNT   16U
 
 #endif

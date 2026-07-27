@@ -35,6 +35,7 @@
         "USE_RDI_GENERATION": [ { "value": "TRUE" } ]
       },
       "runtime_parameters": {
+        "IPCACHEDISABLEDFORIP": [ { "value": "TRUE" } ],
         "IPCONTEXT": [ { "value": "IP_Integrator" } ],
         "IPREVISION": [ { "value": "19" } ],
         "MANAGED": [ { "value": "TRUE" } ],

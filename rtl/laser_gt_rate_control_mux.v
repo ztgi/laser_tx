@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "laser_dynamic_rate_descriptor.vh"
 // Compatibility shell that keeps legacy status semantics while placing the
 // legacy FSM and descriptor-driven executor behind one physical-resource mux.
 module laser_gt_rate_control_mux (
@@ -29,7 +30,8 @@ module laser_gt_rate_control_mux (
     output wire gt_drp_write_attempted,output wire [15:0] gt_drp_readback_value,
     output wire mmcm_drp_busy,output wire mmcm_drp_done,output wire mmcm_drp_error,
     output wire mmcm_drp_write_attempted,output wire tx_quiesce_req,
-    output wire tx_idle_seen,output wire [31:0] dbg_timeout_count
+    output wire tx_idle_seen,output wire [31:0] dbg_timeout_count,
+    output reg [2:0] eom_subdiv_log2
 );
     wire l_gt_reset,l_user_block,l_mmcm_reset,l_cpll_reset,l_qpll_reset,l_qpll_sel,l_apply;
     wire [8:0] l_ga;wire [15:0] l_gd;wire l_ge,l_gw;
@@ -38,6 +40,39 @@ module laser_gt_rate_control_mux (
     wire [8:0] d_ga;wire [15:0] d_gd;wire d_ge,d_gw;
     wire [6:0] d_ma;wire [15:0] d_md;wire d_me,d_mw;
     wire legacy_allowed, dynamic_owner;
+    reg [2:0] previous_eom_subdiv_log2;
+    wire [2:0] descriptor_eom_subdiv_log2 =
+        dynamic_words[`LASER_DYN_WORD_EOM_CONFIG*32 +: 3];
+
+    function [2:0] fixed_eom_subdiv_log2;
+        input [3:0] rate_id;
+        begin
+            case (rate_id)
+                4'd1, 4'd10: fixed_eom_subdiv_log2 = 3'd4;
+                4'd2, 4'd4: fixed_eom_subdiv_log2 = 3'd3;
+                4'd3, 4'd5, 4'd7: fixed_eom_subdiv_log2 = 3'd2;
+                4'd6, 4'd8, 4'd11: fixed_eom_subdiv_log2 = 3'd1;
+                4'd9: fixed_eom_subdiv_log2 = 3'd0;
+                default: fixed_eom_subdiv_log2 = 3'd4;
+            endcase
+        end
+    endfunction
+
+    always @(posedge clk) begin
+        if (rst) begin
+            eom_subdiv_log2 <= 3'd4;
+            previous_eom_subdiv_log2 <= 3'd4;
+        end else begin
+            if (dynamic_start && !dynamic_owner)
+                previous_eom_subdiv_log2 <= eom_subdiv_log2;
+            if (dynamic_done && dynamic_descriptor_valid)
+                eom_subdiv_log2 <= descriptor_eom_subdiv_log2;
+            else if (dynamic_rollback_done)
+                eom_subdiv_log2 <= previous_eom_subdiv_log2;
+            else if (!dynamic_owner && rate_done && !rate_error)
+                eom_subdiv_log2 <= fixed_eom_subdiv_log2(current_rate_id);
+        end
+    end
 
     laser_gt_rate_switch_500m_1000m u_legacy(
         .clk(clk),.rst(rst),.request_enable(legacy_allowed),.gpio_ctrl(gpio_ctrl),.gpio_status(gpio_status),

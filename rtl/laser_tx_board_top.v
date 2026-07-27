@@ -53,6 +53,9 @@ module laser_tx_board_top (
     wire gt_ctrl_clk;
     wire gt_ctrl_rst;
     wire gt_txusrclk2;
+    wire gt_eom_clk;
+    wire [2:0] gt_eom_subdiv_log2;
+    wire gt_eom_clock_safe;
     wire gt_tx_rst;
     wire gt_ready;
     wire [31:0] gt_status;
@@ -383,6 +386,9 @@ module laser_tx_board_top (
         .gpio_ctrl_to_gt   (gpio_ctrl_to_gt),
         .gpio_status_to_gt (gpio_status_to_gt),
         .tx_rst            (gt_tx_rst),
+        .eom_clk           (gt_eom_clk),
+        .eom_subdiv_log2   (gt_eom_subdiv_log2),
+        .eom_clock_safe    (gt_eom_clock_safe),
         .txdata            (laser_txdata),
         .txusrclk2         (gt_txusrclk2),
         .valid_mask        (laser_valid_mask)
@@ -412,6 +418,9 @@ module laser_tx_board_top (
         .txdata_in     (laser_txdata),
         .valid_mask_in (laser_valid_mask),
         .txusrclk2_out (gt_txusrclk2),
+        .eom_clk_out    (gt_eom_clk),
+        .eom_subdiv_log2_out(gt_eom_subdiv_log2),
+        .eom_clock_safe_out(gt_eom_clock_safe),
         .tx_rst_out    (gt_tx_rst),
         .gt_ready_out  (gt_ready),
         .gt_status_out (gt_status),

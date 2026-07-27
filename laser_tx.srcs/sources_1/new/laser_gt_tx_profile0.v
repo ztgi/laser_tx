@@ -39,6 +39,9 @@ module laser_gt_tx_profile0 (
     input  wire [63:0] txdata_in,
     input  wire [63:0] valid_mask_in,
     output wire        txusrclk2_out,
+    output wire        eom_clk_out,
+    output wire [2:0]  eom_subdiv_log2_out,
+    output wire        eom_clock_safe_out,
     output wire        tx_rst_out,
     output wire        gt_ready_out,
     output wire [31:0] gt_status_out,
@@ -129,6 +132,8 @@ module laser_gt_tx_profile0 (
     wire txoutclk_dbg;
     wire txusrclk;
     wire txusrclk2;
+    wire eom_clk;
+    wire [2:0] eom_subdiv_log2;
     wire tx_mmcm_reset_wizard;
     wire tx_mmcm_reset_rate;
     wire tx_mmcm_reset;
@@ -339,10 +344,14 @@ module laser_gt_tx_profile0 (
         .mmcm_dwe_in     (mmcm_drpwe),
         .txusrclk_out    (txusrclk),
         .txusrclk2_out   (txusrclk2),
+        .eom_clk_out      (eom_clk),
         .mmcm_locked_out (tx_mmcm_locked)
     );
 
     assign txusrclk2_out = txusrclk2;
+    assign eom_clk_out = eom_clk;
+    assign eom_subdiv_log2_out = eom_subdiv_log2;
+    assign eom_clock_safe_out = tx_mmcm_locked;
     assign tx_mmcm_reset = tx_mmcm_reset_wizard | tx_mmcm_reset_rate;
     wire gt_ready_effective_ctrl = gt_ready_ctrl & ~rate_busy & ~rate_error;
     wire selected_pll_lock_sync = qpll_selected ?
@@ -493,7 +502,8 @@ module laser_gt_tx_profile0 (
         .mmcm_drp_write_attempted    (mmcm_drp_write_attempted),
         .tx_quiesce_req              (tx_quiesce_req),
         .tx_idle_seen                (tx_idle_seen),
-        .dbg_timeout_count           (dbg_rate_timeout_count)
+        .dbg_timeout_count           (dbg_rate_timeout_count),
+        .eom_subdiv_log2             (eom_subdiv_log2)
     );
 
     always @(posedge ctrl_clk) begin

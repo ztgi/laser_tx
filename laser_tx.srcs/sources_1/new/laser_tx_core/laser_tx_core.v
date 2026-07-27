@@ -6,6 +6,9 @@ module laser_tx_core #(
     input  wire        axi_clk,
     input  wire        axi_rstn,
     input  wire        txusrclk2,
+    input  wire        eom_clk,
+    input  wire [2:0]  eom_subdiv_log2,
+    input  wire        eom_clock_safe,
     input  wire        tx_rst,
     // Asserted only after the GT user clock/PLL/reset sequence is stable.
     // This signal is already synchronous to txusrclk2 at the board wrapper.
@@ -79,9 +82,13 @@ module laser_tx_core #(
     wire [7:0] error_code_axi;
     wire cfg_update_toggle_axi;
     wire [31:0] seed_axi;
-    wire [31:0] repeat_cycles_axi;
-    wire [7:0] gap_len_bits_axi;
-    wire [15:0] insert_after_axi;
+    wire [4:0] repeat_cycles_axi;
+    wire [7:0] head_delay_bits_axi;
+    wire [119:0] gap_len_bits_axi;
+    wire eom_enable_axi;
+    wire [10:0] eom_global_pattern_index_axi;
+    wire [15:0] eom_lead_ticks_axi;
+    wire [15:0] eom_trail_ticks_axi;
     wire [7:0] prbs_order_axi;
     wire phase_shift_en_axi;
     wire loop_en_axi;
@@ -92,12 +99,16 @@ module laser_tx_core #(
     config_loader u_config_loader (
         .clk(axi_clk), .rstn(axi_rstn),
         .config_index(gpio_ctrl[7:0]), .apply_toggle(gpio_ctrl[8]),
-        .source_sel(gpio_ctrl[11]), .direct_len_sel(gpio_ctrl[12]),
         .bram_en(bram_en), .bram_addr(bram_addr), .bram_dout(bram_dout),
         .cfg_valid(cfg_valid_axi), .cfg_error(cfg_error_axi),
         .error_code(error_code_axi), .cfg_update_toggle(cfg_update_toggle_axi),
         .seed(seed_axi), .repeat_cycles(repeat_cycles_axi),
-        .gap_len_bits(gap_len_bits_axi), .insert_after(insert_after_axi),
+        .head_delay_bits(head_delay_bits_axi),
+        .gap_len_bits(gap_len_bits_axi),
+        .eom_enable(eom_enable_axi),
+        .eom_global_pattern_index(eom_global_pattern_index_axi),
+        .eom_lead_ticks(eom_lead_ticks_axi),
+        .eom_trail_ticks(eom_trail_ticks_axi),
         .prbs_order(prbs_order_axi), .phase_shift_en(phase_shift_en_axi),
         .loop_en(loop_en_axi), .active_source_sel(source_sel_axi),
         .pattern_len(pattern_len_axi), .direct_pattern(direct_pattern_axi)
@@ -146,7 +157,8 @@ module laser_tx_core #(
             soft_reset_meta <= 1'b0;
             soft_reset_tx <= 1'b0;
         end else begin
-            enable_meta <= gpio_ctrl[9] & gt_ready & ~rate_apply_enable_blocked;
+            enable_meta <= gpio_ctrl[9] & gt_ready & eom_clock_safe &
+                           ~rate_apply_enable_blocked;
             enable_tx <= enable_meta;
             soft_reset_meta <= gpio_ctrl[10];
             soft_reset_tx <= soft_reset_meta;
@@ -157,9 +169,13 @@ module laser_tx_core #(
     // the next. Capture it only after the synchronized update toggle arrives.
     reg cfg_valid_tx;
     reg [31:0] seed_tx;
-    reg [31:0] repeat_cycles_tx;
-    reg [7:0] gap_len_bits_tx;
-    reg [15:0] insert_after_tx;
+    reg [4:0] repeat_cycles_tx;
+    reg [7:0] head_delay_bits_tx;
+    reg [119:0] gap_len_bits_tx;
+    reg eom_enable_tx;
+    reg [10:0] eom_global_pattern_index_tx;
+    reg [15:0] eom_lead_ticks_tx;
+    reg [15:0] eom_trail_ticks_tx;
     reg [7:0] prbs_order_tx;
     reg phase_shift_en_tx;
     reg loop_en_tx;
@@ -174,9 +190,13 @@ module laser_tx_core #(
         if (tx_rst) begin
             cfg_valid_tx <= 1'b0;
             seed_tx <= 32'b0;
-            repeat_cycles_tx <= 32'b0;
-            gap_len_bits_tx <= 8'b0;
-            insert_after_tx <= 16'b0;
+            repeat_cycles_tx <= 5'b0;
+            head_delay_bits_tx <= 8'b0;
+            gap_len_bits_tx <= 120'b0;
+            eom_enable_tx <= 1'b0;
+            eom_global_pattern_index_tx <= 11'b0;
+            eom_lead_ticks_tx <= 16'b0;
+            eom_trail_ticks_tx <= 16'b0;
             prbs_order_tx <= 8'b0;
             phase_shift_en_tx <= 1'b0;
             loop_en_tx <= 1'b0;
@@ -186,7 +206,7 @@ module laser_tx_core #(
             pending_start <= 1'b0;
             engine_start <= 1'b0;
             engine_start_toggle_tx <= 1'b0;
-        end else if (soft_reset_tx) begin
+        end else if (soft_reset_tx || !eom_clock_safe) begin
             pending_start <= cfg_valid_tx;
             engine_start <= 1'b0;
         end else begin
@@ -195,8 +215,12 @@ module laser_tx_core #(
                 cfg_valid_tx <= cfg_valid_axi;
                 seed_tx <= seed_axi;
                 repeat_cycles_tx <= repeat_cycles_axi;
+                head_delay_bits_tx <= head_delay_bits_axi;
                 gap_len_bits_tx <= gap_len_bits_axi;
-                insert_after_tx <= insert_after_axi;
+                eom_enable_tx <= eom_enable_axi;
+                eom_global_pattern_index_tx <= eom_global_pattern_index_axi;
+                eom_lead_ticks_tx <= eom_lead_ticks_axi;
+                eom_trail_ticks_tx <= eom_trail_ticks_axi;
                 prbs_order_tx <= prbs_order_axi;
                 phase_shift_en_tx <= phase_shift_en_axi;
                 loop_en_tx <= loop_en_axi;
@@ -248,24 +272,102 @@ module laser_tx_core #(
     wire done_tx;
     wire [7:0] phase_offset_tx;
     wire [7:0] current_state_tx;
+    wire engine_start_accept_pulse_tx;
+    wire eom_geometry_armed_tx;
+    wire eom_tx_start_level;
+    wire eom_request_valid_tx;
+    wire eom_request_busy_tx;
+    wire eom_active_raw;
+    wire eom_fired_raw;
+    wire eom_done_toggle_raw;
+    wire eom_done_pulse_tx;
+    wire eom_done_toggle_tx;
+    wire eom_geometry_valid_raw;
+    wire eom_armed_raw;
+    wire eom_alignment_valid_raw;
+    wire eom_task_zero_pulse_raw;
+    wire [23:0] eom_task_tick_counter_raw;
+    wire [23:0] eom_start_tick_local_raw;
+    wire [23:0] eom_end_tick_local_raw;
+    wire [7:0] eom_selected_phase_raw;
+    wire [3:0] eom_selected_repeat_raw;
+
+    // A TX-side abort invalidates any unfinished snapshot transaction.  The
+    // physical EOM output has a stronger asynchronous-safe gate so rate
+    // quiesce, MMCM/clock loss, GT unsafe state, disable, reset, or soft reset
+    // cannot leave the output high while eom_clk is stopped.
+    wire eom_task_abort_tx =
+        tx_rst | soft_reset_tx | ~enable_tx | ~gt_ready |
+        rate_apply_enable_blocked | ~eom_clock_safe;
+    wire tx_sequence_reset =
+        tx_rst | soft_reset_tx | ~eom_clock_safe;
+    wire eom_operating_safe_async =
+        eom_clock_safe & gt_ready & gpio_ctrl[9] & ~gpio_ctrl[10] &
+        ~rate_apply_enable_blocked & ~tx_rst;
+
+    // The controller captures one stable TX-domain task snapshot, calculates
+    // all geometry in eom_clk, acknowledges ARMED back to TX, then uses the
+    // related zero-phase MMCM clocks to choose one deterministic common word
+    // boundary. No TX-domain start/end tick enters the EOM live comparator.
+    tx_eom_window_generator u_tx_eom_window_generator (
+        .tx_clk(txusrclk2), .tx_abort(eom_task_abort_tx),
+        .task_request_pulse_tx(engine_start_accept_pulse_tx),
+        .eom_enable_tx(eom_enable_tx),
+        .global_pattern_index_tx(eom_global_pattern_index_tx),
+        .lead_ticks_tx(eom_lead_ticks_tx),
+        .trail_ticks_tx(eom_trail_ticks_tx),
+        .repeat_cycles_tx(repeat_cycles_tx),
+        .pattern_len_tx(pattern_len_tx),
+        .phase_shift_en_tx(phase_shift_en_tx),
+        .head_delay_bits_tx(head_delay_bits_tx),
+        .gap_len_bits_tx(gap_len_bits_tx),
+        .eom_subdiv_log2_tx(eom_subdiv_log2),
+        .eom_clk(eom_clk), .clock_safe(eom_operating_safe_async),
+        .geometry_armed_tx(eom_geometry_armed_tx),
+        .tx_start_level(eom_tx_start_level),
+        .request_valid_tx(eom_request_valid_tx),
+        .request_busy_tx(eom_request_busy_tx),
+        .eom_out(eom_out), .eom_active(eom_active_raw),
+        .eom_fired(eom_fired_raw), .done_toggle(eom_done_toggle_raw),
+        .geometry_valid_eom(eom_geometry_valid_raw),
+        .eom_armed(eom_armed_raw),
+        .alignment_valid_eom(eom_alignment_valid_raw),
+        .task_zero_pulse_eom(eom_task_zero_pulse_raw),
+        .task_tick_counter_eom(eom_task_tick_counter_raw),
+        .start_tick_local_eom(eom_start_tick_local_raw),
+        .end_tick_local_eom(eom_end_tick_local_raw),
+        .selected_phase_eom(eom_selected_phase_raw),
+        .selected_repeat_eom(eom_selected_repeat_raw)
+    );
+
+    cdc_toggle_sync u_eom_done_sync (
+        .dst_clk(txusrclk2), .dst_rst(eom_task_abort_tx),
+        .src_toggle(eom_done_toggle_raw),
+        .dst_pulse(eom_done_pulse_tx), .dst_toggle(eom_done_toggle_tx)
+    );
+
     pattern_tx_engine u_pattern_tx_engine (
-        .clk(txusrclk2), .rst(tx_rst | soft_reset_tx),
+        .clk(txusrclk2), .rst(tx_sequence_reset),
         .start(engine_start), .enable(enable_tx),
         .pattern_valid(pattern_valid_tx), .base_pattern(base_pattern),
         .pattern_len(pattern_len_tx), .repeat_cycles(repeat_cycles_tx),
-        .insert_after(insert_after_tx), .gap_len_bits(gap_len_bits_tx),
+        .head_delay_bits(head_delay_bits_tx), .gap_len_bits(gap_len_bits_tx),
         .phase_shift_en(phase_shift_en_tx), .loop_en(loop_en_tx),
+        .eom_geometry_armed(eom_geometry_armed_tx),
+        .eom_tx_start_level(eom_tx_start_level),
+        .eom_request_valid(eom_request_valid_tx),
+        .eom_done_pulse(eom_done_pulse_tx),
+        .engine_start_accept_pulse(engine_start_accept_pulse_tx),
         .txdata(txdata), .valid_mask(valid_mask),
         .phase_active(phase_active_tx), .phase_start_pulse(phase_start_pulse_tx),
         .sequence_active(sequence_active_tx), .busy(busy_tx), .done(done_tx),
         .phase_offset(phase_offset_tx), .current_state(current_state_tx)
     );
-
     sync_signal_gen u_sync_signal_gen (
-        .clk(txusrclk2), .rst(tx_rst | soft_reset_tx),
-        .valid_mask(valid_mask), .phase_active(phase_active_tx),
+        .clk(txusrclk2), .rst(tx_sequence_reset),
+        .phase_active(phase_active_tx),
         .phase_start_pulse(phase_start_pulse_tx),
-        .eom_out(eom_out), .soa_gate_out(soa_gate_out),
+        .soa_gate_out(soa_gate_out),
         .acq_trig_out(acq_trig_out), .acq_gate_out(acq_gate_out)
     );
 

@@ -8,8 +8,6 @@
 #define LASER_CTRL_APPLY_TOGGLE     0x00000100U
 #define LASER_CTRL_ENABLE           0x00000200U
 #define LASER_CTRL_SOFT_RESET       0x00000400U
-#define LASER_CTRL_DIRECT_SOURCE    0x00000800U
-#define LASER_CTRL_DIRECT_LEN_127   0x00001000U
 #define LASER_CTRL_RATE_ID_SHIFT    13U
 #define LASER_CTRL_RATE_ID_MASK     0x0001e000U
 #define LASER_CTRL_RATE_REQ_TOGGLE  0x00020000U
@@ -35,8 +33,7 @@ typedef struct {
 
 int laser_gpio_init(LaserGpio *gpio);
 void laser_gpio_write_control(LaserGpio *gpio, uint32_t value);
-void laser_gpio_select_config(LaserGpio *gpio, uint8_t index,
-                              int direct_source, int direct_len_127);
+void laser_gpio_select_config(LaserGpio *gpio, uint8_t index);
 void laser_gpio_soft_reset(LaserGpio *gpio);
 void laser_gpio_toggle_apply(LaserGpio *gpio);
 void laser_gpio_set_enable(LaserGpio *gpio, int enable);

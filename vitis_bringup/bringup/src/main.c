@@ -109,8 +109,6 @@ static int LASER_MAYBE_UNUSED run_uart_test(void)
     LaserConfig config;
     uint32_t laser_status;
     uint32_t gt_status;
-    int direct_source;
-    int direct_len_127;
     int expect_config_error;
     int status;
 
@@ -136,8 +134,7 @@ static int LASER_MAYBE_UNUSED run_uart_test(void)
 
     laser_gpio_set_enable(&gpio, 0);
     laser_gpio_soft_reset(&gpio);
-    status = laser_make_test_config(UART_TEST_CASE, &config,
-                                    &direct_source, &direct_len_127);
+    status = laser_make_test_config(UART_TEST_CASE, &config);
     if (status != XST_SUCCESS ||
         laser_bram_write_config(CONFIG_INDEX, &config) != XST_SUCCESS ||
         laser_bram_verify_config(CONFIG_INDEX, &config) != XST_SUCCESS) {
@@ -145,7 +142,7 @@ static int LASER_MAYBE_UNUSED run_uart_test(void)
         return XST_FAILURE;
     }
 
-    laser_gpio_select_config(&gpio, CONFIG_INDEX, direct_source, direct_len_127);
+    laser_gpio_select_config(&gpio, CONFIG_INDEX);
     laser_gpio_toggle_apply(&gpio);
     expect_config_error = laser_test_case_expects_config_error(UART_TEST_CASE);
     status = wait_for_config_result(&gpio, expect_config_error, &laser_status);

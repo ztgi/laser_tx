@@ -311,7 +311,7 @@ static void format_runtime_rate_plan(const char *rate_text, char **cursor,
                                                COUNTS_PER_SECOND);
     if (status == LASER_RUNTIME_PLAN_OK && plan.plan_executable != 0U) {
         (void)snprintf(response, response_size,
-            "OK RATE_PLAN mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld ad9528_out0_hz=%lu r1=%u n2=%u m1=%u out_div=%u gt_pll_type=%s gt_refclk_div=%u gt_fbdiv=%u gt_fbdiv_45=%u txout_div=%u txusrclk_hz=%lu verify_expected_count=%lu plan_executable=1 reason=NONE planning_time_us=%lu",
+            "OK RATE_PLAN mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld ad9528_out0_hz=%lu r1=%u n2=%u m1=%u out_div=%u gt_pll_type=%s gt_refclk_div=%u gt_fbdiv=%u gt_fbdiv_45=%u txout_div=%u txusrclk_hz=%lu txusrclk2_hz=%lu eom_clk_hz=%lu eom_K=%u eom_bits_per_tick=%u verify_expected_count=%lu plan_executable=1 reason=NONE planning_time_us=%lu",
             (unsigned long long)plan.requested_line_rate_bps,
             (unsigned long long)plan.actual_line_rate_bps,
             (long)plan.line_rate_error_ppm,
@@ -326,6 +326,10 @@ static void format_runtime_rate_plan(const char *rate_text, char **cursor,
             (unsigned int)plan.gt_fbdiv_45,
             (unsigned int)plan.gt_txout_div,
             (unsigned long)plan.txusrclk_hz,
+            (unsigned long)plan.txusrclk2_hz,
+            (unsigned long)plan.eom_clk_hz,
+            (unsigned int)(1U << plan.eom_subdiv_log2),
+            (unsigned int)plan.serial_bits_per_eom_tick,
             (unsigned long)plan.verify_expected_count,
             (unsigned long)diagnostics.planning_time_us);
         return;
@@ -357,7 +361,7 @@ static void execute_runtime_rate_set(const char *rate_text, char **cursor,
     laser_runtime_rate_switch_get_status(&status);
     if (result == XST_SUCCESS) {
         (void)snprintf(response, response_size,
-            "OK RATE_SET mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld state=%s sequence=%lu pll=%s ad9528_out0_hz=%lu txusrclk2_hz=%lu verify_expected=%lu verify_tolerance=%lu",
+            "OK RATE_SET mode=RUNTIME_AD9528_OUT0 requested_rate_bps=%llu actual_rate_bps=%llu error_ppm=%ld state=%s sequence=%lu pll=%s ad9528_out0_hz=%lu txusrclk2_hz=%lu eom_clk_hz=%lu eom_K=%u eom_bits_per_tick=%u verify_expected=%lu verify_tolerance=%lu",
             (unsigned long long)status.requested_plan.requested_line_rate_bps,
             (unsigned long long)status.requested_plan.actual_line_rate_bps,
             (long)status.requested_plan.line_rate_error_ppm,
@@ -367,6 +371,9 @@ static void execute_runtime_rate_set(const char *rate_text, char **cursor,
                 "QPLL" : "CPLL",
             (unsigned long)status.requested_plan.ad9528_out0_hz,
             (unsigned long)status.requested_plan.txusrclk2_hz,
+            (unsigned long)status.requested_plan.eom_clk_hz,
+            (unsigned int)(1U << status.requested_plan.eom_subdiv_log2),
+            (unsigned int)status.requested_plan.serial_bits_per_eom_tick,
             (unsigned long)status.requested_plan.verify_expected_count,
             (unsigned long)status.requested_plan.verify_tolerance);
         return;
@@ -533,8 +540,11 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         rate_state = LASER_GT_STATUS_RATE_STATE(gt_status);
         error_code = LASER_GT_STATUS_RATE_ERROR_CODE(gt_status);
         laser_runtime_rate_switch_get_status(&runtime_status);
+        {
+            const GtRateProfile *active_fixed_profile =
+                gt_rate_profile_from_rate_id(current_rate_id);
         (void)snprintf(response, response_size,
-                       "OK RATE_STATUS mode=dynamic_verified_125mhz_cpll_qpll_profiles current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx runtime_state=%s runtime_error=%s runtime_sequence=%lu runtime_current_valid=%u runtime_actual_rate_bps=%llu mailbox_raw=0x%08lx",
+                       "OK RATE_STATUS mode=dynamic_verified_125mhz_cpll_qpll_profiles current_rate=%lu current_rate_id=%lu rate_state=%s error_code=%s gt_drp_written=%lu mmcm_drp_written=%lu gt_drp_done=%lu mmcm_drp_done=%lu gt_ready=%lu raw=0x%08lx txusrclk2_hz=%lu eom_clk_hz=%lu eom_K=%u eom_bits_per_tick=%u runtime_state=%s runtime_error=%s runtime_sequence=%lu runtime_current_valid=%u runtime_actual_rate_bps=%llu mailbox_raw=0x%08lx",
                        (unsigned long)current_rate_mbps,
                        (unsigned long)current_rate_id,
                        laser_gt_rate_state_name(rate_state),
@@ -545,6 +555,14 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
                        (unsigned long)((gt_status & LASER_GT_STATUS_MMCM_DRP_DONE) != 0U),
                        (unsigned long)laser_gt_is_ready(gt_status),
                        (unsigned long)gt_status,
+                       (unsigned long)(active_fixed_profile != NULL ?
+                           active_fixed_profile->expected_txusrclk2_hz : 0U),
+                       (unsigned long)(active_fixed_profile != NULL ?
+                           active_fixed_profile->eom_clk_hz : 0U),
+                       (unsigned int)(active_fixed_profile != NULL ?
+                           (1U << active_fixed_profile->eom_subdiv_log2) : 0U),
+                       (unsigned int)(active_fixed_profile != NULL ?
+                           active_fixed_profile->serial_bits_per_eom_tick : 0U),
                        laser_runtime_rate_switch_state_name(runtime_status.state),
                        laser_runtime_rate_switch_error_name(runtime_status.error),
                        (unsigned long)runtime_status.sequence,
@@ -552,6 +570,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
                        (unsigned long long)(runtime_status.current_plan_valid ?
                            runtime_status.current_plan.actual_line_rate_bps : 0ULL),
                        (unsigned long)runtime_status.mailbox.raw);
+        }
         return;
     }
 
@@ -591,7 +610,7 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
         plan_status = gt_rate_plan_nearest(target_mbps, &plan);
         if (plan_status == GT_RATE_PLAN_OK && plan.result == GT_RATE_PLAN_EXACT) {
             (void)snprintf(response, response_size,
-                           "OK RATE_PLAN result=EXACT requested=%lu selected=%lu rate_id=%lu refclk=%lu pll=%s QPLL_N=%u TXOUT_DIV=%u expected_txusrclk2=%lu freq_counter_min=%lu freq_counter_max=%lu qpll_required=%u ad9528_dynamic_required=%u verified=%u",
+                           "OK RATE_PLAN result=EXACT requested=%lu selected=%lu rate_id=%lu refclk=%lu pll=%s QPLL_N=%u TXOUT_DIV=%u expected_txusrclk2=%lu eom_clk_hz=%lu eom_K=%u eom_bits_per_tick=%u freq_counter_min=%lu freq_counter_max=%lu qpll_required=%u ad9528_dynamic_required=%u verified=%u",
                            (unsigned long)plan.requested_rate_mbps,
                            (unsigned long)plan.selected_rate_mbps,
                            (unsigned long)plan.selected_rate_id,
@@ -600,6 +619,9 @@ static void handle_rate_command(LaserGpio *gpio, char **cursor, char *response,
                            (unsigned int)plan.profile->qpll_n,
                            (unsigned int)plan.profile->txout_div,
                            (unsigned long)plan.profile->expected_txusrclk2_hz,
+                           (unsigned long)plan.profile->eom_clk_hz,
+                           (unsigned int)(1U << plan.profile->eom_subdiv_log2),
+                           (unsigned int)plan.profile->serial_bits_per_eom_tick,
                            (unsigned long)plan.profile->freq_counter_min,
                            (unsigned long)plan.profile->freq_counter_max,
                            (unsigned int)plan.profile->qpll_required,
@@ -1058,85 +1080,108 @@ static void handle_udp_command(LaserGpio *gpio,
 
     if (token_equals(command, "WRITE_CONFIG")) {
         LaserConfig config;
-        uint32_t index;
-        uint32_t gap_len_bits;
-        uint32_t insert_after;
-        uint32_t prbs_order;
-        uint32_t phase_shift_en;
-        uint32_t loop_en;
+        uint32_t index, repeat, prbs, direct_source, direct_len_127;
+        uint32_t phase_shift_en, loop_en, head, eom_enable, eom_index;
+        uint32_t eom_lead, eom_trail, gap_value;
+        uint32_t gap_index;
 
+        memset(&config, 0, sizeof(config));
         if (parse_u32_arg(&cursor, &index) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &config.seed) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &config.repeat_cycles) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &gap_len_bits) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &insert_after) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &prbs_order) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &repeat) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &prbs) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &direct_source) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &direct_len_127) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &phase_shift_en) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &loop_en) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &head) != XST_SUCCESS) {
+            (void)snprintf(response, response_size, "ERR WRITE_CONFIG_ARGS");
+            return;
+        }
+        if (index >= LASER_TX_RECORD_MAX_CONFIGS || repeat < 1U ||
+            repeat > LASER_TX_RECORD_MAX_REPEAT || prbs > 255U ||
+            direct_source > 1U || direct_len_127 > 1U ||
+            phase_shift_en > 1U || loop_en > 1U || head > 255U) {
+            (void)snprintf(response, response_size, "ERR WRITE_CONFIG_RANGE");
+            return;
+        }
+
+        config.repeat_cycles = (uint8_t)repeat;
+        config.prbs_order = (uint8_t)prbs;
+        config.direct_source = (uint8_t)direct_source;
+        config.direct_len_127 = (uint8_t)direct_len_127;
+        config.phase_shift_en = (uint8_t)phase_shift_en;
+        config.loop_en = (uint8_t)loop_en;
+        config.head_delay_bits = (uint8_t)head;
+        for (gap_index = 0U; gap_index + 1U < repeat; ++gap_index) {
+            if (parse_u32_arg(&cursor, &gap_value) != XST_SUCCESS ||
+                gap_value > 255U) {
+                (void)snprintf(response, response_size,
+                               "ERR WRITE_CONFIG_GAP index=%lu",
+                               (unsigned long)gap_index);
+                return;
+            }
+            config.gap_len_bits[gap_index] = (uint8_t)gap_value;
+        }
+
+        if (parse_u32_arg(&cursor, &eom_enable) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &eom_index) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &eom_lead) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &eom_trail) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &config.pattern_low) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &config.pattern_mid) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &config.pattern_high) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &config.pattern_top) != XST_SUCCESS ||
             command_has_extra_arg(&cursor)) {
-            (void)snprintf(response, response_size,
-                           "ERR WRITE_CONFIG_ARGS");
+            (void)snprintf(response, response_size, "ERR WRITE_CONFIG_ARGS");
             return;
         }
-
-        if (index > 255U || gap_len_bits > 255U ||
-            insert_after > 65535U || prbs_order > 255U ||
-            phase_shift_en > 1U || loop_en > 1U) {
-            (void)snprintf(response, response_size,
-                           "ERR WRITE_CONFIG_RANGE");
+        if (eom_enable > 1U || eom_index > 2047U ||
+            eom_lead > 65535U || eom_trail > 65535U) {
+            (void)snprintf(response, response_size, "ERR WRITE_CONFIG_RANGE");
             return;
         }
+        config.eom_enable = (uint8_t)eom_enable;
+        config.eom_global_pattern_index = (uint16_t)eom_index;
+        config.eom_lead_ticks = (uint16_t)eom_lead;
+        config.eom_trail_ticks = (uint16_t)eom_trail;
 
-        config.gap_len_bits = (uint8_t)gap_len_bits;
-        config.insert_after = (uint16_t)insert_after;
-        config.prbs_order = (uint8_t)prbs_order;
-        config.phase_shift_en = (uint8_t)phase_shift_en;
-        config.loop_en = (uint8_t)loop_en;
-
+        if (laser_bram_validate_config(&config) != XST_SUCCESS) {
+            (void)snprintf(response, response_size,
+                           "ERR WRITE_CONFIG_SEMANTICS");
+            return;
+        }
         if (laser_bram_write_config((uint8_t)index, &config) != XST_SUCCESS ||
             laser_bram_verify_config((uint8_t)index, &config) != XST_SUCCESS) {
             (void)snprintf(response, response_size,
                            "ERR WRITE_CONFIG_VERIFY");
             return;
         }
-
-        (void)snprintf(response, response_size, "OK WRITE_CONFIG %lu",
-                       (unsigned long)index);
+        (void)snprintf(response, response_size,
+                       "OK WRITE_CONFIG index=%lu repeat=%lu gaps=%lu format=2 words=16",
+                       (unsigned long)index, (unsigned long)repeat,
+                       (unsigned long)(repeat - 1U));
         return;
     }
 
     if (token_equals(command, "SELECT_CONFIG")) {
         uint32_t index;
-        uint32_t direct_source;
-        uint32_t direct_len_127;
-
         if (parse_u32_arg(&cursor, &index) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &direct_source) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &direct_len_127) != XST_SUCCESS ||
             command_has_extra_arg(&cursor)) {
             (void)snprintf(response, response_size,
                            "ERR SELECT_CONFIG_ARGS");
             return;
         }
-        if (index > 255U || direct_source > 1U || direct_len_127 > 1U) {
+        if (index >= LASER_TX_RECORD_MAX_CONFIGS) {
             (void)snprintf(response, response_size,
                            "ERR SELECT_CONFIG_RANGE");
             return;
         }
-        laser_gpio_select_config(gpio, (uint8_t)index,
-                                 direct_source != 0U,
-                                 direct_len_127 != 0U);
-        (void)snprintf(response, response_size, "OK SELECT_CONFIG %lu %lu %lu",
-                       (unsigned long)index,
-                       (unsigned long)direct_source,
-                       (unsigned long)direct_len_127);
+        laser_gpio_select_config(gpio, (uint8_t)index);
+        (void)snprintf(response, response_size,
+                       "OK SELECT_CONFIG index=%lu", (unsigned long)index);
         return;
     }
-
     if (token_equals(command, "APPLY")) {
         laser_gpio_toggle_apply(gpio);
         (void)snprintf(response, response_size, "OK APPLY");
@@ -1240,7 +1285,7 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed verified CPLL/QPLL profiles plus AD9528 OUT0 runtime planning, transactional GT/MMCM reconfiguration and frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG SELECT_CONFIG APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG(index seed repeat prbs direct direct127 phase loop head gaps... eom idx lead trail pat0 pat1 pat2 pat3) SELECT_CONFIG(index) APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);

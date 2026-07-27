@@ -24,6 +24,7 @@ module laser_gt_usrclk_profile0 (
     input  wire        mmcm_dwe_in,
     output wire txusrclk_out,
     output wire txusrclk2_out,
+    output wire eom_clk_out,
     output wire mmcm_locked_out
 );
     wire txoutclk_buf;
@@ -32,7 +33,7 @@ module laser_gt_usrclk_profile0 (
     wire clkout1_txusrclk;
     wire clkout0b_unused;
     wire clkout1b_unused;
-    wire clkout2_unused;
+    wire clkout2_eom;
     wire clkout2b_unused;
     wire clkout3_unused;
     wire clkout3b_unused;
@@ -55,19 +56,19 @@ module laser_gt_usrclk_profile0 (
         .COMPENSATION         ("ZHOLD"),
         .STARTUP_WAIT         ("FALSE"),
         .DIVCLK_DIVIDE        (1),
-        .CLKFBOUT_MULT_F      (39.0),
+        .CLKFBOUT_MULT_F      (40.0),
         .CLKFBOUT_PHASE       (0.000),
         .CLKFBOUT_USE_FINE_PS ("FALSE"),
         .CLKIN1_PERIOD        (64.000),
-        .CLKOUT0_DIVIDE_F     (78.0),
+        .CLKOUT0_DIVIDE_F     (80.0),
         .CLKOUT0_PHASE        (0.000),
         .CLKOUT0_DUTY_CYCLE   (0.500),
         .CLKOUT0_USE_FINE_PS  ("FALSE"),
-        .CLKOUT1_DIVIDE       (39),
+        .CLKOUT1_DIVIDE       (40),
         .CLKOUT1_PHASE        (0.000),
         .CLKOUT1_DUTY_CYCLE   (0.500),
         .CLKOUT1_USE_FINE_PS  ("FALSE"),
-        .CLKOUT2_DIVIDE       (1),
+        .CLKOUT2_DIVIDE       (5),
         .CLKOUT2_PHASE        (0.000),
         .CLKOUT2_DUTY_CYCLE   (0.500),
         .CLKOUT2_USE_FINE_PS  ("FALSE"),
@@ -83,7 +84,7 @@ module laser_gt_usrclk_profile0 (
         .CLKOUT0B            (clkout0b_unused),
         .CLKOUT1             (clkout1_txusrclk),
         .CLKOUT1B            (clkout1b_unused),
-        .CLKOUT2             (clkout2_unused),
+        .CLKOUT2             (clkout2_eom),
         .CLKOUT2B            (clkout2b_unused),
         .CLKOUT3             (clkout3_unused),
         .CLKOUT3B            (clkout3b_unused),
@@ -120,5 +121,10 @@ module laser_gt_usrclk_profile0 (
     BUFG u_txusrclk_bufg (
         .I(clkout1_txusrclk),
         .O(txusrclk_out)
+    );
+
+    BUFG u_eom_clk_bufg (
+        .I(clkout2_eom),
+        .O(eom_clk_out)
     );
 endmodule

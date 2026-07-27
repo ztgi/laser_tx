@@ -30,23 +30,13 @@ void laser_gpio_write_control(LaserGpio *gpio, uint32_t value)
     XGpio_DiscreteWrite(&gpio->instance, LASER_GPIO_CTRL_CHANNEL, value);
 }
 
-void laser_gpio_select_config(LaserGpio *gpio, uint8_t index,
-                              int direct_source, int direct_len_127)
+void laser_gpio_select_config(LaserGpio *gpio, uint8_t index)
 {
     uint32_t value = gpio->control_shadow;
-
-    value &= ~(LASER_CTRL_INDEX_MASK | LASER_CTRL_DIRECT_SOURCE |
-               LASER_CTRL_DIRECT_LEN_127);
+    value &= ~LASER_CTRL_INDEX_MASK;
     value |= (uint32_t)index;
-    if (direct_source) {
-        value |= LASER_CTRL_DIRECT_SOURCE;
-    }
-    if (direct_len_127) {
-        value |= LASER_CTRL_DIRECT_LEN_127;
-    }
     laser_gpio_write_control(gpio, value);
 }
-
 void laser_gpio_soft_reset(LaserGpio *gpio)
 {
     laser_gpio_write_control(gpio, gpio->control_shadow | LASER_CTRL_SOFT_RESET);

@@ -33,6 +33,9 @@ typedef struct {
     GtRatePllSource pll_source;
     uint32_t refclk_hz;
     uint32_t expected_txusrclk2_hz;
+    uint32_t eom_clk_hz;
+    uint8_t eom_subdiv_log2;
+    uint8_t serial_bits_per_eom_tick;
     uint32_t freq_counter_min;
     uint32_t freq_counter_max;
     uint16_t cpll_drp_value;

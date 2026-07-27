@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0xB5BBC63713DF00DA",
+      "boundary_crc": "0x60E2A25C08E40469",
       "device": "xc7z100ffg900-2",
       "gen_directory": "../../../../laser_tx.gen/sources_1/bd/system",
       "name": "system",
@@ -24,6 +24,7 @@
       "axi_gpio_dynamic_mailbox": "",
       "axi_bram_dyn_desc": "",
       "blk_mem_dyn_desc": "",
+      "axi_bram_dyn_desc_bram": "",
       "laser_tx_core_0": ""
     },
     "interface_ports": {
@@ -580,6 +581,17 @@
         "direction": "I",
         "left": "31",
         "right": "0"
+      },
+      "eom_clk": {
+        "direction": "I"
+      },
+      "eom_subdiv_log2": {
+        "direction": "I",
+        "left": "2",
+        "right": "0"
+      },
+      "eom_clock_safe": {
+        "direction": "I"
       }
     },
     "components": {
@@ -1936,7 +1948,7 @@
         },
         "hdl_attributes": {
           "BMM_INFO_ADDRESS_SPACE": {
-            "value": "byte  0x42000000 32 > system blk_mem_dyn_desc",
+            "value": "byte  0x42000000 32 > system axi_bram_dyn_desc_bram",
             "value_src": "default"
           },
           "KEEP_HIERARCHY": {
@@ -1973,6 +1985,12 @@
             "value": "32"
           }
         }
+      },
+      "axi_bram_dyn_desc_bram": {
+        "vlnv": "xilinx.com:ip:blk_mem_gen:8.4",
+        "xci_name": "system_axi_bram_dyn_desc_bram_0",
+        "xci_path": "ip\\system_axi_bram_dyn_desc_bram_0\\system_axi_bram_dyn_desc_bram_0.xci",
+        "inst_hier_path": "axi_bram_dyn_desc_bram"
       },
       "laser_tx_core_0": {
         "vlnv": "xilinx.com:module_ref:laser_tx_core:1.0",
@@ -2081,6 +2099,18 @@
             }
           },
           "txusrclk2": {
+            "direction": "I"
+          },
+          "eom_clk": {
+            "type": "clk",
+            "direction": "I"
+          },
+          "eom_subdiv_log2": {
+            "direction": "I",
+            "left": "2",
+            "right": "0"
+          },
+          "eom_clock_safe": {
             "direction": "I"
           },
           "tx_rst": {
@@ -2196,6 +2226,12 @@
         "interface_ports": [
           "axi_bram_dyn_desc/BRAM_PORTA",
           "blk_mem_dyn_desc/BRAM_PORTA"
+        ]
+      },
+      "axi_bram_dyn_desc_BRAM_PORTB": {
+        "interface_ports": [
+          "axi_bram_dyn_desc_bram/BRAM_PORTA",
+          "axi_bram_dyn_desc/BRAM_PORTB"
         ]
       },
       "axi_smc_M00_AXI": {
@@ -2567,6 +2603,24 @@
         "ports": [
           "dynamic_rate_debug_bus",
           "ila_laser_axi_cfg/probe50"
+        ]
+      },
+      "eom_clk_1": {
+        "ports": [
+          "eom_clk",
+          "laser_tx_core_0/eom_clk"
+        ]
+      },
+      "eom_clock_safe_1": {
+        "ports": [
+          "eom_clock_safe",
+          "laser_tx_core_0/eom_clock_safe"
+        ]
+      },
+      "eom_subdiv_log2_1": {
+        "ports": [
+          "eom_subdiv_log2",
+          "laser_tx_core_0/eom_subdiv_log2"
         ]
       },
       "gt_ready_1": {

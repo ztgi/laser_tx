@@ -519,17 +519,18 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_500m;
         input [4:0] index;
         begin
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_500m = 16'hffff;
-            5'd1:  mmcm_data_500m = 16'h14d4;
-            5'd2:  mmcm_data_500m = 16'h0080;
+            5'd1:  mmcm_data_500m = 16'h1514;
+            5'd2:  mmcm_data_500m = 16'h0000;
             5'd3:  mmcm_data_500m = 16'h1041;
-            5'd4:  mmcm_data_500m = 16'h19e7;
+            5'd4:  mmcm_data_500m = 16'h1a28;
             5'd5:  mmcm_data_500m = 16'h0000;
-            5'd6:  mmcm_data_500m = 16'h14d4;
-            5'd7:  mmcm_data_500m = 16'h0080;
-            5'd8:  mmcm_data_500m = 16'h1041;
-            5'd9:  mmcm_data_500m = 16'h00c0;
+            5'd6:  mmcm_data_500m = 16'h1514;
+            5'd7:  mmcm_data_500m = 16'h0000;
+            5'd8:  mmcm_data_500m = 16'h1083;
+            5'd9:  mmcm_data_500m = 16'h0080;
             5'd10: mmcm_data_500m = 16'h00fa;
             5'd11: mmcm_data_500m = 16'h7c01;
             5'd12: mmcm_data_500m = 16'h7de9;
@@ -542,6 +543,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_1000m;
         input [4:0] index;
         begin
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_1000m = 16'hffff;
             5'd1:  mmcm_data_1000m = 16'h128a;
@@ -551,8 +553,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_1000m = 16'h0000;
             5'd6:  mmcm_data_1000m = 16'h128a;
             5'd7:  mmcm_data_1000m = 16'h0000;
-            5'd8:  mmcm_data_1000m = 16'h1041;
-            5'd9:  mmcm_data_1000m = 16'h00c0;
+            5'd8:  mmcm_data_1000m = 16'h1083;
+            5'd9:  mmcm_data_1000m = 16'h0080;
             5'd10: mmcm_data_1000m = 16'h00f4;
             5'd11: mmcm_data_1000m = 16'h7c01;
             5'd12: mmcm_data_1000m = 16'h7de9;
@@ -565,6 +567,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_2000m;
         input [4:0] index;
         begin
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_2000m = 16'hffff;
             5'd1:  mmcm_data_2000m = 16'h1145;
@@ -574,8 +577,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_2000m = 16'h0000;
             5'd6:  mmcm_data_2000m = 16'h1145;
             5'd7:  mmcm_data_2000m = 16'h0000;
-            5'd8:  mmcm_data_2000m = 16'h1041;
-            5'd9:  mmcm_data_2000m = 16'h00c0;
+            5'd8:  mmcm_data_2000m = 16'h1083;
+            5'd9:  mmcm_data_2000m = 16'h0080;
             5'd10: mmcm_data_2000m = 16'h01e8;
             5'd11: mmcm_data_2000m = 16'h7001;
             5'd12: mmcm_data_2000m = 16'h71e9;
@@ -588,6 +591,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_1250m;
         input [4:0] index;
         begin
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_1250m = 16'hffff;
             5'd1:  mmcm_data_1250m = 16'h1208;
@@ -597,8 +601,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_1250m = 16'h0000;
             5'd6:  mmcm_data_1250m = 16'h1208;
             5'd7:  mmcm_data_1250m = 16'h0000;
-            5'd8:  mmcm_data_1250m = 16'h1041;
-            5'd9:  mmcm_data_1250m = 16'h00c0;
+            5'd8:  mmcm_data_1250m = 16'h1082;
+            5'd9:  mmcm_data_1250m = 16'h0000;
             5'd10: mmcm_data_1250m = 16'h0171;
             5'd11: mmcm_data_1250m = 16'h7c01;
             5'd12: mmcm_data_1250m = 16'h7de9;
@@ -611,6 +615,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_2500m;
         input [4:0] index;
         begin
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_2500m = 16'hffff;
             5'd1:  mmcm_data_2500m = 16'h1104;
@@ -620,8 +625,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_2500m = 16'h0000;
             5'd6:  mmcm_data_2500m = 16'h1104;
             5'd7:  mmcm_data_2500m = 16'h0000;
-            5'd8:  mmcm_data_2500m = 16'h1041;
-            5'd9:  mmcm_data_2500m = 16'h00c0;
+            5'd8:  mmcm_data_2500m = 16'h1082;
+            5'd9:  mmcm_data_2500m = 16'h0000;
             5'd10: mmcm_data_2500m = 16'h01e8;
             5'd11: mmcm_data_2500m = 16'h5801;
             5'd12: mmcm_data_2500m = 16'h59e9;
@@ -634,6 +639,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_5000m;
         input [4:0] index;
         begin
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_5000m = 16'hffff;
             5'd1:  mmcm_data_5000m = 16'h1082;
@@ -643,8 +649,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_5000m = 16'h0000;
             5'd6:  mmcm_data_5000m = 16'h1082;
             5'd7:  mmcm_data_5000m = 16'h0000;
-            5'd8:  mmcm_data_5000m = 16'h1041;
-            5'd9:  mmcm_data_5000m = 16'h00c0;
+            5'd8:  mmcm_data_5000m = 16'h1082;
+            5'd9:  mmcm_data_5000m = 16'h0000;
             5'd10: mmcm_data_5000m = 16'h01e8;
             5'd11: mmcm_data_5000m = 16'h2c01;
             5'd12: mmcm_data_5000m = 16'h2de9;
@@ -657,9 +663,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_3125m;
         input [4:0] index;
         begin
-            // TXOUTCLK=97.65625MHz, VCO=781.25MHz:
-            // CLKFBOUT_MULT=8, CLKOUT1_DIVIDE=8, CLKOUT0_DIVIDE=16.
-            // Encoded by the same Xilinx VPHY MMCME2 method used for 2500M.
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_3125m = 16'hffff;
             5'd1:  mmcm_data_3125m = 16'h1104;
@@ -669,8 +673,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_3125m = 16'h0000;
             5'd6:  mmcm_data_3125m = 16'h1104;
             5'd7:  mmcm_data_3125m = 16'h0000;
-            5'd8:  mmcm_data_3125m = 16'h1041;
-            5'd9:  mmcm_data_3125m = 16'h00c0;
+            5'd8:  mmcm_data_3125m = 16'h1082;
+            5'd9:  mmcm_data_3125m = 16'h0000;
             5'd10: mmcm_data_3125m = 16'h01e8;
             5'd11: mmcm_data_3125m = 16'h5801;
             5'd12: mmcm_data_3125m = 16'h59e9;
@@ -683,9 +687,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_6250m;
         input [4:0] index;
         begin
-            // TXOUTCLK=195.3125MHz, VCO=781.25MHz:
-            // CLKFBOUT_MULT=4, CLKOUT1_DIVIDE=4, CLKOUT0_DIVIDE=8.
-            // Encoded by the same Xilinx VPHY MMCME2 method used for 5000M.
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_6250m = 16'hffff;
             5'd1:  mmcm_data_6250m = 16'h1082;
@@ -695,8 +697,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_6250m = 16'h0000;
             5'd6:  mmcm_data_6250m = 16'h1082;
             5'd7:  mmcm_data_6250m = 16'h0000;
-            5'd8:  mmcm_data_6250m = 16'h1041;
-            5'd9:  mmcm_data_6250m = 16'h00c0;
+            5'd8:  mmcm_data_6250m = 16'h1082;
+            5'd9:  mmcm_data_6250m = 16'h0000;
             5'd10: mmcm_data_6250m = 16'h01e8;
             5'd11: mmcm_data_6250m = 16'h2c01;
             5'd12: mmcm_data_6250m = 16'h2de9;
@@ -709,14 +711,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_10000m;
         input [4:0] index;
         begin
-            // 10.000G QPLL parameter package, not yet exposed as a supported
-            // runtime profile in this stage.
-            // TXOUTCLK=312.5MHz, VCO=625MHz:
-            // CLKFBOUT_MULT=2, DIVCLK_DIVIDE=1,
-            // CLKOUT1_DIVIDE=2 -> TXUSRCLK=312.5MHz,
-            // CLKOUT0_DIVIDE=4 -> TXUSRCLK2=156.25MHz.
-            // Encoded by the same Xilinx VPHY MMCME2 method used for the
-            // existing CPLL profiles.
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_10000m = 16'hffff;
             5'd1:  mmcm_data_10000m = 16'h1041;
@@ -726,8 +721,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_10000m = 16'h0000;
             5'd6:  mmcm_data_10000m = 16'h1041;
             5'd7:  mmcm_data_10000m = 16'h0000;
-            5'd8:  mmcm_data_10000m = 16'h1041;
-            5'd9:  mmcm_data_10000m = 16'h00c0;
+            5'd8:  mmcm_data_10000m = 16'h1082;
+            5'd9:  mmcm_data_10000m = 16'h0000;
             5'd10: mmcm_data_10000m = 16'h01e8;
             5'd11: mmcm_data_10000m = 16'h1801;
             5'd12: mmcm_data_10000m = 16'h19e9;
@@ -740,21 +735,18 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_625m;
         input [4:0] index;
         begin
-            // Isolated 625M/125MHz/CPLL Wizard package:
-            // TXOUTCLK=19.53125MHz, DIVCLK=1, MULT=31,
-            // CLKOUT0=62 (TXUSRCLK2=9.765625MHz),
-            // CLKOUT1=31 (TXUSRCLK=19.53125MHz).
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_625m = 16'hffff;
-            5'd1:  mmcm_data_625m = 16'h13d0;
-            5'd2:  mmcm_data_625m = 16'h0080;
+            5'd1:  mmcm_data_625m = 16'h1410;
+            5'd2:  mmcm_data_625m = 16'h0000;
             5'd3:  mmcm_data_625m = 16'h1041;
-            5'd4:  mmcm_data_625m = 16'h17df;
+            5'd4:  mmcm_data_625m = 16'h1820;
             5'd5:  mmcm_data_625m = 16'h0000;
-            5'd6:  mmcm_data_625m = 16'h13d0;
-            5'd7:  mmcm_data_625m = 16'h0080;
-            5'd8:  mmcm_data_625m = 16'h1041;
-            5'd9:  mmcm_data_625m = 16'h00c0;
+            5'd6:  mmcm_data_625m = 16'h1410;
+            5'd7:  mmcm_data_625m = 16'h0000;
+            5'd8:  mmcm_data_625m = 16'h1082;
+            5'd9:  mmcm_data_625m = 16'h0000;
             5'd10: mmcm_data_625m = 16'h002c;
             5'd11: mmcm_data_625m = 16'h7c01;
             5'd12: mmcm_data_625m = 16'h7de9;
@@ -767,10 +759,7 @@ module laser_gt_rate_switch_500m_1000m #(
     function [15:0] mmcm_data_4000m;
         input [4:0] index;
         begin
-            // Isolated 4000M/125MHz/CPLL Wizard package:
-            // TXOUTCLK=125MHz, DIVCLK=1, MULT=5,
-            // CLKOUT0=10 (TXUSRCLK2=62.5MHz),
-            // CLKOUT1=5 (TXUSRCLK=125MHz).
+            // CLKOUT2 is the related EOM clock for this fixed profile.
             case (index)
             5'd0:  mmcm_data_4000m = 16'hffff;
             5'd1:  mmcm_data_4000m = 16'h1083;
@@ -780,8 +769,8 @@ module laser_gt_rate_switch_500m_1000m #(
             5'd5:  mmcm_data_4000m = 16'h0000;
             5'd6:  mmcm_data_4000m = 16'h1083;
             5'd7:  mmcm_data_4000m = 16'h0080;
-            5'd8:  mmcm_data_4000m = 16'h1041;
-            5'd9:  mmcm_data_4000m = 16'h00c0;
+            5'd8:  mmcm_data_4000m = 16'h1083;
+            5'd9:  mmcm_data_4000m = 16'h0080;
             5'd10: mmcm_data_4000m = 16'h01e8;
             5'd11: mmcm_data_4000m = 16'h3801;
             5'd12: mmcm_data_4000m = 16'h39e9;
@@ -790,7 +779,6 @@ module laser_gt_rate_switch_500m_1000m #(
             endcase
         end
     endfunction
-
     function [15:0] mmcm_data_for_seq;
         input [3:0] seq_id;
         input [4:0] index;

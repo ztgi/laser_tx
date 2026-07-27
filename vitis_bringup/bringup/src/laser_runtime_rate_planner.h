@@ -77,6 +77,9 @@ typedef struct {
     uint32_t txoutclk_hz;
     uint32_t txusrclk_hz;
     uint32_t txusrclk2_hz;
+    uint32_t eom_clk_hz;
+    uint8_t eom_subdiv_log2;
+    uint8_t serial_bits_per_eom_tick;
     uint32_t verify_expected_count;
     uint32_t verify_tolerance;
 
