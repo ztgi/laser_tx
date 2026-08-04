@@ -140,8 +140,15 @@ proc find_axi_fclk_clock {} {
 set axi_clock [find_axi_fclk_clock]
 puts "INFO: GT Profile 0 CDC AXI/FCLK clock used: $axi_clock"
 
-set txoutclk_pin [get_pins -quiet \
-    u_laser_gt_tx_profile0/u_gtwizard_0/inst/gtwizard_0_i/gt0_gtwizard_0_i/gtxe2_i/TXOUTCLK]
+# The maintained adapter binds the local XCI lower module directly.  Resolve
+# the primitive pin by cell/pin identity rather than the generated wrapper
+# path, so imported and adapter-backed hierarchies use the same clock model.
+set txoutclk_pin [get_pins -hier -quiet -filter \
+    {REF_NAME == GTXE2_CHANNEL && REF_PIN_NAME == TXOUTCLK}]
+if {[llength $txoutclk_pin] != 1} {
+    set txoutclk_pin [get_pins -quiet \
+        u_laser_gt_tx_profile0/u_gtwizard_0/gt0_gtwizard_0_i/gtxe2_i/TXOUTCLK]
+}
 set mmcm_clkin_pin [get_pins -quiet \
     u_laser_gt_tx_profile0/u_tx_usrclk_profile0/u_txusrclk_mmcm/CLKIN1]
 set mmcm_txusrclk_pin [get_pins -quiet \

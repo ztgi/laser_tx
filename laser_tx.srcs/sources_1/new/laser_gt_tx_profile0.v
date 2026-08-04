@@ -623,7 +623,7 @@ module laser_gt_tx_profile0 (
     assign tx_rst_out   = ~gt_ready_tx;
     assign gt_ready_out = gt_ready_tx;
 
-    gtwizard_0 u_gtwizard_0 (
+    gtwizard_0_adapter u_gtwizard_0 (
         .sysclk_in                    (ctrl_clk),
         .soft_reset_tx_in             (ctrl_rst | rate_gt_tx_reset),
         .soft_reset_rx_in             (1'b1),
