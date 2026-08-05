@@ -16,6 +16,19 @@ set_property IOSTANDARD LVCMOS33 [get_ports acq_trig_out_0]
 set_property PACKAGE_PIN AD16 [get_ports acq_gate_out_0]
 set_property IOSTANDARD LVCMOS33 [get_ports acq_gate_out_0]
 
+# J9 GPIO6 / pin 6 - first valid TX sequence word, widened in TXUSRCLK2.
+set_property PACKAGE_PIN AE17 [get_ports gt_sequence_sync_out]
+set_property IOSTANDARD LVCMOS33 [get_ports gt_sequence_sync_out]
+set_property DRIVE 4 [get_ports gt_sequence_sync_out]
+set_property SLEW SLOW [get_ports gt_sequence_sync_out]
+
+# J9 GPIO9 / pin 9 - ODDR-forwarded TXUSRCLK2 monitor.
+# J9 pin 10 is the adjacent DGND reference for the oscilloscope probe.
+set_property PACKAGE_PIN AD15 [get_ports txusrclk2_monitor_out]
+set_property IOSTANDARD LVCMOS33 [get_ports txusrclk2_monitor_out]
+set_property DRIVE 4 [get_ports txusrclk2_monitor_out]
+set_property SLEW SLOW [get_ports txusrclk2_monitor_out]
+
 # Output delays intentionally omitted until the external receiver clock and
 # setup/hold requirements are known.
 

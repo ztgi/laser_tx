@@ -3,6 +3,10 @@ set repo_root [file dirname $project_file]
 open_project $project_file
 
 set srcset [get_filesets sources_1]
+# Keep the standard automatic source manager for BD/module-reference IP.  The
+# top-synthesis pre-hook explicitly loads the XCI-owned lower GT children when
+# the maintained adapter binds them; no generated HDL is independently added.
+set_property source_mgmt_mode All [current_project]
 set xci [get_files -of_objects $srcset -quiet [file join $repo_root laser_tx.srcs sources_1 ip gtwizard_0 gtwizard_0.xci]]
 if {[llength $xci] != 1} {
     error "Local gtwizard_0.xci was not found in sources_1"
@@ -17,9 +21,10 @@ if {[llength $imported_gt] > 0} {
     remove_files -fileset $srcset $imported_gt
 }
 
-# The XCI remains the source of generated products, but its generated top/init/
-# multi_gt wrappers are not compiled: the adapter binds the lower GT and the
-# generated startup helpers directly.
+# The XCI remains the source of all generated products.  No generated HDL is
+# registered as an independent source; the composite XCI owns its child files.
+# The maintained adapter binds the lower GT and generated startup helpers
+# through that parent/child relationship.
 set generated_wrappers {}
 foreach pat {\
     *laser_tx.gen*sources_1*ip*gtwizard_0*gtwizard_0.v \
@@ -28,14 +33,19 @@ foreach pat {\
     foreach f [get_files -of_objects $srcset -quiet $pat] { lappend generated_wrappers $f }
 }
 if {[llength $generated_wrappers] > 0} {
-    # Keep the XCI composite's generated wrapper layers enabled so Vivado does
-    # not auto-disable the IP parent.  The maintained adapter instantiates the
-    # lower GT directly; these generated wrappers remain uninstantiated audit
-    # sources and are pruned from the production netlist.
     set_property IS_ENABLED true $generated_wrappers
 }
 
 set gen_dir [file join $repo_root laser_tx.gen sources_1 ip gtwizard_0]
+# Refresh/legacy activation can leave a second, standalone registration for a
+# generated Verilog file alongside the XCI-owned composite child.  Remove only
+# that project-file registration; never delete the generated file on disk.
+foreach existing [get_files -of_objects $srcset -quiet *laser_tx.gen*sources_1*ip*gtwizard_0*.v] {
+    if {[catch {set parent [get_property PARENT_COMPOSITE_FILE $existing]}]} { set parent "" }
+    if {$parent eq ""} {
+        remove_files -fileset $srcset $existing
+    }
+}
 set required_generated [list \
     [file join $gen_dir gtwizard_0_gt.v] \
     [file join $gen_dir gtwizard_0_cpll_railing.v] \
@@ -44,16 +54,13 @@ set required_generated [list \
     [file join $gen_dir gtwizard_0 example_design gtwizard_0_tx_startup_fsm.v]]
 foreach f $required_generated {
     if {![file exists $f]} { error "Missing local XCI generated source: $f" }
-    set standalone 0
+    set managed 0
     foreach existing [get_files -of_objects $srcset -quiet $f] {
         if {[catch {set parent [get_property PARENT_COMPOSITE_FILE $existing]}]} { set parent "" }
-        if {$parent eq ""} { set standalone 1 }
+        if {[file normalize $parent] eq [file normalize $xci]} { set managed 1 }
     }
-    if {!$standalone} {
-        # Keep the XCI as the authoritative generator, while registering its
-        # generated HDL as an explicit source so the adapter can bind the
-        # lower module even when the unused wizard top is auto-disabled.
-        add_files -fileset $srcset -norecurse $f
+    if {!$managed} {
+        error "Generated GT source is not managed by local gtwizard_0.xci: $f"
     }
 }
 

@@ -16,6 +16,7 @@ module tb_tx_eom_v2;
 
   wire tx_clk=(eom_subdiv_log2==0)?eom_clk:tx_clk_div;
   wire engine_accept;
+  wire first_sequence_word_fire;
   wire task_request_pulse=engine_accept;
   wire geometry_armed_tx,tx_start_level,request_valid_tx,request_busy_tx;
   wire eom_out,eom_active,eom_fired,done_toggle;
@@ -85,10 +86,10 @@ module tb_tx_eom_v2;
       tx_first_word_pending=0;
       $display("TRACE TX_FIRST_WORD time=%0.3f",$realtime);
     end
-    if(engine.running&&!engine_running_seen)begin
+    if(engine.output_running&&!engine_running_seen)begin
       engine_running_seen=1;
       tx_first_word_pending=1;
-    end else if(!engine.running)begin
+    end else if(!engine.output_running)begin
       engine_running_seen=0;
     end
   end
@@ -104,6 +105,7 @@ module tb_tx_eom_v2;
     .head_delay_bits_tx(head_delay_bits),.gap_len_bits_tx(gaps),
     .eom_subdiv_log2_tx(eom_subdiv_log2),
     .eom_clk(eom_clk),.clock_safe(clock_safe&&enable&&!rst),
+    .async_output_safe(clock_safe&&enable&&!rst),
     .geometry_armed_tx(geometry_armed_tx),
     .tx_start_level(tx_start_level),
     .request_valid_tx(request_valid_tx),
@@ -130,6 +132,7 @@ module tb_tx_eom_v2;
     .eom_request_valid(request_valid_tx),
     .eom_done_pulse(eom_done_pulse),
     .engine_start_accept_pulse(engine_accept),
+    .first_sequence_word_fire(first_sequence_word_fire),
     .txdata(txdata),.valid_mask(valid_mask),
     .phase_active(phase_active),.phase_start_pulse(phase_start_pulse),
     .sequence_active(sequence_active),.busy(busy),.done(done),

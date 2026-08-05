@@ -43,6 +43,8 @@ module laser_tx_core #(
     output wire        soa_gate_out,
     output wire        acq_trig_out,
     output wire        acq_gate_out,
+    output wire        gt_sequence_sync_out,
+    output wire        txusrclk2_monitor_out,
 
     // Debug-only mirrors. Native BRAM interface members are hidden inside a
     // bundled BD pin, so these mirrors make the read transaction observable
@@ -81,7 +83,6 @@ module laser_tx_core #(
     wire cfg_error_axi;
     wire [7:0] error_code_axi;
     wire cfg_update_toggle_axi;
-    wire [31:0] seed_axi;
     wire [4:0] repeat_cycles_axi;
     wire [7:0] head_delay_bits_axi;
     wire [119:0] gap_len_bits_axi;
@@ -89,12 +90,10 @@ module laser_tx_core #(
     wire [10:0] eom_global_pattern_index_axi;
     wire [15:0] eom_lead_ticks_axi;
     wire [15:0] eom_trail_ticks_axi;
-    wire [7:0] prbs_order_axi;
     wire phase_shift_en_axi;
     wire loop_en_axi;
-    wire source_sel_axi;
     wire [7:0] pattern_len_axi;
-    wire [126:0] direct_pattern_axi;
+    wire [126:0] configured_pattern_axi;
 
     config_loader u_config_loader (
         .clk(axi_clk), .rstn(axi_rstn),
@@ -102,16 +101,16 @@ module laser_tx_core #(
         .bram_en(bram_en), .bram_addr(bram_addr), .bram_dout(bram_dout),
         .cfg_valid(cfg_valid_axi), .cfg_error(cfg_error_axi),
         .error_code(error_code_axi), .cfg_update_toggle(cfg_update_toggle_axi),
-        .seed(seed_axi), .repeat_cycles(repeat_cycles_axi),
+        .repeat_cycles(repeat_cycles_axi),
         .head_delay_bits(head_delay_bits_axi),
         .gap_len_bits(gap_len_bits_axi),
         .eom_enable(eom_enable_axi),
         .eom_global_pattern_index(eom_global_pattern_index_axi),
         .eom_lead_ticks(eom_lead_ticks_axi),
         .eom_trail_ticks(eom_trail_ticks_axi),
-        .prbs_order(prbs_order_axi), .phase_shift_en(phase_shift_en_axi),
-        .loop_en(loop_en_axi), .active_source_sel(source_sel_axi),
-        .pattern_len(pattern_len_axi), .direct_pattern(direct_pattern_axi)
+        .phase_shift_en(phase_shift_en_axi),
+        .loop_en(loop_en_axi), .pattern_len(pattern_len_axi),
+        .configured_pattern(configured_pattern_axi)
     );
 
     // AXI-domain bring-up debug mirrors. These are debug-only internal nets
@@ -121,7 +120,6 @@ module laser_tx_core #(
     (* mark_debug = "true" *) wire        dbg_axi_apply_toggle   = gpio_ctrl[8];
     (* mark_debug = "true" *) wire        dbg_axi_enable         = gpio_ctrl[9];
     (* mark_debug = "true" *) wire        dbg_axi_soft_reset     = gpio_ctrl[10];
-    (* mark_debug = "true" *) wire        dbg_axi_rate_req_toggle = gpio_ctrl[17];
     (* mark_debug = "true" *) wire        dbg_axi_cfg_valid      = cfg_valid_axi;
     (* mark_debug = "true" *) wire        dbg_axi_cfg_error      = cfg_error_axi;
     (* mark_debug = "true" *) reg         dbg_axi_cfg_update_seen;
@@ -139,36 +137,62 @@ module laser_tx_core #(
     end
 
     wire cfg_update_pulse_tx;
-    wire cfg_update_toggle_tx;
     cdc_toggle_sync u_cfg_toggle_sync (
         .dst_clk(txusrclk2), .dst_rst(tx_rst),
         .src_toggle(cfg_update_toggle_axi),
-        .dst_pulse(cfg_update_pulse_tx), .dst_toggle(cfg_update_toggle_tx)
+        .dst_pulse(cfg_update_pulse_tx), .dst_toggle()
     );
 
-    // GPIO levels use two-flop synchronizers. Configuration selection bits are
-    // captured by config_loader and cross only as part of the stable bundle.
-    (* ASYNC_REG = "TRUE" *) reg enable_meta, enable_tx;
+    // Synchronize each independent AXI/control level before combining it in
+    // the TX domain. This prevents combinational control logic from sitting
+    // in front of a synchronizer and keeps the effective enable TX-local.
+    (* ASYNC_REG = "TRUE" *) reg enable_gpio_meta, enable_gpio_tx;
     (* ASYNC_REG = "TRUE" *) reg soft_reset_meta, soft_reset_tx;
+    (* ASYNC_REG = "TRUE" *) reg rate_block_meta, rate_block_tx;
+    (* ASYNC_REG = "TRUE" *) reg eom_clock_safe_meta, eom_clock_safe_tx;
+    (* ASYNC_REG = "TRUE" *) reg cfg_valid_meta_tx, cfg_valid_sync_tx;
+    (* ASYNC_REG = "TRUE" *) reg [2:0] eom_subdiv_meta_tx;
+    (* ASYNC_REG = "TRUE" *) reg [2:0] eom_subdiv_sync_tx;
+    reg eom_operating_safe_tx;
+    wire enable_tx =
+        enable_gpio_tx & gt_ready & eom_clock_safe_tx & ~rate_block_tx;
     always @(posedge txusrclk2) begin
         if (tx_rst) begin
-            enable_meta <= 1'b0;
-            enable_tx <= 1'b0;
+            enable_gpio_meta <= 1'b0;
+            enable_gpio_tx <= 1'b0;
             soft_reset_meta <= 1'b0;
             soft_reset_tx <= 1'b0;
+            rate_block_meta <= 1'b1;
+            rate_block_tx <= 1'b1;
+            eom_clock_safe_meta <= 1'b0;
+            eom_clock_safe_tx <= 1'b0;
+            cfg_valid_meta_tx <= 1'b0;
+            cfg_valid_sync_tx <= 1'b0;
+            eom_subdiv_meta_tx <= 3'd0;
+            eom_subdiv_sync_tx <= 3'd0;
+            eom_operating_safe_tx <= 1'b0;
         end else begin
-            enable_meta <= gpio_ctrl[9] & gt_ready & eom_clock_safe &
-                           ~rate_apply_enable_blocked;
-            enable_tx <= enable_meta;
+            enable_gpio_meta <= gpio_ctrl[9];
+            enable_gpio_tx <= enable_gpio_meta;
             soft_reset_meta <= gpio_ctrl[10];
             soft_reset_tx <= soft_reset_meta;
+            rate_block_meta <= rate_apply_enable_blocked;
+            rate_block_tx <= rate_block_meta;
+            eom_clock_safe_meta <= eom_clock_safe;
+            eom_clock_safe_tx <= eom_clock_safe_meta;
+            cfg_valid_meta_tx <= cfg_valid_axi;
+            cfg_valid_sync_tx <= cfg_valid_meta_tx;
+            eom_subdiv_meta_tx <= eom_subdiv_log2;
+            eom_subdiv_sync_tx <= eom_subdiv_meta_tx;
+            eom_operating_safe_tx <=
+                eom_clock_safe_tx & gt_ready & enable_gpio_tx &
+                ~soft_reset_tx & ~rate_block_tx;
         end
     end
 
     // Multi-bit CDC: source bundle remains unchanged from one apply event until
     // the next. Capture it only after the synchronized update toggle arrives.
     reg cfg_valid_tx;
-    reg [31:0] seed_tx;
     reg [4:0] repeat_cycles_tx;
     reg [7:0] head_delay_bits_tx;
     reg [119:0] gap_len_bits_tx;
@@ -176,12 +200,10 @@ module laser_tx_core #(
     reg [10:0] eom_global_pattern_index_tx;
     reg [15:0] eom_lead_ticks_tx;
     reg [15:0] eom_trail_ticks_tx;
-    reg [7:0] prbs_order_tx;
     reg phase_shift_en_tx;
     reg loop_en_tx;
-    reg source_sel_tx;
     reg [7:0] pattern_len_tx;
-    reg [126:0] direct_pattern_tx;
+    reg [126:0] configured_pattern_tx;
     reg pending_start;
     reg engine_start;
     reg engine_start_toggle_tx;
@@ -189,7 +211,6 @@ module laser_tx_core #(
     always @(posedge txusrclk2) begin
         if (tx_rst) begin
             cfg_valid_tx <= 1'b0;
-            seed_tx <= 32'b0;
             repeat_cycles_tx <= 5'b0;
             head_delay_bits_tx <= 8'b0;
             gap_len_bits_tx <= 120'b0;
@@ -197,12 +218,10 @@ module laser_tx_core #(
             eom_global_pattern_index_tx <= 11'b0;
             eom_lead_ticks_tx <= 16'b0;
             eom_trail_ticks_tx <= 16'b0;
-            prbs_order_tx <= 8'b0;
             phase_shift_en_tx <= 1'b0;
             loop_en_tx <= 1'b0;
-            source_sel_tx <= 1'b0;
             pattern_len_tx <= 8'b0;
-            direct_pattern_tx <= 127'b0;
+            configured_pattern_tx <= 127'b0;
             pending_start <= 1'b0;
             engine_start <= 1'b0;
             engine_start_toggle_tx <= 1'b0;
@@ -212,8 +231,7 @@ module laser_tx_core #(
         end else begin
             engine_start <= 1'b0;
             if (cfg_update_pulse_tx) begin
-                cfg_valid_tx <= cfg_valid_axi;
-                seed_tx <= seed_axi;
+                cfg_valid_tx <= cfg_valid_sync_tx;
                 repeat_cycles_tx <= repeat_cycles_axi;
                 head_delay_bits_tx <= head_delay_bits_axi;
                 gap_len_bits_tx <= gap_len_bits_axi;
@@ -221,13 +239,11 @@ module laser_tx_core #(
                 eom_global_pattern_index_tx <= eom_global_pattern_index_axi;
                 eom_lead_ticks_tx <= eom_lead_ticks_axi;
                 eom_trail_ticks_tx <= eom_trail_ticks_axi;
-                prbs_order_tx <= prbs_order_axi;
                 phase_shift_en_tx <= phase_shift_en_axi;
                 loop_en_tx <= loop_en_axi;
-                source_sel_tx <= source_sel_axi;
                 pattern_len_tx <= pattern_len_axi;
-                direct_pattern_tx <= direct_pattern_axi;
-                pending_start <= cfg_valid_axi;
+                configured_pattern_tx <= configured_pattern_axi;
+                pending_start <= cfg_valid_sync_tx;
             end else if (!enable_tx) begin
                 pending_start <= cfg_valid_tx;
             end else if (pending_start) begin
@@ -256,14 +272,14 @@ module laser_tx_core #(
         end
     end
 
-    wire [126:0] base_pattern;
-    wire pattern_valid_tx;
-    pattern_source u_pattern_source (
-        .cfg_valid(cfg_valid_tx), .source_sel(source_sel_tx),
-        .prbs_order(prbs_order_tx), .pattern_len(pattern_len_tx),
-        .seed(seed_tx), .pattern_in(direct_pattern_tx),
-        .base_pattern(base_pattern), .pattern_valid(pattern_valid_tx)
-    );
+    // The BRAM-configured 63/127-bit cyclic pattern is the only TX pattern
+    // source. config_loader publishes a stable AXI-domain active bundle and
+    // this TX-domain register captures it only on cfg_update_pulse_tx.
+    // pattern_tx_engine takes its own task snapshot when start is accepted.
+    wire [126:0] base_pattern = configured_pattern_tx;
+    wire pattern_valid_tx =
+        cfg_valid_tx &&
+        ((pattern_len_tx == 8'd63) || (pattern_len_tx == 8'd127));
 
     wire phase_active_tx;
     wire phase_start_pulse_tx;
@@ -273,6 +289,7 @@ module laser_tx_core #(
     wire [7:0] phase_offset_tx;
     wire [7:0] current_state_tx;
     wire engine_start_accept_pulse_tx;
+    (* mark_debug = "true" *) wire first_sequence_word_fire_tx;
     wire eom_geometry_armed_tx;
     wire eom_tx_start_level;
     wire eom_request_valid_tx;
@@ -298,9 +315,9 @@ module laser_tx_core #(
     // cannot leave the output high while eom_clk is stopped.
     wire eom_task_abort_tx =
         tx_rst | soft_reset_tx | ~enable_tx | ~gt_ready |
-        rate_apply_enable_blocked | ~eom_clock_safe;
+        rate_block_tx | ~eom_clock_safe_tx;
     wire tx_sequence_reset =
-        tx_rst | soft_reset_tx | ~eom_clock_safe;
+        tx_rst | soft_reset_tx | ~eom_clock_safe_tx;
     wire eom_operating_safe_async =
         eom_clock_safe & gt_ready & gpio_ctrl[9] & ~gpio_ctrl[10] &
         ~rate_apply_enable_blocked & ~tx_rst;
@@ -321,8 +338,10 @@ module laser_tx_core #(
         .phase_shift_en_tx(phase_shift_en_tx),
         .head_delay_bits_tx(head_delay_bits_tx),
         .gap_len_bits_tx(gap_len_bits_tx),
-        .eom_subdiv_log2_tx(eom_subdiv_log2),
-        .eom_clk(eom_clk), .clock_safe(eom_operating_safe_async),
+        .eom_subdiv_log2_tx(eom_subdiv_sync_tx),
+        .eom_clk(eom_clk),
+        .clock_safe(eom_operating_safe_tx),
+        .async_output_safe(eom_operating_safe_async),
         .geometry_armed_tx(eom_geometry_armed_tx),
         .tx_start_level(eom_tx_start_level),
         .request_valid_tx(eom_request_valid_tx),
@@ -358,10 +377,30 @@ module laser_tx_core #(
         .eom_request_valid(eom_request_valid_tx),
         .eom_done_pulse(eom_done_pulse_tx),
         .engine_start_accept_pulse(engine_start_accept_pulse_tx),
+        .first_sequence_word_fire(first_sequence_word_fire_tx),
         .txdata(txdata), .valid_mask(valid_mask),
         .phase_active(phase_active_tx), .phase_start_pulse(phase_start_pulse_tx),
         .sequence_active(sequence_active_tx), .busy(busy_tx), .done(done_tx),
         .phase_offset(phase_offset_tx), .current_state(current_state_tx)
+    );
+
+    // Scope-only observability. The raw event is already registered on the
+    // same TXUSRCLK2 edge as txdata/valid_mask. The widened GPIO pulse retains
+    // that rising edge and is forced low on reset, disable, abort, or GT clock
+    // safety loss. The monitor ODDR is not gated by sequence enable so it can
+    // show the real working TXUSRCLK2 whenever the GT clock path is ready.
+    wire scope_sync_reset_tx =
+        tx_rst | soft_reset_tx | ~enable_tx | ~gt_ready |
+        rate_block_tx | ~eom_clock_safe_tx;
+
+    tx_scope_debug_outputs #(
+        .SYNC_WIDTH_CYCLES(16)
+    ) u_tx_scope_debug_outputs (
+        .txusrclk2(txusrclk2),
+        .reset_tx(scope_sync_reset_tx),
+        .sequence_word_fire(first_sequence_word_fire_tx),
+        .gt_sequence_sync_out(gt_sequence_sync_out),
+        .txusrclk2_monitor_out(txusrclk2_monitor_out)
     );
     sync_signal_gen u_sync_signal_gen (
         .clk(txusrclk2), .rst(tx_sequence_reset),
@@ -382,20 +421,29 @@ module laser_tx_core #(
     assign dbg_engine_start_tx      = engine_start;
     assign dbg_gt_ready_tx          = gt_ready;
 
-    // Synchronize diagnostic status back to the AXI clock domain. These fields
-    // are observability data; bit-to-bit atomicity is not required by control.
-    reg [23:0] status_meta_axi;
-    reg [23:0] status_sync_axi;
+    // Register the complete diagnostic word in the TX domain before crossing
+    // it. This removes combinational status packing from the synchronizer
+    // inputs and gives each TX status source one local registered load.
+    reg [23:0] status_snapshot_tx;
+    (* ASYNC_REG = "TRUE" *) reg [23:0] status_meta_axi;
+    (* ASYNC_REG = "TRUE" *) reg [23:0] status_sync_axi;
     wire [23:0] status_tx_bus = {
         current_state_tx, phase_offset_tx, 1'b0, sequence_active_tx,
         phase_active_tx, done_tx, busy_tx, pattern_valid_tx, 2'b0
     };
+    always @(posedge txusrclk2) begin
+        if (tx_rst)
+            status_snapshot_tx <= 24'b0;
+        else
+            status_snapshot_tx <= status_tx_bus;
+    end
+
     always @(posedge axi_clk) begin
         if (!axi_rstn) begin
             status_meta_axi <= 24'b0;
             status_sync_axi <= 24'b0;
         end else begin
-            status_meta_axi <= status_tx_bus;
+            status_meta_axi <= status_snapshot_tx;
             status_sync_axi <= status_meta_axi;
         end
     end
@@ -403,177 +451,6 @@ module laser_tx_core #(
     (* mark_debug = "true" *) wire dbg_axi_pattern_valid = status_sync_axi[2];
     (* mark_debug = "true" *) wire dbg_axi_busy_tx       = status_sync_axi[3];
     (* mark_debug = "true" *) wire dbg_axi_done_tx       = status_sync_axi[4];
-
-    // Phase-A dry-run rate controller. This AXI-clocked FSM intentionally does
-    // not drive GTX/MMCM DRP and does not modify any TX clocking. It only makes
-    // rate command/status flow observable before the real DRP phase.
-    localparam [7:0] RATE_IDLE                 = 8'h00;
-    localparam [7:0] RATE_REQUEST              = 8'h01;
-    localparam [7:0] RATE_VALIDATE             = 8'h02;
-    localparam [7:0] RATE_QUIESCE_TX           = 8'h03;
-    localparam [7:0] RATE_DRYRUN_SKIP_GT_DRP   = 8'h04;
-    localparam [7:0] RATE_DRYRUN_SKIP_MMCM_DRP = 8'h05;
-    localparam [7:0] RATE_VERIFY_STATIC_STATUS = 8'h06;
-    localparam [7:0] RATE_DONE                 = 8'h07;
-    localparam [7:0] RATE_ERROR                = 8'h80;
-
-    localparam [7:0] RATE_ERR_NONE             = 8'h00;
-    localparam [7:0] RATE_ERR_UNSUPPORTED      = 8'h01;
-    localparam [7:0] RATE_ERR_TX_QUIESCE_TO    = 8'h02;
-    localparam [7:0] RATE_ERR_GT_NOT_READY     = 8'h03;
-
-    localparam [3:0] RATE_ID_NONE              = 4'd0;
-    localparam [3:0] RATE_ID_500M              = 4'd1;
-    localparam [3:0] RATE_ID_1000M             = 4'd2;
-    localparam [3:0] RATE_ID_2000M             = 4'd3;
-    localparam [3:0] RATE_ID_1250M             = 4'd4;
-    localparam [3:0] RATE_ID_2500M             = 4'd5;
-    localparam [3:0] RATE_ID_5000M             = 4'd6;
-    localparam [3:0] RATE_ID_3125M             = 4'd7;
-    localparam [3:0] RATE_ID_6250M             = 4'd8;
-
-    localparam [15:0] CURRENT_STATIC_RATE_MHZ =
-        (CURRENT_STATIC_RATE_MBPS == 500) ? 16'd500 : 16'd1000;
-
-    (* mark_debug = "true" *) reg [7:0]  dbg_axi_rate_state;
-    (* mark_debug = "true" *) reg [3:0]  dbg_axi_target_rate_id;
-    (* mark_debug = "true" *) reg [15:0] dbg_axi_target_rate_mbps;
-    (* mark_debug = "true" *) reg [15:0] dbg_axi_current_rate_mbps;
-    (* mark_debug = "true" *) reg        dbg_axi_dry_run_active;
-    (* mark_debug = "true" *) reg        dbg_axi_dry_run_done;
-    (* mark_debug = "true" *) reg        dbg_axi_rate_error;
-    (* mark_debug = "true" *) reg [7:0]  dbg_axi_rate_error_code;
-    (* mark_debug = "true" *) wire       dbg_axi_gt_drp_write_attempted   = 1'b0;
-    (* mark_debug = "true" *) wire       dbg_axi_mmcm_drp_write_attempted = 1'b0;
-    (* mark_debug = "true" *) reg        dbg_axi_tx_quiesce_req;
-    (* mark_debug = "true" *) reg        dbg_axi_tx_idle_seen;
-
-    reg rate_req_toggle_d_axi;
-    reg [15:0] rate_quiesce_timeout_axi;
-    wire rate_request_event_axi = dbg_axi_rate_req_toggle ^ rate_req_toggle_d_axi;
-    wire [3:0] requested_rate_id_axi = gpio_ctrl[16:13];
-    wire tx_idle_axi = !dbg_axi_busy_tx || dbg_axi_done_tx;
-
-    always @(posedge axi_clk) begin
-        if (!axi_rstn) begin
-            rate_req_toggle_d_axi           <= 1'b0;
-            rate_quiesce_timeout_axi        <= 16'd0;
-            dbg_axi_rate_state              <= RATE_IDLE;
-            dbg_axi_target_rate_id          <= RATE_ID_NONE;
-            dbg_axi_target_rate_mbps        <= 16'd0;
-            dbg_axi_current_rate_mbps       <= CURRENT_STATIC_RATE_MHZ;
-            dbg_axi_dry_run_active          <= 1'b0;
-            dbg_axi_dry_run_done            <= 1'b0;
-            dbg_axi_rate_error              <= 1'b0;
-            dbg_axi_rate_error_code         <= RATE_ERR_NONE;
-            dbg_axi_tx_quiesce_req          <= 1'b0;
-            dbg_axi_tx_idle_seen            <= 1'b0;
-        end else begin
-            rate_req_toggle_d_axi <= dbg_axi_rate_req_toggle;
-
-            if (rate_request_event_axi) begin
-                dbg_axi_rate_state        <= RATE_REQUEST;
-                dbg_axi_target_rate_id    <= requested_rate_id_axi;
-                dbg_axi_dry_run_active    <= 1'b1;
-                dbg_axi_dry_run_done      <= 1'b0;
-                dbg_axi_rate_error        <= 1'b0;
-                dbg_axi_rate_error_code   <= RATE_ERR_NONE;
-                dbg_axi_tx_quiesce_req    <= 1'b0;
-                dbg_axi_tx_idle_seen      <= 1'b0;
-                rate_quiesce_timeout_axi  <= 16'd0;
-                case (requested_rate_id_axi)
-                    RATE_ID_500M:  dbg_axi_target_rate_mbps <= 16'd500;
-                    RATE_ID_1000M: dbg_axi_target_rate_mbps <= 16'd1000;
-                    RATE_ID_2000M: dbg_axi_target_rate_mbps <= 16'd2000;
-                    RATE_ID_1250M: dbg_axi_target_rate_mbps <= 16'd1250;
-                    RATE_ID_2500M: dbg_axi_target_rate_mbps <= 16'd2500;
-                    RATE_ID_5000M: dbg_axi_target_rate_mbps <= 16'd5000;
-                    RATE_ID_3125M: dbg_axi_target_rate_mbps <= 16'd3125;
-                    RATE_ID_6250M: dbg_axi_target_rate_mbps <= 16'd6250;
-                    default:       dbg_axi_target_rate_mbps <= 16'd0;
-                endcase
-            end else begin
-                case (dbg_axi_rate_state)
-                    RATE_IDLE: begin
-                        dbg_axi_dry_run_active <= 1'b0;
-                        dbg_axi_tx_quiesce_req <= 1'b0;
-                    end
-
-                    RATE_REQUEST: begin
-                        dbg_axi_rate_state <= RATE_VALIDATE;
-                    end
-
-                    RATE_VALIDATE: begin
-                        if (dbg_axi_target_rate_id == RATE_ID_500M ||
-                            dbg_axi_target_rate_id == RATE_ID_1000M ||
-                            dbg_axi_target_rate_id == RATE_ID_2000M ||
-                            dbg_axi_target_rate_id == RATE_ID_1250M ||
-                            dbg_axi_target_rate_id == RATE_ID_2500M ||
-                            dbg_axi_target_rate_id == RATE_ID_5000M ||
-                            dbg_axi_target_rate_id == RATE_ID_3125M ||
-                            dbg_axi_target_rate_id == RATE_ID_6250M) begin
-                            dbg_axi_rate_state <= RATE_QUIESCE_TX;
-                        end else begin
-                            dbg_axi_rate_state      <= RATE_ERROR;
-                            dbg_axi_rate_error      <= 1'b1;
-                            dbg_axi_rate_error_code <= RATE_ERR_UNSUPPORTED;
-                        end
-                    end
-
-                    RATE_QUIESCE_TX: begin
-                        dbg_axi_tx_quiesce_req <= 1'b1;
-                        if (tx_idle_axi) begin
-                            dbg_axi_tx_idle_seen <= 1'b1;
-                            dbg_axi_rate_state   <= RATE_DRYRUN_SKIP_GT_DRP;
-                        end else if (rate_quiesce_timeout_axi == 16'hffff) begin
-                            dbg_axi_rate_state      <= RATE_ERROR;
-                            dbg_axi_rate_error      <= 1'b1;
-                            dbg_axi_rate_error_code <= RATE_ERR_TX_QUIESCE_TO;
-                        end else begin
-                            rate_quiesce_timeout_axi <= rate_quiesce_timeout_axi + 1'b1;
-                        end
-                    end
-
-                    RATE_DRYRUN_SKIP_GT_DRP: begin
-                        dbg_axi_rate_state <= RATE_DRYRUN_SKIP_MMCM_DRP;
-                    end
-
-                    RATE_DRYRUN_SKIP_MMCM_DRP: begin
-                        dbg_axi_rate_state <= RATE_VERIFY_STATIC_STATUS;
-                    end
-
-                    RATE_VERIFY_STATIC_STATUS: begin
-                        if (gt_ready) begin
-                            dbg_axi_rate_state <= RATE_DONE;
-                        end else begin
-                            dbg_axi_rate_state      <= RATE_ERROR;
-                            dbg_axi_rate_error      <= 1'b1;
-                            dbg_axi_rate_error_code <= RATE_ERR_GT_NOT_READY;
-                        end
-                    end
-
-                    RATE_DONE: begin
-                        dbg_axi_dry_run_active    <= 1'b0;
-                        dbg_axi_dry_run_done      <= 1'b1;
-                        dbg_axi_tx_quiesce_req    <= 1'b0;
-                        dbg_axi_current_rate_mbps <= CURRENT_STATIC_RATE_MHZ;
-                    end
-
-                    RATE_ERROR: begin
-                        dbg_axi_dry_run_active <= 1'b0;
-                        dbg_axi_dry_run_done   <= 1'b0;
-                        dbg_axi_tx_quiesce_req <= 1'b0;
-                    end
-
-                    default: begin
-                        dbg_axi_rate_state      <= RATE_ERROR;
-                        dbg_axi_rate_error      <= 1'b1;
-                        dbg_axi_rate_error_code <= RATE_ERR_UNSUPPORTED;
-                    end
-                endcase
-            end
-        end
-    end
 
     status_register u_status_register (
         .cfg_valid(cfg_valid_axi), .cfg_error(cfg_error_axi),
@@ -585,5 +462,4 @@ module laser_tx_core #(
         .error_code(error_code_axi), .gpio_status(gpio_status)
     );
 
-    wire unused_cfg_toggle = cfg_update_toggle_tx;
 endmodule

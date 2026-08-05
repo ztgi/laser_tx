@@ -1158,7 +1158,7 @@ static void handle_udp_command(LaserGpio *gpio,
             return;
         }
         (void)snprintf(response, response_size,
-                       "OK WRITE_CONFIG index=%lu repeat=%lu gaps=%lu format=2 words=16",
+                       "OK WRITE_CONFIG index=%lu repeat=%lu gaps=%lu format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED",
                        (unsigned long)index, (unsigned long)repeat,
                        (unsigned long)(repeat - 1U));
         return;
@@ -1285,7 +1285,8 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed verified CPLL/QPLL profiles plus AD9528 OUT0 runtime planning, transactional GT/MMCM reconfiguration and frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG(index seed repeat prbs direct direct127 phase loop head gaps... eom idx lead trail pat0 pat1 pat2 pat3) SELECT_CONFIG(index) APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG(index seed_reserved repeat prbs_reserved source_reserved pattern127 phase loop head gaps... eom idx lead trail pat0 pat1 pat2 pat3) SELECT_CONFIG(index) APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
+    xil_printf("TX pattern source: PS/BRAM configured 63/127-bit period only; PL internal PRBS/LFSR generation removed\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,
                LASER_UDP_PORT);

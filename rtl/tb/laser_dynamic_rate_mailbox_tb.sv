@@ -67,7 +67,7 @@ module laser_dynamic_rate_mailbox_tb;
         begin
             for (i = 0; i < 256; i = i + 1) mem[i] = 0;
             mem[0] = 32'h31505452;
-            mem[1] = {16'd64, 16'd1};
+            mem[1] = {16'd64, 16'd2};
             mem[2] = transaction_seq;
             mem[5] = 32'hB2D05E00;
             mem[6] = 32'd0;
@@ -154,7 +154,7 @@ module laser_dynamic_rate_mailbox_tb;
         if (status[0]) $fatal(1, "busy PREPARE replayed");
 
         build_valid(1); mem[0] = 0; reset_dut(); expect_reject(1);
-        build_valid(1); mem[1][15:0] = 2; reset_dut(); expect_reject(2);
+        build_valid(1); mem[1][15:0] = 3; reset_dut(); expect_reject(2);
         build_valid(1); mem[1][31:16] = 63; reset_dut(); expect_reject(3);
         build_valid(1); mem[3] = mem[3] ^ 1; reset_dut(); expect_reject(4);
         build_valid(1); mem[14] = 17; begin : recalc_crc

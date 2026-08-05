@@ -216,17 +216,28 @@ module laser_gt_tx_profile0 (
     (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg qpllrefclklost_sync;
     (* ASYNC_REG = "TRUE" *) reg tx_mmcm_locked_meta;
     (* ASYNC_REG = "TRUE" *) reg tx_mmcm_locked_sync;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg txresetdone_native_meta_tx;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg txresetdone_native_tx;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg tx_fsm_reset_done_meta_tx;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg tx_fsm_reset_done_tx;
+    reg txresetdone_tx;
     (* ASYNC_REG = "TRUE" *) reg txresetdone_meta;
     (* ASYNC_REG = "TRUE" *) reg txresetdone_sync;
     reg [READY_COUNT_WIDTH-1:0] ready_count;
     reg gt_ready_ctrl;
+    reg gt_ready_effective_ctrl_reg;
+    reg apply_enable_blocked_ctrl_reg;
 
     (* ASYNC_REG = "TRUE" *) reg gt_ready_meta_tx;
     (* ASYNC_REG = "TRUE" *) reg gt_ready_tx;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
+    reg [1:0] tx_ctrl_reset_pipe;
+    wire tx_ctrl_reset = tx_ctrl_reset_pipe[1];
     reg [23:0] tx_word_count;
     reg [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_tx;
-    wire [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_gray_tx =
-        txusrclk2_counter_tx ^ (txusrclk2_counter_tx >> 1);
+    reg [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_gray_tx;
+    wire [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_next =
+        txusrclk2_counter_tx + 1'b1;
 
     (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_gray_meta_axi;
     (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg [TXUSRCLK2_FREQ_WIDTH-1:0] txusrclk2_counter_gray_sync_axi;
@@ -241,6 +252,9 @@ module laser_gt_tx_profile0 (
     reg [7:0] txusrclk2_alive_timeout_axi;
 
     reg txoutclk_toggle_txout;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *)
+    reg [1:0] txoutclk_reset_pipe;
+    wire txoutclk_reset = txoutclk_reset_pipe[1];
     (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg txoutclk_toggle_meta_axi;
     (* ASYNC_REG = "TRUE", mark_debug = "true" *) reg txoutclk_toggle_axi;
     reg txoutclk_toggle_prev_axi;
@@ -352,7 +366,8 @@ module laser_gt_tx_profile0 (
     assign eom_clk_out = eom_clk;
     assign eom_subdiv_log2_out = eom_subdiv_log2;
     assign eom_clock_safe_out = tx_mmcm_locked;
-    assign tx_mmcm_reset = tx_mmcm_reset_wizard | tx_mmcm_reset_rate;
+    reg tx_mmcm_reset_ctrl;
+    assign tx_mmcm_reset = tx_mmcm_reset_ctrl;
     wire gt_ready_effective_ctrl = gt_ready_ctrl & ~rate_busy & ~rate_error;
     wire selected_pll_lock_sync = qpll_selected ?
                                   (qplllock_sync & ~qpllrefclklost_sync) :
@@ -380,7 +395,7 @@ module laser_gt_tx_profile0 (
     assign dbg_txusrclk2_freq_counter_axi  = txusrclk2_freq_counter_axi;
     assign dbg_tx_quiesce_req              = tx_quiesce_req;
     assign dbg_tx_idle_seen                = tx_idle_seen;
-    assign dbg_apply_enable_blocked        = apply_enable_blocked;
+    assign dbg_apply_enable_blocked        = apply_enable_blocked_ctrl_reg;
     assign dbg_tx_mmcm_reset_wizard        = tx_mmcm_reset_wizard;
     assign dbg_tx_mmcm_reset_rate          = tx_mmcm_reset_rate;
     assign dbg_tx_mmcm_reset               = tx_mmcm_reset;
@@ -518,6 +533,9 @@ module laser_gt_tx_profile0 (
             tx_mmcm_locked_sync <= 1'b0;
             txresetdone_meta <= 1'b0;
             txresetdone_sync <= 1'b0;
+            gt_ready_effective_ctrl_reg <= 1'b0;
+            apply_enable_blocked_ctrl_reg <= 1'b1;
+            tx_mmcm_reset_ctrl <= 1'b1;
             ready_count      <= {READY_COUNT_WIDTH{1'b0}};
             gt_ready_ctrl    <= 1'b0;
             txusrclk2_counter_gray_meta_axi <= {TXUSRCLK2_FREQ_WIDTH{1'b0}};
@@ -545,8 +563,11 @@ module laser_gt_tx_profile0 (
             qpllrefclklost_sync <= qpllrefclklost_meta;
             tx_mmcm_locked_meta <= tx_mmcm_locked;
             tx_mmcm_locked_sync <= tx_mmcm_locked_meta;
-            txresetdone_meta <= txresetdone;
+            txresetdone_meta <= txresetdone_tx;
             txresetdone_sync <= txresetdone_meta;
+            gt_ready_effective_ctrl_reg <= gt_ready_effective_ctrl;
+            apply_enable_blocked_ctrl_reg <= apply_enable_blocked;
+            tx_mmcm_reset_ctrl <= tx_mmcm_reset_wizard | tx_mmcm_reset_rate;
             txusrclk2_counter_gray_meta_axi <= txusrclk2_counter_gray_tx;
             txusrclk2_counter_gray_sync_axi <= txusrclk2_counter_gray_meta_axi;
             txusrclk2_counter_bin_axi       <= gray_to_bin(txusrclk2_counter_gray_sync_axi);
@@ -592,24 +613,57 @@ module laser_gt_tx_profile0 (
         end
     end
 
+    // Each GT-derived domain receives asynchronous reset assertion followed by
+    // two local clock edges of synchronous release. Functional registers use
+    // only the local synchronized reset, avoiding a PS/FCLK reset directly on
+    // every TX-domain register control pin.
     always @(posedge txoutclk_dbg or posedge ctrl_rst) begin
         if (ctrl_rst) begin
+            txoutclk_reset_pipe <= 2'b11;
+        end else begin
+            txoutclk_reset_pipe <= {txoutclk_reset_pipe[0], 1'b0};
+        end
+    end
+
+    always @(posedge txoutclk_dbg) begin
+        if (txoutclk_reset) begin
             txoutclk_toggle_txout <= 1'b0;
         end else begin
             txoutclk_toggle_txout <= ~txoutclk_toggle_txout;
         end
     end
 
-    always @(posedge txusrclk2) begin
+    always @(posedge txusrclk2 or posedge ctrl_rst) begin
         if (ctrl_rst) begin
+            tx_ctrl_reset_pipe <= 2'b11;
+        end else begin
+            tx_ctrl_reset_pipe <= {tx_ctrl_reset_pipe[0], 1'b0};
+        end
+    end
+
+    always @(posedge txusrclk2) begin
+        if (tx_ctrl_reset) begin
             gt_ready_meta_tx <= 1'b0;
             gt_ready_tx      <= 1'b0;
+            txresetdone_native_meta_tx <= 1'b0;
+            txresetdone_native_tx <= 1'b0;
+            tx_fsm_reset_done_meta_tx <= 1'b0;
+            tx_fsm_reset_done_tx <= 1'b0;
+            txresetdone_tx <= 1'b0;
             tx_word_count    <= 24'd0;
             txusrclk2_counter_tx <= {TXUSRCLK2_FREQ_WIDTH{1'b0}};
+            txusrclk2_counter_gray_tx <= {TXUSRCLK2_FREQ_WIDTH{1'b0}};
         end else begin
-            gt_ready_meta_tx <= gt_ready_effective_ctrl;
+            gt_ready_meta_tx <= gt_ready_effective_ctrl_reg;
             gt_ready_tx      <= gt_ready_meta_tx;
-            txusrclk2_counter_tx <= txusrclk2_counter_tx + 1'b1;
+            txresetdone_native_meta_tx <= txresetdone_native;
+            txresetdone_native_tx <= txresetdone_native_meta_tx;
+            tx_fsm_reset_done_meta_tx <= tx_fsm_reset_done;
+            tx_fsm_reset_done_tx <= tx_fsm_reset_done_meta_tx;
+            txresetdone_tx <= txresetdone_native_tx & tx_fsm_reset_done_tx;
+            txusrclk2_counter_tx <= txusrclk2_counter_next;
+            txusrclk2_counter_gray_tx <=
+                txusrclk2_counter_next ^ (txusrclk2_counter_next >> 1);
             if (!gt_ready_tx) begin
                 tx_word_count <= 24'd0;
             end else if (|valid_mask_in) begin
@@ -704,7 +758,7 @@ module laser_gt_tx_profile0 (
         already_current_rate,
         current_rate_id,
         ctrl_rst,
-        gt_ready_tx,
+        gt_ready_effective_ctrl_reg,
         txresetdone_sync,
         selected_pll_lock_sync
     };

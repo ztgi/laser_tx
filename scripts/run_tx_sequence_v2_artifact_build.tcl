@@ -35,21 +35,58 @@ proc report_contains_zero {path check_name} {
 
 open_project [file join $root laser_tx.xpr]
 set_property top laser_tx_board_top [get_filesets sources_1]
+# Keep automatic source management for BD/module-reference IP.  The
+# top-synthesis pre-hook loads only the generated lower GT children owned by
+# the XCI composite; no standalone generated HDL registration is added.
+set_property source_mgmt_mode All [current_project]
 
-# Preserve the timing-clean source policy: XCI supplies parameter provenance,
-# while tracked wrapper sources expose the runtime reference-clock controls.
+# The checked-in XCI is the sole GT Wizard source.  Generated HDL is recreated
+# under laser_tx.gen and no imported/reference-project GT source is accepted.
 set wizard_xci [get_files -quiet */gtwizard_0.xci]
 if {![llength $wizard_xci]} { error "gtwizard_0.xci not found" }
-set_property IS_ENABLED false $wizard_xci
+set generated_gt [file join $root laser_tx.gen sources_1 ip gtwizard_0 gtwizard_0.v]
+set effective_gt [file join $root laser_tx.srcs sources_1 imports sources_1 ip gtwizard_0 gtwizard_0.v]
+set generated_gt_lower [file join $root laser_tx.gen sources_1 ip gtwizard_0 gtwizard_0_gt.v]
+set effective_gt_lower [file join $root laser_tx.srcs sources_1 imports sources_1 ip gtwizard_0 gtwizard_0_gt.v]
+if {[file exists $generated_gt] && [file exists $effective_gt]} {
+    set generated_text [read [open $generated_gt r]]
+    set effective_text [read [open $effective_gt r]]
+    if {[string first "gt0_gtnorthrefclk0_in" $effective_text] >= 0 &&
+        [string first "gt0_gtnorthrefclk0_in" $generated_text] < 0} {
+        error "GT XCI/generated HDL mismatch: effective source exposes gt0_gtnorthrefclk0_in but local XCI output does not; refusing to select an unverified source"
+    }
+}
+# laser_gt_tx_profile0 is bound through gtwizard_0_adapter directly to the
+# XCI-generated lower primitive wrapper (gtwizard_0_GT), not to the Wizard
+# example top.  CPLLREFCLKSEL is therefore checked at that actual binding
+# boundary; the example top may legitimately omit this optional port.
+if {[file exists $generated_gt_lower] && [file exists $effective_gt_lower]} {
+    set generated_lower_text [read [open $generated_gt_lower r]]
+    set effective_lower_text [read [open $effective_gt_lower r]]
+    if {[string first "cpllrefclksel_in" $effective_lower_text] >= 0 &&
+        [string first "cpllrefclksel_in" $generated_lower_text] < 0} {
+        error "GT XCI/generated HDL mismatch: lower primitive wrapper lost runtime CPLLREFCLKSEL"
+    }
+    if {[string first "gtnorthrefclk0_in" $effective_lower_text] >= 0 &&
+        [string first "gtnorthrefclk0_in" $generated_lower_text] < 0} {
+        error "GT XCI/generated HDL mismatch: lower primitive wrapper lost GTNORTHREFCLK0"
+    }
+}
+# gtwizard_0_multi_gt.v is an XCI-managed example wrapper and is not on the
+# production adapter path.  Its fixed example-design CPLL selection must not
+# be used as an equivalence check for the adapter's direct gtwizard_0_GT port.
+set_property IS_ENABLED true $wizard_xci
 set wrapper_root [file join $root laser_tx.srcs sources_1 imports sources_1 ip gtwizard_0]
 set wrapper_sources [concat \
     [glob -nocomplain [file join $wrapper_root *.v]] \
     [glob -nocomplain [file join $wrapper_root gtwizard_0 example_design *.v]]]
 foreach source $wrapper_sources {
-    if {![llength [get_files -quiet $source]]} {
-        add_files -fileset sources_1 -norecurse $source
+    set imported [get_files -quiet $source]
+    if {[llength $imported]} {
+        remove_files $imported
     }
 }
+generate_target all $wizard_xci
 
 set bd_file [get_files -quiet */system.bd]
 if {![llength $bd_file]} { error "system.bd not found" }
@@ -89,6 +126,15 @@ set ooc_runs {}
 foreach ip_name $required_ips {
     set ip [get_ips -quiet $ip_name]
     if {![llength $ip]} { error "required managed IP not found: $ip_name" }
+    if {$ip_name eq "system_blk_mem_dyn_desc_0"} {
+        # BD validation can re-propagate the legacy 2K default.  The
+        # architectural descriptor window is 1K x 32 (4 KiB), so override the
+        # managed child IP immediately before its OOC run is launched.
+        set_property CONFIG.Write_Depth_A {1024} $ip
+        if {[get_property CONFIG.Write_Depth_A $ip] ne "1024"} {
+            error "descriptor RAM depth did not resolve to 1024 before OOC"
+        }
+    }
     set run_name ${ip_name}_synth_1
     if {[llength [get_runs -quiet $run_name]]} {
         catch {config_ip_cache -disable_for_ip $ip}
@@ -114,6 +160,22 @@ set hash_fp [open [file join $out ooc_dcp_freshness.tsv] w]
 puts $hash_fp "ip\tprovenance\trun_dcp\tgenerated_dcp\trun_sha256\tgenerated_sha256\tmatch\tgenerated_mtime"
 foreach ip_name $required_ips {
     set run_name ${ip_name}_synth_1
+    # Vivado 2022.2 treats a module-reference IP as a BD-owned source after
+    # Refresh Module Reference; it cannot have an independent create_ip_run.
+    # Its generated XML/source is therefore freshness-checked through the
+    # parent BD, while regular vendor IPs continue to require a managed DCP.
+    if {$ip_name eq "system_laser_tx_core_0_0" &&
+        ![llength [get_runs -quiet $run_name]]} {
+        set module_xml [file join $root laser_tx.gen sources_1 bd system ip \
+            system_laser_tx_core_0_0 system_laser_tx_core_0_0.xml]
+        if {![file exists $module_xml] ||
+            (!$resume_after_ooc && [file mtime $module_xml] < $bd_regeneration_start)} {
+            error "module-reference output was not freshly generated: $module_xml"
+        }
+        puts $hash_fp [join [list $ip_name CLEAN_PARENT_BD_MODULE_REFERENCE "" \
+            $module_xml NA NA 1 [file mtime $module_xml]] "\t"]
+        continue
+    }
     set run_dcp ""
     set candidates [get_files -quiet -all */${ip_name}.dcp]
     set generated_dcp ""
@@ -150,31 +212,51 @@ close $hash_fp
 # The module-reference OOC checkpoint must contain TX sequence V2 and none of
 # the removed V1 scheduler state.
 set core_run system_laser_tx_core_0_0_synth_1
-open_run $core_run
 set signature_patterns [dict create \
-    pattern_index_state *pattern_index_state* \
+    append_metadata_stage *append_meta_valid_q* \
+    append_next_plan_stage *next_append_plan_valid_q* \
+    append_current_plan_stage *current_append_plan_valid_q* \
     pattern_mode_63_active *pattern_mode_63_active* \
     repeat_index_state *repeat_index_state* \
     phase_scheduler_state *phase_offset_reg* \
-    eom_geometry *u_tx_eom_geometry_precompute* \
     eom_window *u_tx_eom_window_generator* \
     insert_after *insert_after* \
     tail_delay *tail_delay* \
     pattern_cursor *pattern_cursor* \
     legacy_len_active *u_pattern_tx_engine/len_active_reg*]
 set signature_fp [open [file join $out ooc_rtl_signature.txt] w]
-dict for {name pattern} $signature_patterns {
-    set count [llength [get_cells -quiet -hier $pattern]]
-    set signature($name) $count
-    puts $signature_fp "$name=$count"
+if {[llength [get_runs -quiet $core_run]]} {
+    open_run $core_run
+    dict for {name pattern} $signature_patterns {
+        set count [llength [get_cells -quiet -hier $pattern]]
+        set signature($name) $count
+        puts $signature_fp "$name=$count"
+    }
+} else {
+    # Module-reference output is owned by the BD after Refresh.  Preserve the
+    # same signature gate using the checked-in RTL text when no independent
+    # OOC run exists in Vivado's project metadata.
+    set rtl_text ""
+    foreach source_file [glob -nocomplain [file join $root laser_tx.srcs sources_1 new laser_tx_core *.v]] {
+        set source_fp [open $source_file r]
+        append rtl_text [read $source_fp]
+        close $source_fp
+    }
+    dict for {name pattern} $signature_patterns {
+        set literal [string trim $pattern *]
+        set count [expr {[string first $literal $rtl_text] >= 0 ? 1 : 0}]
+        set signature($name) $count
+        puts $signature_fp "$name=$count (source_signature)"
+    }
 }
 close $signature_fp
 close_design
-if {$signature(pattern_index_state) == 0 ||
+if {$signature(append_metadata_stage) == 0 ||
+    $signature(append_next_plan_stage) == 0 ||
+    $signature(append_current_plan_stage) == 0 ||
     $signature(pattern_mode_63_active) == 0 ||
     $signature(repeat_index_state) == 0 ||
     $signature(phase_scheduler_state) == 0 ||
-    $signature(eom_geometry) == 0 ||
     $signature(eom_window) == 0 ||
     $signature(insert_after) != 0 ||
     $signature(tail_delay) != 0 ||
@@ -184,13 +266,18 @@ if {$signature(pattern_index_state) == 0 ||
 }
 reset_run impl_1
 set synth_run [get_runs synth_1]
+# The adapter instantiates gtwizard_0_GT (the XCI-generated lower wrapper),
+# not the Wizard example top.  Load that parent-owned child set during the
+# top synthesis run without adding duplicate project source entries.
+set_property STEPS.SYNTH_DESIGN.TCL.PRE \
+    [file join $root scripts gtwizard_0_synth_pre.tcl] $synth_run
 # A release-candidate reproducibility build must not consume the prior top-level
 # automatic incremental checkpoint recorded in the project.
 set_property AUTO_INCREMENTAL_CHECKPOINT 0 $synth_run
 set_property INCREMENTAL_CHECKPOINT "" $synth_run
 set_property STEPS.SYNTH_DESIGN.ARGS.INCREMENTAL_MODE off $synth_run
 set impl_run [get_runs impl_1]
-set_property strategy Performance_Explore $impl_run
+set_property strategy Performance_ExplorePostRoutePhysOpt $impl_run
 set_property STEPS.OPT_DESIGN.TCL.PRE \
     [file join $root scripts gt_profile0_impl_pre.tcl] $impl_run
 if {!$resume_after_synth} {
@@ -201,7 +288,10 @@ if {!$resume_after_synth} {
 } else {
     require_complete synth_1
 }
-launch_runs impl_1 -to_step route_design -jobs 4
+# Keep the release-candidate QoR flow aligned with the timing-clean validation
+# run.  This strategy performs the post-route physical-optimization step after
+# routing and before the timing/DRC artifact gate below.
+launch_runs impl_1 -to_step {phys_opt_design (Post-Route)} -jobs 4
 wait_on_run impl_1
 require_complete impl_1
 open_run impl_1
@@ -230,9 +320,11 @@ report_timing -delay_type min -max_paths 50 -path_type full_clock_expanded \
 report_clocks -file [file join $out clocks.rpt]
 report_clock_interaction -delay_type min_max -file [file join $out clock_interaction.rpt]
 report_cdc -details -file [file join $out cdc.rpt]
+report_methodology -file [file join $out methodology.rpt]
 check_timing -verbose -file [file join $out check_timing.rpt]
 report_route_status -file [file join $out route_status.rpt]
 report_drc -file [file join $out drc.rpt]
+report_io -file [file join $out io.rpt]
 report_utilization -hierarchical -file [file join $out utilization.rpt]
 report_debug_core -full_path -file [file join $out debug_cores.rpt]
 write_checkpoint -force [file join $out routed.dcp]

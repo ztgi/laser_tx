@@ -2,14 +2,13 @@
 module laser_gt_rate_resource_arbiter_tb;
     reg clk=0, rst=1, legacy_busy=0, dyn_req=0, dyn_rel=0;
     reg l_reset=0, l_user_block=0, l_mmcm_reset=0, d_reset=1;
-    wire grant, reject, legacy_allowed, owner, gt_reset, busy, conflict;
-    wire [1:0] owner_code;
+    wire grant, reject, legacy_allowed, owner, gt_reset;
     always #5 clk=~clk;
     laser_gt_rate_resource_arbiter dut (
         .clk(clk),.rst(rst),.legacy_busy(legacy_busy),.dynamic_request(dyn_req),
         .dynamic_release(dyn_rel),.dynamic_grant(grant),
         .dynamic_reject(reject),.legacy_request_allowed(legacy_allowed),
-        .owner_dynamic(owner),.owner(owner_code),.busy(busy),.conflict_error(conflict),
+        .owner_dynamic(owner),
         .legacy_gt_reset(l_reset),.dynamic_gt_reset(d_reset),
         .legacy_txuserrdy_block(l_user_block),.dynamic_txuserrdy_block(1'b1),
         .legacy_mmcm_reset(l_mmcm_reset),.dynamic_mmcm_reset(1'b1),
@@ -33,7 +32,7 @@ module laser_gt_rate_resource_arbiter_tb;
     initial begin
         repeat(2) @(posedge clk); rst=0;
         legacy_busy=1; dyn_req=1; @(posedge clk); #1;
-        if(grant || !reject || !conflict || owner_code!=0) $fatal(1,"dynamic request was not rejected over busy legacy");
+        if(grant || !reject || owner) $fatal(1,"dynamic request was not rejected over busy legacy");
         dyn_req=0; @(posedge clk);
         legacy_busy=0; @(posedge clk); @(posedge clk);
         dyn_req=1; @(posedge clk); dyn_req=0; @(posedge clk);

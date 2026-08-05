@@ -36,6 +36,8 @@ module laser_tx_board_top (
     output wire        acq_trig_out_0,
     output wire        eom_out_0,
     output wire        soa_gate_out_0,
+    output wire        gt_sequence_sync_out,
+    output wire        txusrclk2_monitor_out,
 
     // AD9528 OUT0 measurement-only MGT reference-clock input in Bank 110.
     // The direct O output is deliberately not connected to the Bank 111 GT.
@@ -323,6 +325,8 @@ module laser_tx_board_top (
         .acq_trig_out_0    (acq_trig_out_0),
         .eom_out_0         (eom_out_0),
         .soa_gate_out_0    (soa_gate_out_0),
+        .gt_sequence_sync_out (gt_sequence_sync_out),
+        .txusrclk2_monitor_out (txusrclk2_monitor_out),
         .ad9528_measure_count_in  (ad9528_odiv2_count_axi),
         .ad9528_measure_status_in (ad9528_measure_status_to_ps),
         .dbg_apply_enable_blocked       (dbg_apply_enable_blocked),

@@ -35,13 +35,13 @@ base_byte   = index * 64
 | 0 | 11 | commit valid；1 表示完整 record 已发布 |
 | 0 | 10:8 | reserved，必须为 0 |
 | 0 | 7:0 | sequence id |
-| 1 | 31:0 | seed |
+| 1 | 31:0 | legacy seed reserved/ignored |
 | 2 | 4:0 | repeat_cycles，合法范围 1..16 |
-| 2 | 12:5 | PRBS order，当前合法值 6/7 |
+| 2 | 12:5 | legacy PRBS order reserved/ignored |
 | 2 | 13 | phase_shift_en |
 | 2 | 14 | loop_en |
-| 2 | 15 | direct_source |
-| 2 | 16 | direct_len_127 |
+| 2 | 15 | legacy source select reserved/ignored |
+| 2 | 16 | configured pattern length；0=63，1=127 |
 | 2 | 17 | eom_enable |
 | 2 | 28:18 | eom_global_pattern_index |
 | 2 | 31:29 | reserved，必须为 0 |
@@ -54,10 +54,10 @@ base_byte   = index * 64
 | 7 | 31:24 | reserved，必须为 0 |
 | 8 | 15:0 | eom_lead_ticks |
 | 8 | 31:16 | eom_trail_ticks |
-| 9 | 31:0 | direct pattern `[31:0]` |
-| 10 | 31:0 | direct pattern `[63:32]` |
-| 11 | 31:0 | direct pattern `[95:64]` |
-| 12 | 30:0 | direct pattern `[126:96]` |
+| 9 | 31:0 | configured pattern `[31:0]` |
+| 10 | 31:0 | configured pattern `[63:32]` |
+| 11 | 31:0 | configured pattern `[95:64]` |
+| 12 | 30:0 | configured pattern `[126:96]` |
 | 12 | 31 | reserved，必须为 0 |
 | 13 | 7:0 | sequence mirror |
 | 13 | 15:8 | record word count = 16 |
@@ -67,6 +67,11 @@ base_byte   = index * 64
 | 15 | 31:0 | CRC32(words 1..14) |
 
 只有前 `repeat_cycles - 1` 个 gap 字段可以非零；其余 gap 必须为 0。
+
+configured pattern是唯一pattern来源。PRBS周期由PS预生成后写入word9..12；
+PL内部PRBS/LFSR和PRBS/direct source mux已删除。任务被接受时，
+`pattern_tx_engine`锁存完整active pattern；随后BRAM shadow发生变化不会
+污染正在执行的任务。
 
 ## 4. CRC 与原子提交
 
@@ -166,7 +171,7 @@ HEAD 与每个 gap 的配置范围均为 0..255 serial bits，实际时间等于
 唯一 V2 写配置语法为：
 
 ```text
-WRITE_CONFIG index seed repeat prbs direct direct127 phase loop head \
+WRITE_CONFIG index seed_reserved repeat prbs_reserved source_reserved pattern127 phase loop head \
   gap0 ... gap(repeat-2) \
   eom_enable eom_global_index eom_lead_ticks eom_trail_ticks \
   pattern_low pattern_mid pattern_high pattern_top
@@ -175,7 +180,7 @@ WRITE_CONFIG index seed repeat prbs direct direct127 phase loop head \
 `repeat=1` 时没有 gap 参数。命令成功返回：
 
 ```text
-OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> format=2 words=16
+OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED
 ```
 
 随后使用：

@@ -1,7 +1,7 @@
 //Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2022.2 (win64) Build 3671981 Fri Oct 14 05:00:03 MDT 2022
-//Date        : Thu Jul 23 11:08:26 2026
+//Date        : Tue Jul 28 23:14:01 2026
 //Host        : LAPTOP-ITN6KOP9 running 64-bit major release  (build 9200)
 //Command     : generate_target system_wrapper.bd
 //Design      : system_wrapper
@@ -104,11 +104,13 @@ module system_wrapper
     gt_ctrl_clk,
     gt_ctrl_rst,
     gt_ready,
+    gt_sequence_sync_out,
     gt_status_in,
     soa_gate_out_0,
     tx_rst,
     txdata,
     txusrclk2,
+    txusrclk2_monitor_out,
     valid_mask);
   inout [14:0]DDR_addr;
   inout [2:0]DDR_ba;
@@ -204,11 +206,13 @@ module system_wrapper
   output gt_ctrl_clk;
   output [0:0]gt_ctrl_rst;
   input gt_ready;
+  output gt_sequence_sync_out;
   input [31:0]gt_status_in;
   output soa_gate_out_0;
   input tx_rst;
   output [63:0]txdata;
   input txusrclk2;
+  output txusrclk2_monitor_out;
   output [63:0]valid_mask;
 
   wire [14:0]DDR_addr;
@@ -317,11 +321,13 @@ module system_wrapper
   wire gt_ctrl_clk;
   wire [0:0]gt_ctrl_rst;
   wire gt_ready;
+  wire gt_sequence_sync_out;
   wire [31:0]gt_status_in;
   wire soa_gate_out_0;
   wire tx_rst;
   wire [63:0]txdata;
   wire txusrclk2;
+  wire txusrclk2_monitor_out;
   wire [63:0]valid_mask;
 
   IOBUF SPI_1_0_io0_iobuf
@@ -447,10 +453,12 @@ module system_wrapper
         .gt_ctrl_clk(gt_ctrl_clk),
         .gt_ctrl_rst(gt_ctrl_rst),
         .gt_ready(gt_ready),
+        .gt_sequence_sync_out(gt_sequence_sync_out),
         .gt_status_in(gt_status_in),
         .soa_gate_out_0(soa_gate_out_0),
         .tx_rst(tx_rst),
         .txdata(txdata),
         .txusrclk2(txusrclk2),
+        .txusrclk2_monitor_out(txusrclk2_monitor_out),
         .valid_mask(valid_mask));
 endmodule

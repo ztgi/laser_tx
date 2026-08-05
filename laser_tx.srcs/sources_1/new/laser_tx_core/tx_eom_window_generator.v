@@ -22,6 +22,7 @@ module tx_eom_window_generator (
     input  wire [2:0]   eom_subdiv_log2_tx,
     input  wire         eom_clk,
     input  wire         clock_safe,
+    input  wire         async_output_safe,
     output reg          geometry_armed_tx,
     output wire         tx_start_level,
     output reg          request_valid_tx,
@@ -69,19 +70,9 @@ module tx_eom_window_generator (
     reg request_valid_hold_eom;
     (* ASYNC_REG = "TRUE" *) reg ack_toggle_meta_tx;
     (* ASYNC_REG = "TRUE" *) reg ack_toggle_sync_tx;
-    (* ASYNC_REG = "TRUE" *) reg [1:0] tx_reset_pipe;
-    wire tx_reset_sync = tx_reset_pipe[1];
-
-    // The raw ready/clock-safe abort may assert while tx_clk is stopped.
-    // Restrict that asynchronous control to this local reset synchronizer;
-    // all TX-side EOM snapshot/handshake state uses the synchronized reset.
-    always @(posedge tx_clk or posedge tx_abort) begin
-        if (tx_abort) begin
-            tx_reset_pipe <= 2'b11;
-        end else begin
-            tx_reset_pipe <= {tx_reset_pipe[0], 1'b0};
-        end
-    end
+    // tx_abort is assembled only from TX-domain synchronized controls by the
+    // caller, so all snapshot/handshake state can use it synchronously.
+    wire tx_reset_sync = tx_abort;
 
     always @(posedge tx_clk) begin
         if (tx_reset_sync) begin
@@ -163,8 +154,9 @@ module tx_eom_window_generator (
     wire [23:0] geometry_end_tick_eom;
     wire [7:0] geometry_selected_phase_eom;
     wire [3:0] geometry_selected_repeat_eom;
-    (* ASYNC_REG = "TRUE" *) reg [1:0] clock_safe_pipe;
-    wire eom_reset_sync = !clock_safe_pipe[1];
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg clock_safe_meta;
+    (* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg clock_safe_sync;
+    wire eom_reset_sync = !clock_safe_sync;
 
     tx_eom_geometry_precompute u_geometry_eom (
         .clk(eom_clk), .rst(eom_reset_sync), .start(geometry_start_eom),
@@ -215,14 +207,15 @@ module tx_eom_window_generator (
 
     reg [3:0] eom_state;
     reg eom_window;
-    assign eom_out = eom_window & clock_safe & clock_safe_pipe[1];
+    assign eom_out = eom_window & async_output_safe & clock_safe_sync;
 
-    // Immediate assertion and two-edge synchronous recovery.
-    always @(posedge eom_clk or negedge clock_safe) begin
-        if (!clock_safe)
-            clock_safe_pipe <= 2'b00;
-        else
-            clock_safe_pipe <= {clock_safe_pipe[0], 1'b1};
+    // The physical output is independently gated by async_output_safe above.
+    // Internal state samples the TX-registered clock_safe level through a
+    // conventional two-flop synchronizer. The raw safety combination only
+    // gates the physical output; it is not a synchronizer D input.
+    always @(posedge eom_clk) begin
+        clock_safe_meta <= clock_safe;
+        clock_safe_sync <= clock_safe_meta;
     end
 
     always @(posedge eom_clk) begin

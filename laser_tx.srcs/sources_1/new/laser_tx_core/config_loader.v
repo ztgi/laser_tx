@@ -13,7 +13,6 @@ module config_loader (
     output reg         cfg_error,
     output reg  [7:0]  error_code,
     output reg         cfg_update_toggle,
-    output reg  [31:0] seed,
     output reg  [4:0]  repeat_cycles,
     output reg  [7:0]  head_delay_bits,
     output reg  [119:0] gap_len_bits,
@@ -21,12 +20,10 @@ module config_loader (
     output reg  [10:0] eom_global_pattern_index,
     output reg  [15:0] eom_lead_ticks,
     output reg  [15:0] eom_trail_ticks,
-    output reg  [7:0]  prbs_order,
     output reg         phase_shift_en,
     output reg         loop_en,
-    output reg         active_source_sel,
     output reg  [7:0]  pattern_len,
-    output reg  [126:0] direct_pattern
+    output reg  [126:0] configured_pattern
 );
     localparam [2:0] S_IDLE=3'd0, S_WAIT=3'd1, S_CAPTURE=3'd2,
                      S_HEADER_WAIT=3'd3, S_HEADER_CHECK=3'd4;
@@ -72,16 +69,14 @@ module config_loader (
         (header_first[15:12] == FORMAT_VERSION) &&
         header_first[11] && (header_first[10:8] == 3'b000);
     wire [4:0] record_repeat = words[2][4:0];
-    wire source_sel = words[2][15];
-    wire direct_len_127 = words[2][16];
-    wire prbs_valid = (words[2][12:5] == 8'd6) ||
-                      (words[2][12:5] == 8'd7);
-    wire [7:0] selected_len = source_sel ?
-        (direct_len_127 ? 8'd127 : 8'd63) :
-        ((words[2][12:5] == 8'd6) ? 8'd63 : 8'd127);
+    // TX Sequence V2 keeps the original word positions for protocol/layout
+    // compatibility, but word1 (seed), word2[12:5] (PRBS order) and
+    // word2[15] (source select) are now reserved/ignored. The configured
+    // pattern payload in words9..12 is the sole pattern source.
+    wire [7:0] selected_len = words[2][16] ? 8'd127 : 8'd63;
     wire structure_valid =
         (record_repeat >= 5'd1) && (record_repeat <= 5'd16) &&
-        prbs_valid && (words[2][31:29] == 3'b000) &&
+        (words[2][31:29] == 3'b000) &&
         (words[3][31:8] == 24'd0) &&
         (words[7][31:24] == 8'd0) &&
         (words[12][31] == 1'b0) &&
@@ -115,7 +110,6 @@ module config_loader (
             cfg_error <= 1'b0;
             error_code <= ERR_NONE;
             cfg_update_toggle <= 1'b0;
-            seed <= 32'd0;
             repeat_cycles <= 5'd0;
             head_delay_bits <= 8'd0;
             gap_len_bits <= 120'd0;
@@ -123,12 +117,10 @@ module config_loader (
             eom_global_pattern_index <= 11'd0;
             eom_lead_ticks <= 16'd0;
             eom_trail_ticks <= 16'd0;
-            prbs_order <= 8'd0;
             phase_shift_en <= 1'b0;
             loop_en <= 1'b0;
-            active_source_sel <= 1'b0;
             pattern_len <= 8'd0;
-            direct_pattern <= 127'd0;
+            configured_pattern <= 127'd0;
             for (i=1; i<=14; i=i+1)
                 words[i] <= 32'd0;
         end else begin
@@ -201,14 +193,9 @@ module config_loader (
                         cfg_valid <= 1'b1;
                         cfg_error <= 1'b0;
                         error_code <= ERR_NONE;
-                        seed <= (words[1] == 32'd0) ?
-                                ((selected_len == 8'd63) ? 32'h0000003f :
-                                                         32'h0000007f) : words[1];
                         repeat_cycles <= record_repeat;
-                        prbs_order <= words[2][12:5];
                         phase_shift_en <= words[2][13];
                         loop_en <= words[2][14];
-                        active_source_sel <= source_sel;
                         pattern_len <= selected_len;
                         head_delay_bits <= words[3][7:0];
                         gap_len_bits <= {words[7][23:0], words[6], words[5], words[4]};
@@ -216,8 +203,8 @@ module config_loader (
                         eom_global_pattern_index <= words[2][28:18];
                         eom_lead_ticks <= words[8][15:0];
                         eom_trail_ticks <= words[8][31:16];
-                        direct_pattern <= {words[12][30:0], words[11],
-                                           words[10], words[9]};
+                        configured_pattern <= {words[12][30:0], words[11],
+                                               words[10], words[9]};
                         cfg_update_toggle <= ~cfg_update_toggle;
                         state <= S_IDLE;
                     end

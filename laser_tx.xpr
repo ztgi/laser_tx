@@ -57,20 +57,20 @@
     <Option Name="IPUserFilesDir" Val="$PIPUSERFILESDIR"/>
     <Option Name="IPStaticSourceDir" Val="$PIPUSERFILESDIR/ipstatic"/>
     <Option Name="EnableBDX" Val="FALSE"/>
-    <Option Name="WTXSimLaunchSim" Val="9"/>
+    <Option Name="WTXSimLaunchSim" Val="15"/>
     <Option Name="WTModelSimLaunchSim" Val="0"/>
     <Option Name="WTQuestaLaunchSim" Val="0"/>
     <Option Name="WTIesLaunchSim" Val="0"/>
     <Option Name="WTVcsLaunchSim" Val="0"/>
     <Option Name="WTRivieraLaunchSim" Val="0"/>
     <Option Name="WTActivehdlLaunchSim" Val="0"/>
-    <Option Name="WTXSimExportSim" Val="5"/>
-    <Option Name="WTModelSimExportSim" Val="5"/>
-    <Option Name="WTQuestaExportSim" Val="5"/>
+    <Option Name="WTXSimExportSim" Val="7"/>
+    <Option Name="WTModelSimExportSim" Val="7"/>
+    <Option Name="WTQuestaExportSim" Val="7"/>
     <Option Name="WTIesExportSim" Val="0"/>
-    <Option Name="WTVcsExportSim" Val="5"/>
-    <Option Name="WTRivieraExportSim" Val="5"/>
-    <Option Name="WTActivehdlExportSim" Val="5"/>
+    <Option Name="WTVcsExportSim" Val="7"/>
+    <Option Name="WTRivieraExportSim" Val="7"/>
+    <Option Name="WTActivehdlExportSim" Val="7"/>
     <Option Name="GenerateIPUpgradeLog" Val="TRUE"/>
     <Option Name="XSimRadix" Val="hex"/>
     <Option Name="XSimTimeUnit" Val="ns"/>
@@ -96,13 +96,6 @@
         </FileInfo>
       </File>
       <File Path="$PSRCDIR/sources_1/new/laser_tx_core/config_loader.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/new/laser_tx_core/pattern_source.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
@@ -144,6 +137,13 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
+      <File Path="$PSRCDIR/sources_1/new/laser_tx_core/tx_scope_debug_outputs.v">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+      </File>
       <File Path="$PSRCDIR/sources_1/new/laser_tx_core/laser_tx_core.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -156,44 +156,41 @@
           <Attr Name="UsedIn" Val="simulation"/>
           <Attr Name="UsedIn" Val="synthesis"/>
         </FileInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_gpio_ad9528_measure_0/system_axi_gpio_ad9528_measure_0.xci">
-          <Proxy FileSetName="system_axi_gpio_ad9528_measure_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_blk_mem_gen_0_0/system_blk_mem_gen_0_0.xci">
-          <Proxy FileSetName="system_blk_mem_gen_0_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_bram_dyn_desc_bram_0/system_axi_bram_dyn_desc_bram_0.xci">
-          <Proxy FileSetName="system_axi_bram_dyn_desc_bram_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_processing_system7_0_0/system_processing_system7_0_0.xci">
-          <Proxy FileSetName="system_processing_system7_0_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_gpio_gt_status_0/system_axi_gpio_gt_status_0.xci">
-          <Proxy FileSetName="system_axi_gpio_gt_status_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_bram_ctrl_0_0/system_axi_bram_ctrl_0_0.xci">
-          <Proxy FileSetName="system_axi_bram_ctrl_0_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_rst_ps7_0_50M_0/system_rst_ps7_0_50M_0.xci">
-          <Proxy FileSetName="system_rst_ps7_0_50M_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_ila_laser_axi_cfg_0/system_ila_laser_axi_cfg_0.xci">
-          <Proxy FileSetName="system_ila_laser_axi_cfg_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_laser_tx_core_0_0/system_laser_tx_core_0_0.xci">
-          <Proxy FileSetName="system_laser_tx_core_0_0"/>
-        </CompFileExtendedInfo>
-        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_ila_laser_tx_0/system_ila_laser_tx_0.xci">
-          <Proxy FileSetName="system_ila_laser_tx_0"/>
-        </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_gpio_0_0/system_axi_gpio_0_0.xci">
           <Proxy FileSetName="system_axi_gpio_0_0"/>
         </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_smc_0/system_axi_smc_0.xci">
           <Proxy FileSetName="system_axi_smc_0"/>
         </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_rst_ps7_0_50M_0/system_rst_ps7_0_50M_0.xci">
+          <Proxy FileSetName="system_rst_ps7_0_50M_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_blk_mem_gen_0_0/system_blk_mem_gen_0_0.xci">
+          <Proxy FileSetName="system_blk_mem_gen_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_ila_laser_axi_cfg_0/system_ila_laser_axi_cfg_0.xci">
+          <Proxy FileSetName="system_ila_laser_axi_cfg_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_ila_laser_tx_0/system_ila_laser_tx_0.xci">
+          <Proxy FileSetName="system_ila_laser_tx_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_gpio_gt_status_0/system_axi_gpio_gt_status_0.xci">
+          <Proxy FileSetName="system_axi_gpio_gt_status_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_gpio_ad9528_measure_0/system_axi_gpio_ad9528_measure_0.xci">
+          <Proxy FileSetName="system_axi_gpio_ad9528_measure_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_processing_system7_0_0/system_processing_system7_0_0.xci">
+          <Proxy FileSetName="system_processing_system7_0_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_bram_ctrl_0_0/system_axi_bram_ctrl_0_0.xci">
+          <Proxy FileSetName="system_axi_bram_ctrl_0_0"/>
+        </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_bram_dyn_desc_0/system_axi_bram_dyn_desc_0.xci">
           <Proxy FileSetName="system_axi_bram_dyn_desc_0"/>
+        </CompFileExtendedInfo>
+        <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_laser_tx_core_0_0/system_laser_tx_core_0_0.xci">
+          <Proxy FileSetName="system_laser_tx_core_0_0"/>
         </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="system.bd" FileRelPathName="ip/system_axi_gpio_dynamic_mailbox_0/system_axi_gpio_dynamic_mailbox_0.xci">
           <Proxy FileSetName="system_axi_gpio_dynamic_mailbox_0"/>
@@ -202,56 +199,7 @@
           <Proxy FileSetName="system_blk_mem_dyn_desc_0"/>
         </CompFileExtendedInfo>
       </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0_cpll_railing.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0_gt.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0_init.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0_multi_gt.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0/example_design/gtwizard_0_rx_startup_fsm.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0/example_design/gtwizard_0_sync_block.v">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/imports/sources_1/ip/gtwizard_0/gtwizard_0/example_design/gtwizard_0_tx_startup_fsm.v">
+      <File Path="$PSRCDIR/sources_1/new/gtwizard_0_adapter.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
@@ -317,7 +265,7 @@
       <File Path="$PSRCDIR/sources_1/imports/hdl/system_wrapper.v">
         <FileInfo>
           <Attr Name="ImportPath" Val="$PGENDIR/sources_1/bd/system/hdl/system_wrapper.v"/>
-          <Attr Name="ImportTime" Val="1784776106"/>
+          <Attr Name="ImportTime" Val="1785251641"/>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
@@ -330,22 +278,15 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PGENDIR/sources_1/bd/system/hdl/system_wrapper.v">
+      <File Path="$PSRCDIR/sources_1/ip/gtwizard_0/gtwizard_0.xci">
         <FileInfo>
           <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
-      </File>
-      <File Path="$PSRCDIR/sources_1/ip/gtwizard_0/gtwizard_0.xci">
-        <FileInfo>
-          <Attr Name="UserDisabled" Val="1"/>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
         <CompFileExtendedInfo CompFileName="gtwizard_0.xci" FileRelPathName="d:/FPGA_Learn/laser_tx/laser_tx.gen/sources_1/ip/gtwizard_0/gtwizard_0.v">
+          <Attr Name="UserDisabled" Val="0"/>
           <Attr Name="UsedInSynthesis" Val="1"/>
           <Attr Name="UsedInImplementation" Val="1"/>
           <Attr Name="UsedInSimulation" Val="1"/>
@@ -361,11 +302,13 @@
           <Attr Name="UsedInSimulation" Val="1"/>
         </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="gtwizard_0.xci" FileRelPathName="d:/FPGA_Learn/laser_tx/laser_tx.gen/sources_1/ip/gtwizard_0/gtwizard_0_init.v">
+          <Attr Name="UserDisabled" Val="0"/>
           <Attr Name="UsedInSynthesis" Val="1"/>
           <Attr Name="UsedInImplementation" Val="1"/>
           <Attr Name="UsedInSimulation" Val="1"/>
         </CompFileExtendedInfo>
         <CompFileExtendedInfo CompFileName="gtwizard_0.xci" FileRelPathName="d:/FPGA_Learn/laser_tx/laser_tx.gen/sources_1/ip/gtwizard_0/gtwizard_0_multi_gt.v">
+          <Attr Name="UserDisabled" Val="0"/>
           <Attr Name="UsedInSynthesis" Val="1"/>
           <Attr Name="UsedInImplementation" Val="1"/>
           <Attr Name="UsedInSimulation" Val="1"/>
@@ -414,12 +357,6 @@
           <Attr Name="UsedIn" Val="implementation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/constraints/laser_sync_pins_template.xdc">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-        </FileInfo>
-      </File>
       <Config>
         <Option Name="TargetConstrsFile" Val="$PPRDIR/constraints/laser_tx_board_io.xdc"/>
         <Option Name="ConstrsType" Val="XDC"/>
@@ -427,14 +364,14 @@
     </FileSet>
     <FileSet Name="sim_1" Type="SimulationSrcs" RelSrcDir="$PSRCDIR/sim_1" RelGenDir="$PGENDIR/sim_1">
       <Filter Type="Srcs"/>
-      <File Path="$PSRCDIR/sim_1/new/tb_pattern_tx_engine_timing.sv">
+      <File Path="$PSRCDIR/sim_1/new/tb_tx_eom_v2.sv">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PSRCDIR/sim_1/new/tb_tx_eom_v2.sv">
+      <File Path="$PSRCDIR/sim_1/new/tb_pattern_tx_engine_timing.sv">
         <FileInfo>
           <Attr Name="AutoDisabled" Val="1"/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -452,7 +389,8 @@
       </File>
       <Config>
         <Option Name="DesignMode" Val="RTL"/>
-        <Option Name="TopModule" Val="tb_pattern_tx_engine_timing"/>
+        <Option Name="TopModule" Val="tb_tx_eom_v2"/>
+        <Option Name="TopLib" Val="xil_defaultlib"/>
         <Option Name="TransportPathDelay" Val="0"/>
         <Option Name="TransportIntDelay" Val="0"/>
         <Option Name="SelectedSimModel" Val="rtl"/>
@@ -579,14 +517,6 @@
         <Option Name="UseBlackboxStub" Val="1"/>
       </Config>
     </FileSet>
-    <FileSet Name="system_axi_bram_dyn_desc_bram_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/system_axi_bram_dyn_desc_bram_0" RelGenDir="$PGENDIR/system_axi_bram_dyn_desc_bram_0">
-      <Config>
-        <Option Name="TopModule" Val="system_axi_bram_dyn_desc_bram_0"/>
-        <Option Name="VerilogDir" Val="$PPRDIR/rtl"/>
-        <Option Name="dataflowViewerSettings" Val="min_width=16"/>
-        <Option Name="UseBlackboxStub" Val="1"/>
-      </Config>
-    </FileSet>
     <FileSet Name="system_laser_tx_core_0_0" Type="BlockSrcs" RelSrcDir="$PSRCDIR/system_laser_tx_core_0_0" RelGenDir="$PGENDIR/system_laser_tx_core_0_0">
       <Config>
         <Option Name="TopModule" Val="system_laser_tx_core_0_0"/>
@@ -618,7 +548,7 @@
     <Run Id="synth_1" Type="Ft3:Synth" SrcSet="sources_1" Part="xc7z100ffg900-2" ConstrsSet="constrs_1" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" State="current" Dir="$PRUNDIR/synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/synth_1">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2022"/>
-        <Step Id="synth_design">
+        <Step Id="synth_design" PreStepTclHook="$PPRDIR/scripts/gtwizard_0_synth_pre.tcl">
           <Option Id="IncrementalMode">2</Option>
         </Step>
       </Strategy>
@@ -748,16 +678,6 @@
       <RQSFiles/>
     </Run>
     <Run Id="system_axi_gpio_gt_status_0_synth_1" Type="Ft3:Synth" SrcSet="system_axi_gpio_gt_status_0" Part="xc7z100ffg900-2" ConstrsSet="system_axi_gpio_gt_status_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/system_axi_gpio_gt_status_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/system_axi_gpio_gt_status_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/system_axi_gpio_gt_status_0_synth_1">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2022"/>
-        <Step Id="synth_design"/>
-      </Strategy>
-      <GeneratedRun Dir="$PRUNDIR" File="gen_run.xml"/>
-      <ReportStrategy Name="Vivado Synthesis Default Reports" Flow="Vivado Synthesis 2022"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="system_axi_bram_dyn_desc_bram_0_synth_1" Type="Ft3:Synth" SrcSet="system_axi_bram_dyn_desc_bram_0" Part="xc7z100ffg900-2" ConstrsSet="system_axi_bram_dyn_desc_bram_0" Description="Vivado Synthesis Defaults" AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" Dir="$PRUNDIR/system_axi_bram_dyn_desc_bram_0_synth_1" IncludeInArchive="true" IsChild="false" AutoIncrementalDir="$PSRCDIR/utils_1/imports/system_axi_bram_dyn_desc_bram_0_synth_1" AutoRQSDir="$PSRCDIR/utils_1/imports/system_axi_bram_dyn_desc_bram_0_synth_1">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Synthesis Defaults" Flow="Vivado Synthesis 2022"/>
         <Step Id="synth_design"/>
@@ -1011,23 +931,6 @@
       <RQSFiles/>
     </Run>
     <Run Id="system_axi_gpio_gt_status_0_impl_1" Type="Ft2:EntireDesign" Part="xc7z100ffg900-2" ConstrsSet="system_axi_gpio_gt_status_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="system_axi_gpio_gt_status_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/system_axi_gpio_gt_status_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/system_axi_gpio_gt_status_0_impl_1">
-      <Strategy Version="1" Minor="2">
-        <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2022"/>
-        <Step Id="init_design"/>
-        <Step Id="opt_design"/>
-        <Step Id="power_opt_design"/>
-        <Step Id="place_design"/>
-        <Step Id="post_place_power_opt_design"/>
-        <Step Id="phys_opt_design"/>
-        <Step Id="route_design"/>
-        <Step Id="post_route_phys_opt_design"/>
-        <Step Id="write_bitstream"/>
-      </Strategy>
-      <ReportStrategy Name="Vivado Implementation Default Reports" Flow="Vivado Implementation 2022"/>
-      <Report Name="ROUTE_DESIGN.REPORT_METHODOLOGY" Enabled="1"/>
-      <RQSFiles/>
-    </Run>
-    <Run Id="system_axi_bram_dyn_desc_bram_0_impl_1" Type="Ft2:EntireDesign" Part="xc7z100ffg900-2" ConstrsSet="system_axi_bram_dyn_desc_bram_0" Description="Default settings for Implementation." AutoIncrementalCheckpoint="false" WriteIncrSynthDcp="false" SynthRun="system_axi_bram_dyn_desc_bram_0_synth_1" IncludeInArchive="false" IsChild="false" GenFullBitstream="true" AutoIncrementalDir="$PSRCDIR/utils_1/imports/system_axi_bram_dyn_desc_bram_0_impl_1" AutoRQSDir="$PSRCDIR/utils_1/imports/system_axi_bram_dyn_desc_bram_0_impl_1">
       <Strategy Version="1" Minor="2">
         <StratHandle Name="Vivado Implementation Defaults" Flow="Vivado Implementation 2022"/>
         <Step Id="init_design"/>

@@ -45,14 +45,10 @@ static uint32_t laser_record_header(uint8_t sequence_id, uint8_t valid)
 
 static uint32_t laser_phase_count(const LaserConfig *config)
 {
-    uint32_t pattern_len;
     if (config->phase_shift_en == 0U) {
         return 1U;
     }
-    pattern_len = config->direct_source != 0U ?
-                  (config->direct_len_127 != 0U ? 127U : 63U) :
-                  (config->prbs_order == 6U ? 63U : 127U);
-    return pattern_len;
+    return config->direct_len_127 != 0U ? 127U : 63U;
 }
 
 int laser_bram_validate_config(const LaserConfig *config)
@@ -66,8 +62,7 @@ int laser_bram_validate_config(const LaserConfig *config)
     }
     if (config->repeat_cycles < 1U ||
         config->repeat_cycles > LASER_TX_RECORD_MAX_REPEAT ||
-        (config->prbs_order != 6U && config->prbs_order != 7U) ||
-        config->direct_source > 1U || config->direct_len_127 > 1U ||
+        config->direct_len_127 > 1U ||
         config->phase_shift_en > 1U || config->loop_en > 1U ||
         config->eom_enable > 1U || (config->pattern_top & 0x80000000U) != 0U) {
         return XST_INVALID_PARAM;
@@ -96,6 +91,8 @@ static void laser_config_to_words(const LaserConfig *config,
 {
     uint32_t i;
     words[0] = laser_record_header(sequence_id, commit_valid);
+    /* Reserved layout fields are retained in-place. The configured pattern
+     * in words9..12 is the sole PL pattern source. */
     words[1] = config->seed;
     words[2] = ((uint32_t)config->repeat_cycles & 0x1FU) |
                ((uint32_t)config->prbs_order << 5) |

@@ -16,9 +16,6 @@ module laser_gt_rate_resource_arbiter (
     output reg         dynamic_reject,
     output wire        legacy_request_allowed,
     output wire        owner_dynamic,
-    output wire [1:0]  owner,
-    output wire        busy,
-    output reg         conflict_error,
 
     input wire legacy_gt_reset, input wire dynamic_gt_reset,
     input wire legacy_txuserrdy_block, input wire dynamic_txuserrdy_block,
@@ -61,8 +58,6 @@ module laser_gt_rate_resource_arbiter (
         legacy_txuserrdy_block && legacy_mmcm_reset;
 
     assign owner_dynamic = owner_dynamic_reg;
-    assign owner = owner_dynamic_reg ? 2'd1 : 2'd0;
-    assign busy = legacy_busy | dynamic_grant | dynamic_request;
     // A legacy request may be decoded while the dynamic steady-state image is
     // selected. The physical owner changes only when the legacy FSM reaches
     // its safe-reset phase.
@@ -72,19 +67,15 @@ module laser_gt_rate_resource_arbiter (
         if (rst) begin
             dynamic_grant <= 1'b0;
             dynamic_reject <= 1'b0;
-            conflict_error <= 1'b0;
             owner_dynamic_reg <= 1'b0;
         end else begin
             dynamic_reject <= 1'b0;
-            if (dynamic_grant && legacy_busy)
-                conflict_error <= 1'b1;
             if (dynamic_grant) begin
             if (dynamic_release)
                 dynamic_grant <= 1'b0;
             end else if (dynamic_request) begin
                 if (legacy_busy) begin
                     dynamic_reject <= 1'b1;
-                    conflict_error <= 1'b1;
                 end else begin
                     dynamic_grant <= 1'b1;
                 end

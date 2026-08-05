@@ -78,7 +78,15 @@ set bram_ctrl [get_bd_cells -quiet $bram_ctrl_name]
 if {![llength $bram_ctrl]} {
     set bram_ctrl [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl:4.1 $bram_ctrl_name]
 }
-set_property -dict [list CONFIG.DATA_WIDTH {32} CONFIG.SINGLE_PORT_BRAM {0}] $bram_ctrl
+set_property -dict [list CONFIG.DATA_WIDTH {32} CONFIG.SINGLE_PORT_BRAM {1}] $bram_ctrl
+
+# A single-port AXI controller must share Port A of the one descriptor RAM.
+# Remove any old auto-created second BRAM instead of allowing connection
+# automation to create a second physical storage block.
+set stale_bram [get_bd_cells -quiet axi_bram_dyn_desc_bram]
+if {[llength $stale_bram]} {
+    delete_bd_objs $stale_bram
+}
 
 set bram_name blk_mem_dyn_desc
 set bram [get_bd_cells -quiet $bram_name]
@@ -151,7 +159,11 @@ ensure_addr processing_system7_0/Data/SEG_axi_gpio_dynamic_mailbox_Reg \
 ensure_addr processing_system7_0/Data/SEG_axi_bram_dyn_desc_Mem0 \
     [get_bd_addr_segs $bram_ctrl_name/S_AXI/Mem0] 0x42000000 4K
 
+# IP Integrator may propagate the controller's legacy 2K depth during
+# validation.  Re-assert the architectural 1K x 32 depth after validation so
+# the generated XCI and address window remain 4 KiB.
 validate_bd_design
+set_property CONFIG.Write_Depth_A {1024} $bram
 save_bd_design
 generate_target all [get_files $bd_file]
 make_wrapper -files [get_files $bd_file] -top -force

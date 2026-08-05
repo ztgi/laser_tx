@@ -121,7 +121,6 @@ module laser_gt_rate_control_mux (
     laser_gt_rate_resource_arbiter u_arbiter(
         .clk(clk),.rst(rst),.legacy_busy(rate_busy),.dynamic_request(d_req),.dynamic_release(d_release),
         .dynamic_grant(d_grant),.dynamic_reject(d_reject),.legacy_request_allowed(legacy_allowed),.owner_dynamic(dynamic_owner),
-        .owner(),.busy(),.conflict_error(),
         .legacy_gt_reset(l_gt_reset),.dynamic_gt_reset(d_gt_reset),
         .legacy_txuserrdy_block(l_user_block),.dynamic_txuserrdy_block(d_user_block),
         .legacy_mmcm_reset(l_mmcm_reset),.dynamic_mmcm_reset(d_mmcm_reset),
