@@ -1080,18 +1080,15 @@ static void handle_udp_command(LaserGpio *gpio,
 
     if (token_equals(command, "WRITE_CONFIG")) {
         LaserConfig config;
-        uint32_t index, repeat, prbs, direct_source, direct_len_127;
+        uint32_t index, repeat, pattern_len_127;
         uint32_t phase_shift_en, loop_en, head, eom_enable, eom_index;
         uint32_t eom_lead, eom_trail, gap_value;
         uint32_t gap_index;
 
         memset(&config, 0, sizeof(config));
         if (parse_u32_arg(&cursor, &index) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &config.seed) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &repeat) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &prbs) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &direct_source) != XST_SUCCESS ||
-            parse_u32_arg(&cursor, &direct_len_127) != XST_SUCCESS ||
+            parse_u32_arg(&cursor, &pattern_len_127) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &phase_shift_en) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &loop_en) != XST_SUCCESS ||
             parse_u32_arg(&cursor, &head) != XST_SUCCESS) {
@@ -1099,17 +1096,14 @@ static void handle_udp_command(LaserGpio *gpio,
             return;
         }
         if (index >= LASER_TX_RECORD_MAX_CONFIGS || repeat < 1U ||
-            repeat > LASER_TX_RECORD_MAX_REPEAT || prbs > 255U ||
-            direct_source > 1U || direct_len_127 > 1U ||
+            repeat > LASER_TX_RECORD_MAX_REPEAT || pattern_len_127 > 1U ||
             phase_shift_en > 1U || loop_en > 1U || head > 255U) {
             (void)snprintf(response, response_size, "ERR WRITE_CONFIG_RANGE");
             return;
         }
 
         config.repeat_cycles = (uint8_t)repeat;
-        config.prbs_order = (uint8_t)prbs;
-        config.direct_source = (uint8_t)direct_source;
-        config.direct_len_127 = (uint8_t)direct_len_127;
+        config.pattern_len_127 = (uint8_t)pattern_len_127;
         config.phase_shift_en = (uint8_t)phase_shift_en;
         config.loop_en = (uint8_t)loop_en;
         config.head_delay_bits = (uint8_t)head;
@@ -1158,9 +1152,10 @@ static void handle_udp_command(LaserGpio *gpio,
             return;
         }
         (void)snprintf(response, response_size,
-                       "OK WRITE_CONFIG index=%lu repeat=%lu gaps=%lu format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED",
+                       "OK WRITE_CONFIG index=%lu repeat=%lu gaps=%lu pattern_bits=%lu format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED",
                        (unsigned long)index, (unsigned long)repeat,
-                       (unsigned long)(repeat - 1U));
+                       (unsigned long)(repeat - 1U),
+                       pattern_len_127 != 0U ? 127UL : 63UL);
         return;
     }
 
@@ -1285,7 +1280,7 @@ int laser_udp_server_run(void)
     xil_printf("\r\n=== laser_tx UDP_SERVER / discrete verified profile rate switch ===\r\n");
     xil_printf("UDP purpose      : fixed verified CPLL/QPLL profiles plus AD9528 OUT0 runtime planning, transactional GT/MMCM reconfiguration and frequency verification\r\n");
     print_rate_profile_startup_summary();
-    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG(index seed_reserved repeat prbs_reserved source_reserved pattern127 phase loop head gaps... eom idx lead trail pat0 pat1 pat2 pat3) SELECT_CONFIG(index) APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
+    xil_printf("UDP commands     : PING READ_STATUS READ_GT_STATUS AD9528 status|dump|measure status|profile plan|candidate set/status/restore WRITE_CONFIG(index repeat pattern127 phase loop head gaps... eom idx lead trail pat0 pat1 pat2 pat3) SELECT_CONFIG(index) APPLY ENABLE DISABLE SOFT_RESET rate status|list|abort rate plan <Mbps> [tolerance_ppm=n] rate set <Mbps> [tolerance_ppm=n]\r\n");
     xil_printf("TX pattern source: PS/BRAM configured 63/127-bit period only; PL internal PRBS/LFSR generation removed\r\n");
     xil_printf("UDP listen       : %u.%u.%u.%u:%u\r\n",
                LASER_UDP_IP0, LASER_UDP_IP1, LASER_UDP_IP2, LASER_UDP_IP3,

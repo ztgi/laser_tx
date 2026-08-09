@@ -20,7 +20,9 @@ class DescriptorSpecTest(unittest.TestCase):
         words[1] = (spec["descriptor_words"] << 16) | spec["version"]
         words[2] = 0x12345678
         payload = b"".join(w.to_bytes(4, "little") for i, w in enumerate(words) if i != 3)
-        self.assertEqual(binascii.crc32(payload) & 0xFFFFFFFF, 0x3C66E160)
+        # The descriptor is 64 words.  The CRC covers all little-endian words
+        # except word 3, so the zero-filled tail is part of the golden vector.
+        self.assertEqual(binascii.crc32(payload) & 0xFFFFFFFF, 0xDCF3D1B2)
 
 
 if __name__ == "__main__":

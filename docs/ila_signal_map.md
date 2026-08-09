@@ -35,7 +35,7 @@
 | 0 | 64 | `txdata` | 每个 TX user clock 产生的并行发送 word |
 | 1 | 64 | `valid_mask` | 每个 lane 是否属于有效 pattern；gap lane 为 0 |
 | 2 | 1 | `eom_out` | Word 级 EOM，等于 `|valid_mask` |
-| 3 | 1 | `soa_gate_out` | 当前 phase 的 SOA 窗口；gap 期间保持高 |
+| 3 | 1 | `soa_gate_out` | 与 `eom_out` 共用同一个 EOM window net；逻辑周期完全一致 |
 | 4 | 1 | `acq_trig_out` | 每个 phase 开始时单拍 |
 | 5 | 1 | `acq_gate_out` | 当前 phase 的采集窗口；gap 期间保持高 |
 | 6 | 1 | `dbg_busy_tx` | TX engine 当前 word 活跃 |

@@ -45,6 +45,8 @@ module laser_tx_core #(
     output wire        acq_gate_out,
     output wire        gt_sequence_sync_out,
     output wire        txusrclk2_monitor_out,
+    (* MARK_DEBUG = "TRUE", KEEP = "TRUE" *)
+    output wire [9:0]  dbg_gpio9_tx_bus,
 
     // Debug-only mirrors. Native BRAM interface members are hidden inside a
     // bundled BD pin, so these mirrors make the read transaction observable
@@ -346,7 +348,8 @@ module laser_tx_core #(
         .tx_start_level(eom_tx_start_level),
         .request_valid_tx(eom_request_valid_tx),
         .request_busy_tx(eom_request_busy_tx),
-        .eom_out(eom_out), .eom_active(eom_active_raw),
+        .eom_out(eom_out), .soa_gate_out(soa_gate_out),
+        .eom_active(eom_active_raw),
         .eom_fired(eom_fired_raw), .done_toggle(eom_done_toggle_raw),
         .geometry_valid_eom(eom_geometry_valid_raw),
         .eom_armed(eom_armed_raw),
@@ -389,9 +392,26 @@ module laser_tx_core #(
     // that rising edge and is forced low on reset, disable, abort, or GT clock
     // safety loss. The monitor ODDR is not gated by sequence enable so it can
     // show the real working TXUSRCLK2 whenever the GT clock path is ready.
+    (* MARK_DEBUG = "TRUE", KEEP = "TRUE" *)
     wire scope_sync_reset_tx =
         tx_rst | soft_reset_tx | ~enable_tx | ~gt_ready |
         rate_block_tx | ~eom_clock_safe_tx;
+
+    // GPIO9 monitor diagnosis, sampled by the existing TXUSRCLK2-domain ILA.
+    // Every member is the exact TX-domain signal used by the ODDR reset path;
+    // this bus is observation-only and has no functional fanout.
+    assign dbg_gpio9_tx_bus = {
+        enable_gpio_meta,      // [9]
+        eom_clock_safe_meta,   // [8]
+        scope_sync_reset_tx,   // [7]
+        enable_tx,             // [6]
+        eom_clock_safe_tx,     // [5]
+        rate_block_tx,         // [4]
+        gt_ready,              // [3]
+        enable_gpio_tx,        // [2]
+        soft_reset_tx,         // [1]
+        tx_rst                 // [0]
+    };
 
     tx_scope_debug_outputs #(
         .SYNC_WIDTH_CYCLES(16)
@@ -406,7 +426,6 @@ module laser_tx_core #(
         .clk(txusrclk2), .rst(tx_sequence_reset),
         .phase_active(phase_active_tx),
         .phase_start_pulse(phase_start_pulse_tx),
-        .soa_gate_out(soa_gate_out),
         .acq_trig_out(acq_trig_out), .acq_gate_out(acq_gate_out)
     );
 

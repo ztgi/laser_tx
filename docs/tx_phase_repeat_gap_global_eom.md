@@ -171,7 +171,7 @@ HEAD 与每个 gap 的配置范围均为 0..255 serial bits，实际时间等于
 唯一 V2 写配置语法为：
 
 ```text
-WRITE_CONFIG index seed_reserved repeat prbs_reserved source_reserved pattern127 phase loop head \
+WRITE_CONFIG index repeat pattern127 phase loop head \
   gap0 ... gap(repeat-2) \
   eom_enable eom_global_index eom_lead_ticks eom_trail_ticks \
   pattern_low pattern_mid pattern_high pattern_top
@@ -180,7 +180,7 @@ WRITE_CONFIG index seed_reserved repeat prbs_reserved source_reserved pattern127
 `repeat=1` 时没有 gap 参数。命令成功返回：
 
 ```text
-OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED
+OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> pattern_bits=<63|127> format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED
 ```
 
 随后使用：

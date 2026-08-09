@@ -19,7 +19,7 @@ module tb_tx_eom_v2;
   wire first_sequence_word_fire;
   wire task_request_pulse=engine_accept;
   wire geometry_armed_tx,tx_start_level,request_valid_tx,request_busy_tx;
-  wire eom_out,eom_active,eom_fired,done_toggle;
+  wire eom_out,soa_gate_out,eom_active,eom_fired,done_toggle;
   wire geometry_valid_eom,eom_armed,alignment_valid_eom;
   wire task_zero_pulse_eom;
   wire [23:0] task_tick_counter_eom,start_tick_local_eom,end_tick_local_eom;
@@ -71,6 +71,11 @@ module tb_tx_eom_v2;
   end
 
   always @(posedge eom_out) eom_rise_count=eom_rise_count+1;
+  always @(eom_out or soa_gate_out) begin
+    #0.001;
+    if(eom_out!==soa_gate_out)
+      fail("SOA output did not follow the EOM window in the same cycle");
+  end
   always @(posedge task_zero_pulse_eom) begin
     task_zero_count=task_zero_count+1;
     last_task_zero_time=$realtime;
@@ -110,7 +115,8 @@ module tb_tx_eom_v2;
     .tx_start_level(tx_start_level),
     .request_valid_tx(request_valid_tx),
     .request_busy_tx(request_busy_tx),
-    .eom_out(eom_out),.eom_active(eom_active),.eom_fired(eom_fired),
+    .eom_out(eom_out),.soa_gate_out(soa_gate_out),
+    .eom_active(eom_active),.eom_fired(eom_fired),
     .done_toggle(done_toggle),
     .geometry_valid_eom(geometry_valid_eom),.eom_armed(eom_armed),
     .alignment_valid_eom(alignment_valid_eom),
@@ -252,7 +258,7 @@ module tb_tx_eom_v2;
       if(eom_rise_count-rises_before!=1)
         fail($sformatf("%s EOM pulses=%0d expected=1",
                        name,eom_rise_count-rises_before));
-      if(eom_out||eom_active||!eom_fired)
+      if(eom_out||soa_gate_out||eom_active||!eom_fired)
         fail({name," EOM completion state"});
       else
         $display("PASS %s K=%0d geometry=%0d..%0d boundary=%0.3f",
@@ -295,8 +301,8 @@ module tb_tx_eom_v2;
       while(!eom_out&&timeout<10000)begin @(posedge eom_clk);#0.05;timeout++;end
       if(!eom_out)fail("abort setup never raised EOM");
       #1 clock_safe=0;#0.05;
-      if(eom_out)
-        fail("clock unsafe did not asynchronously close EOM output");
+      if(eom_out||soa_gate_out)
+        fail("clock unsafe did not asynchronously close EOM/SOA outputs");
       // Internal geometry/config/state intentionally use the local
       // asynchronous-assert/synchronous-release reset.  They clear on the
       // next available EOM clock edge rather than through raw clock_safe CLR.
@@ -309,7 +315,7 @@ module tb_tx_eom_v2;
       repeat(18)@(posedge eom_clk);
       rst=0;enable=1;
       repeat(20)begin @(posedge eom_clk);#0.05;
-        if(eom_out)fail("stale EOM reopened after recovery");
+        if(eom_out||soa_gate_out)fail("stale EOM/SOA reopened after recovery");
       end
       if(eom_rise_count-rises_before!=1)
         fail("abort pulse accounting");

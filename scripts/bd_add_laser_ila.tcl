@@ -95,7 +95,7 @@ laser_ila_connect laser_tx_core_0/dbg_bram_addr ila_laser_axi_cfg/probe3
 laser_ila_connect laser_tx_core_0/dbg_bram_dout ila_laser_axi_cfg/probe4
 laser_ila_connect laser_tx_core_0/dbg_bram_rst ila_laser_axi_cfg/probe5
 
-set ila_tx [laser_get_or_create_ila ila_laser_tx 15]
+set ila_tx [laser_get_or_create_ila ila_laser_tx 16]
 set_property -dict [list \
     CONFIG.C_PROBE0_WIDTH {64} CONFIG.C_PROBE1_WIDTH {64} \
     CONFIG.C_PROBE2_WIDTH {1}  CONFIG.C_PROBE3_WIDTH {1} \
@@ -104,7 +104,7 @@ set_property -dict [list \
     CONFIG.C_PROBE8_WIDTH {1}  CONFIG.C_PROBE9_WIDTH {1} \
     CONFIG.C_PROBE10_WIDTH {8} CONFIG.C_PROBE11_WIDTH {8} \
     CONFIG.C_PROBE12_WIDTH {1} CONFIG.C_PROBE13_WIDTH {1} \
-    CONFIG.C_PROBE14_WIDTH {1}] $ila_tx
+    CONFIG.C_PROBE14_WIDTH {1} CONFIG.C_PROBE15_WIDTH {10}] $ila_tx
 
 laser_ila_connect_clock laser_tx_core_0/txusrclk2 ila_laser_tx/clk
 laser_ila_connect laser_tx_core_0/txdata ila_laser_tx/probe0
@@ -122,6 +122,7 @@ laser_ila_connect laser_tx_core_0/dbg_current_state_tx ila_laser_tx/probe11
 laser_ila_connect laser_tx_core_0/dbg_cfg_update_pulse_tx ila_laser_tx/probe12
 laser_ila_connect laser_tx_core_0/dbg_pattern_valid_tx ila_laser_tx/probe13
 laser_ila_connect laser_tx_core_0/dbg_engine_start_tx ila_laser_tx/probe14
+laser_ila_connect laser_tx_core_0/dbg_gpio9_tx_bus ila_laser_tx/probe15
 
 validate_bd_design
 save_bd_design

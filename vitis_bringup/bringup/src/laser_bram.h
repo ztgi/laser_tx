@@ -12,15 +12,8 @@
 #define LASER_TX_RECORD_GAP_WIDTH         8U
 
 typedef struct {
-    /* Layout-compatible reserved fields. PL internal PRBS generation has
-     * been removed; these values are serialized but ignored by hardware. */
-    uint32_t seed;
     uint8_t repeat_cycles;
-    uint8_t prbs_order;
-    uint8_t direct_source;
-    /* The original bit position remains the 63/127 configured-pattern
-     * length selector. */
-    uint8_t direct_len_127;
+    uint8_t pattern_len_127;
     uint8_t phase_shift_en;
     uint8_t loop_en;
     uint8_t head_delay_bits;

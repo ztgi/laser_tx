@@ -30,7 +30,7 @@ ad9528 status|dump|measure status|profile plan|candidate set/status/restore
 语法：
 
 ```text
-WRITE_CONFIG index seed_reserved repeat prbs_reserved source_reserved pattern127 phase loop head \
+WRITE_CONFIG index repeat pattern127 phase loop head \
   gap0 ... gap(repeat-2) \
   eom_enable eom_global_index eom_lead_ticks eom_trail_ticks \
   pattern_low pattern_mid pattern_high pattern_top
@@ -42,7 +42,6 @@ WRITE_CONFIG index seed_reserved repeat prbs_reserved source_reserved pattern127
 |---|---|
 | index | 0..127 |
 | repeat | 1..16 |
-| seed_reserved/prbs_reserved/source_reserved | 保留参数位置；PL忽略，不选择内部PRBS |
 | pattern127/phase/loop/eom_enable | 0 或 1 |
 | head | 0..255 serial bits |
 | gap0..gap14 | 每项 0..255 serial bits；只提供 repeat-1 项 |
@@ -53,7 +52,7 @@ WRITE_CONFIG index seed_reserved repeat prbs_reserved source_reserved pattern127
 成功响应：
 
 ```text
-OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED
+OK WRITE_CONFIG index=<n> repeat=<n> gaps=<repeat-1> pattern_bits=<63|127> format=2 words=16 pattern_source=CONFIGURED internal_prbs=REMOVED
 ```
 
 错误响应包括：
@@ -69,11 +68,11 @@ ERR WRITE_CONFIG_VERIFY
 示例：
 
 ```text
-# repeat=1，无 gap 参数；前三个legacy位置填0
-WRITE_CONFIG 0 0 1 0 0 0 0 0 0 1 0 0 0 0x55555555 0x2aaaaaaa 0 0
+# repeat=1，无 gap 参数
+WRITE_CONFIG 0 1 0 0 0 0 1 0 0 0 0x55555555 0x2aaaaaaa 0 0
 
 # repeat=4，依次提供 gap0=5、gap1=13、gap2=21
-WRITE_CONFIG 1 0 4 0 0 0 1 0 8 5 13 21 1 7 2 3 0x55555555 0x2aaaaaaa 0 0
+WRITE_CONFIG 1 4 0 1 0 8 5 13 21 1 7 2 3 0x55555555 0x2aaaaaaa 0 0
 ```
 
 ## 3. SELECT_CONFIG / APPLY / ENABLE
@@ -158,5 +157,5 @@ Functional behavior changed intentionally
 
 当前准确功能口径是“支持由PS配置的63/127-bit周期PRBS码发送及相对Delay
 空间扫描”。PRBS周期由软件预生成后写入`pattern_low..pattern_top`；PL不再
-实时生成PRBS6/PRBS7。旧参数位置`seed/prbs/source`仅为16-word布局兼容而
-保留，不能用于选择内部发生器。
+实时生成PRBS6/PRBS7。旧descriptor位置`seed/prbs/source`仅为16-word布局兼容
+而保留，软件固定写0，也不再暴露为UDP参数。

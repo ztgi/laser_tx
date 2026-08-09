@@ -10,7 +10,7 @@ int main(void)
     words[LASER_DYN_WORD_MAGIC] = LASER_DYN_DESC_MAGIC;
     words[LASER_DYN_WORD_VERSION_COUNT] = LASER_DYN_DESC_VERSION_COUNT;
     words[LASER_DYN_WORD_SEQUENCE] = UINT32_C(0x12345678);
-    if (laser_dyn_descriptor_crc32(words) != UINT32_C(0x3C66E160)) {
+    if (laser_dyn_descriptor_crc32(words) != UINT32_C(0xDCF3D1B2)) {
         fprintf(stderr, "CRC mismatch: %08lx\n",
                 (unsigned long)laser_dyn_descriptor_crc32(words));
         return 1;

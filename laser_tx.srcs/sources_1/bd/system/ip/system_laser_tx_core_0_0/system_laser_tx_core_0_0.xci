@@ -69,6 +69,7 @@
         "acq_gate_out": [ { "direction": "out" } ],
         "gt_sequence_sync_out": [ { "direction": "out" } ],
         "txusrclk2_monitor_out": [ { "direction": "out" } ],
+        "dbg_gpio9_tx_bus": [ { "direction": "out", "size_left": "9", "size_right": "0" } ],
         "dbg_bram_en": [ { "direction": "out" } ],
         "dbg_bram_addr": [ { "direction": "out", "size_left": "31", "size_right": "0" } ],
         "dbg_bram_dout": [ { "direction": "out", "size_left": "31", "size_right": "0" } ],

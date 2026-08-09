@@ -74,8 +74,8 @@ acq_gate_out == 1
 
 | 信号 | 正常关系 |
 |---|---|
-| `eom_out` | 等于 `|valid_mask` |
-| `soa_gate_out` | phase 内为高 |
+| `eom_out` | 按global pattern index及lead/trail生成的EOM window；不再等于`|valid_mask` |
+| `soa_gate_out` | 与 `eom_out` 同周期、同窗口 |
 | `acq_gate_out` | phase 内为高 |
 | `acq_trig_out` | 每个 phase 开始单拍 |
 
@@ -93,7 +93,8 @@ acq_gate_out == 1
 | `dbg_phase_start_pulse_tx` | 每个 phase 的开始单拍 |
 | `dbg_pattern_valid_tx` | pattern source 有效 |
 | `txdata` / `valid_mask` | 64-bit TX word 与有效 lane 掩码 |
-| `eom_out` / `soa_gate_out` / `acq_trig_out` / `acq_gate_out` | 与当前 TX word 对齐的同步输出 |
+| `eom_out` / `soa_gate_out` | EOM clock域同一窗口的两个板级输出 |
+| `acq_trig_out` / `acq_gate_out` | TXUSRCLK2域phase开始/活动输出 |
 
 ## 6. 快速判定表
 
@@ -104,5 +105,4 @@ acq_gate_out == 1
 | `cfg_update_pulse_tx` 有，`engine_start_tx` 无 | 配置未有效、enable 未到 TX 域或复位仍有效 | 查 `gpio_status.cfg_valid`、repeat_cycles、bit9、soft reset |
 | `engine_start_tx` 有，状态机不动 | engine 时钟/复位或启动条件异常 | 查 `txusrclk2` 是否 free-running、`tx_rst`、`pattern_valid` |
 | 状态机动，但 `txdata/valid_mask` 全 0 | pattern/BRAM/gap 配置异常 | 查 `pattern_valid`、BRAM word、direct source/length、gap |
-| `txdata/valid_mask` 正常，但 EOM/SOA/ACQ 无变化 | 同步输出或 phase 配置异常 | 查 `phase_active`、phase-start 与 `sync_signal_gen` 关系 |
-
+| `txdata/valid_mask` 正常，但 EOM/SOA/ACQ 无变化 | EOM geometry/safety或同步输出异常 | EOM/SOA查EOM window与safety gate；ACQ查`phase_active`/phase-start |

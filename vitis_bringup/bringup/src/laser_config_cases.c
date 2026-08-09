@@ -26,9 +26,7 @@ int laser_make_test_config(LaserTestCase test_case, LaserConfig *config)
         return XST_INVALID_PARAM;
     }
     memset(config, 0, sizeof(*config));
-    config->seed = 0x0000005aU;
     config->repeat_cycles = 4U;
-    config->prbs_order = 6U;
     config->head_delay_bits = 3U;
     config->gap_len_bits[0] = 1U;
     config->gap_len_bits[1] = 64U;
@@ -40,11 +38,9 @@ int laser_make_test_config(LaserTestCase test_case, LaserConfig *config)
 
     switch (test_case) {
     case LASER_TEST_DIRECT63:
-        config->direct_source = 1U;
         break;
     case LASER_TEST_DIRECT127:
-        config->direct_source = 1U;
-        config->direct_len_127 = 1U;
+        config->pattern_len_127 = 1U;
         break;
     case LASER_TEST_PRBS6:
         /* Legacy x^6+x^5+1, seed[5:0]=0x1a, output MSB first into
@@ -57,8 +53,7 @@ int laser_make_test_config(LaserTestCase test_case, LaserConfig *config)
     case LASER_TEST_PRBS7:
         /* Legacy x^7+x^6+1, seed[6:0]=0x5a, output MSB first into
          * configured_pattern[i]. PL no longer contains an LFSR. */
-        config->prbs_order = 7U;
-        config->direct_len_127 = 1U;
+        config->pattern_len_127 = 1U;
         config->pattern_low = 0x74b1bdadU;
         config->pattern_mid = 0x103faa67U;
         config->pattern_high = 0xcd13c50cU;

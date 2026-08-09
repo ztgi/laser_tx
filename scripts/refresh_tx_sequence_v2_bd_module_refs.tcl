@@ -71,6 +71,37 @@ foreach port_name {gt_sequence_sync_out txusrclk2_monitor_out} {
     }
 }
 
+# Preserve the existing TX ILA probe0..probe14 mapping and append one focused
+# GPIO9 monitor diagnostic bus on probe15.  The ILA clock remains TXUSRCLK2.
+set tx_ila [get_bd_cells -quiet ila_laser_tx]
+if {[llength $tx_ila] != 1} {
+    error "Expected exactly one ila_laser_tx BD cell; found: $tx_ila"
+}
+set_property -dict [list \
+    CONFIG.C_NUM_OF_PROBES {16} \
+    CONFIG.C_PROBE15_WIDTH {10}] $tx_ila
+
+set gpio9_dbg_pin [get_bd_pins -quiet $core_cell/dbg_gpio9_tx_bus]
+set probe15_pin [get_bd_pins -quiet $tx_ila/probe15]
+if {[llength $gpio9_dbg_pin] != 1 || [llength $probe15_pin] != 1} {
+    error "GPIO9 debug bus/probe15 missing after module refresh: bus=$gpio9_dbg_pin probe=$probe15_pin"
+}
+set probe15_net [get_bd_nets -quiet -of_objects $probe15_pin]
+if {[llength $probe15_net] == 0} {
+    connect_bd_net $gpio9_dbg_pin $probe15_pin
+} elseif {[llength $probe15_net] != 1 ||
+        [lsearch -exact [get_bd_pins -quiet -of_objects $probe15_net] $gpio9_dbg_pin] < 0} {
+    error "ila_laser_tx/probe15 is connected to an unexpected net: $probe15_net"
+}
+
+set tx_ila_clk [get_bd_pins -quiet $tx_ila/clk]
+set tx_clk_pin [get_bd_pins -quiet $core_cell/txusrclk2]
+set tx_ila_clk_net [get_bd_nets -quiet -of_objects $tx_ila_clk]
+if {[llength $tx_ila_clk_net] != 1 ||
+    [lsearch -exact [get_bd_pins -quiet -of_objects $tx_ila_clk_net] $tx_clk_pin] < 0} {
+    error "ila_laser_tx clock is no longer connected to laser_tx_core_0/txusrclk2"
+}
+
 validate_bd_design
 save_bd_design
 generate_target all [get_files $bd_path]

@@ -48,7 +48,7 @@ static uint32_t laser_phase_count(const LaserConfig *config)
     if (config->phase_shift_en == 0U) {
         return 1U;
     }
-    return config->direct_len_127 != 0U ? 127U : 63U;
+    return config->pattern_len_127 != 0U ? 127U : 63U;
 }
 
 int laser_bram_validate_config(const LaserConfig *config)
@@ -62,7 +62,7 @@ int laser_bram_validate_config(const LaserConfig *config)
     }
     if (config->repeat_cycles < 1U ||
         config->repeat_cycles > LASER_TX_RECORD_MAX_REPEAT ||
-        config->direct_len_127 > 1U ||
+        config->pattern_len_127 > 1U ||
         config->phase_shift_en > 1U || config->loop_en > 1U ||
         config->eom_enable > 1U || (config->pattern_top & 0x80000000U) != 0U) {
         return XST_INVALID_PARAM;
@@ -91,15 +91,14 @@ static void laser_config_to_words(const LaserConfig *config,
 {
     uint32_t i;
     words[0] = laser_record_header(sequence_id, commit_valid);
-    /* Reserved layout fields are retained in-place. The configured pattern
-     * in words9..12 is the sole PL pattern source. */
-    words[1] = config->seed;
+    /* ABI-stable legacy PRBS fields are no longer software inputs. Keep
+     * word1, word2[12:5] and word2[15] at their fixed legal value of zero;
+     * words9..12 are the sole PL pattern source. */
+    words[1] = 0U;
     words[2] = ((uint32_t)config->repeat_cycles & 0x1FU) |
-               ((uint32_t)config->prbs_order << 5) |
                ((uint32_t)config->phase_shift_en << 13) |
                ((uint32_t)config->loop_en << 14) |
-               ((uint32_t)config->direct_source << 15) |
-               ((uint32_t)config->direct_len_127 << 16) |
+               ((uint32_t)config->pattern_len_127 << 16) |
                ((uint32_t)config->eom_enable << 17) |
                (((uint32_t)config->eom_global_pattern_index & 0x7FFU) << 18);
     words[3] = (uint32_t)config->head_delay_bits;

@@ -49,31 +49,31 @@ def parse_write_config(command: str) -> dict:
     if not tokens or tokens[0].upper() != "WRITE_CONFIG":
         raise ValueError("command")
     values = [parse_number(item) for item in tokens[1:]]
-    if len(values) < 17:
+    if len(values) < 14:
         raise ValueError("argument count")
-    index, seed, repeat, prbs, direct, direct127, phase_shift, loop, head = values[:9]
-    if not (0 <= index < 128 and 1 <= repeat <= MAX_REPEAT and prbs <= 255):
+    index, repeat, pattern127, phase_shift, loop, head = values[:6]
+    if not (0 <= index < 128 and 1 <= repeat <= MAX_REPEAT):
         raise ValueError("base range")
-    if direct not in (0, 1) or direct127 not in (0, 1) or phase_shift not in (0, 1) or loop not in (0, 1):
+    if pattern127 not in (0, 1) or phase_shift not in (0, 1) or loop not in (0, 1):
         raise ValueError("boolean")
     if head > 255:
         raise ValueError("head")
-    expected = repeat + 16
+    expected = repeat + 13
     if len(values) != expected:
         raise ValueError("argument count")
     gap_count = repeat - 1
-    gaps = values[9:9 + gap_count]
+    gaps = values[6:6 + gap_count]
     if any(gap > 255 for gap in gaps):
         raise ValueError("gap")
-    tail = values[9 + gap_count:]
+    tail = values[6 + gap_count:]
     eom_enable, eom_index, lead, trail, p0, p1, p2, p3 = tail
     if eom_enable not in (0, 1) or lead > 65535 or trail > 65535 or p3 & 0x80000000:
         raise ValueError("EOM/pattern range")
-    instances = phase_count(direct127, phase_shift) * repeat
+    instances = phase_count(pattern127, phase_shift) * repeat
     if eom_enable and eom_index >= instances:
         raise ValueError("global EOM index")
-    return dict(index=index, seed=seed, repeat=repeat, prbs=prbs,
-                direct=direct, direct127=direct127, phase_shift=phase_shift,
+    return dict(index=index, repeat=repeat,
+                pattern127=pattern127, phase_shift=phase_shift,
                 loop=loop, head=head, gaps=gaps, eom_enable=eom_enable,
                 eom_index=eom_index, lead=lead, trail=trail,
                 pattern=(p0, p1, p2, p3))
@@ -82,10 +82,10 @@ def parse_write_config(command: str) -> dict:
 def pack_record(cfg: dict, sequence: int = 0x21, committed: bool = True) -> list[int]:
     words = [0] * WORDS
     words[0] = (0x5458 << 16) | (2 << 12) | ((1 if committed else 0) << 11) | sequence
-    words[1] = cfg["seed"]
-    words[2] = (cfg["repeat"] | (cfg["prbs"] << 5) |
-                (cfg["phase_shift"] << 13) | (cfg["loop"] << 14) |
-                (cfg["direct"] << 15) | (cfg["direct127"] << 16) |
+    words[1] = 0
+    words[2] = (cfg["repeat"] |
+                 (cfg["phase_shift"] << 13) | (cfg["loop"] << 14) |
+                 (cfg["pattern127"] << 16) |
                 (cfg["eom_enable"] << 17) | (cfg["eom_index"] << 18))
     words[3] = cfg["head"]
     gaps = list(cfg["gaps"]) + [0] * (15 - len(cfg["gaps"]))
@@ -104,9 +104,9 @@ class TxSequenceV2ProtocolTest(unittest.TestCase):
     def make_command(self, repeat: int, gaps: list[int], *, head: int = 0,
                      eom_enable: int = 1, eom_index: int = 0,
                      phase_shift: int = 0, pattern127: int = 1) -> str:
-        # seed/prbs/source positions are retained as reserved compatibility
-        # fields; pattern127 and words9..12 define the hardware pattern.
-        base = [0, 0x5A, repeat, 7, 0, pattern127, phase_shift, 0, head]
+        # Reserved ABI slots are internal fixed zeros and are no longer part
+        # of the UDP syntax. pattern127 and words9..12 define the pattern.
+        base = [0, repeat, pattern127, phase_shift, 0, head]
         tail = [eom_enable, eom_index, 2, 3,
                 0x89ABCDEF, 0x01234567, 0x76543210, 0x02A55AA5]
         return "WRITE_CONFIG " + " ".join(str(v) for v in base + gaps + tail)
@@ -143,13 +143,35 @@ class TxSequenceV2ProtocolTest(unittest.TestCase):
                                                        phase_shift=1,
                                                        eom_index=127 * 5))
 
-    def test_legacy_fields_do_not_select_pattern_length(self):
-        command = self.make_command(2, [0], phase_shift=1, pattern127=0)
-        tokens = command.split()
-        tokens[4] = "255"  # reserved prbs_order position
-        tokens[5] = "1"    # reserved source-select position
-        cfg = parse_write_config(" ".join(tokens))
-        self.assertEqual(phase_count(cfg["direct127"], cfg["phase_shift"]), 63)
+    def test_reserved_prbs_fields_are_not_udp_arguments(self):
+        cfg = parse_write_config(self.make_command(2, [0], phase_shift=1,
+                                                  pattern127=0))
+        words = pack_record(cfg)
+        self.assertEqual(words[1], 0)
+        self.assertEqual(words[2] & ((0xFF << 5) | (1 << 15)), 0)
+        self.assertEqual(phase_count(cfg["pattern127"], cfg["phase_shift"]), 63)
+
+    def test_legacy_udp_argument_shape_is_rejected(self):
+        legacy = "WRITE_CONFIG 0 0 1 0 0 0 0 0 0 1 0 0 0 1 2 3 4"
+        with self.assertRaises(ValueError):
+            parse_write_config(legacy)
+
+        source = (ROOT / "vitis_bringup/bringup/src/laser_udp_server.c").read_text(
+            encoding="utf-8")
+        self.assertNotIn("seed_reserved", source)
+        self.assertNotIn("prbs_reserved", source)
+        self.assertNotIn("source_reserved", source)
+
+    def test_eom_and_soa_share_one_generator_window(self):
+        generator = (ROOT / "laser_tx.srcs/sources_1/new/laser_tx_core/tx_eom_window_generator.v").read_text(
+            encoding="utf-8")
+        core = (ROOT / "laser_tx.srcs/sources_1/new/laser_tx_core/laser_tx_core.v").read_text(
+            encoding="utf-8")
+        sync = (ROOT / "laser_tx.srcs/sources_1/new/laser_tx_core/sync_signal_gen.v").read_text(
+            encoding="utf-8")
+        self.assertIn("assign soa_gate_out = eom_out;", generator)
+        self.assertIn(".eom_out(eom_out), .soa_gate_out(soa_gate_out)", core)
+        self.assertNotIn("soa_gate_out", sync)
 
     def test_record_layout_crc_and_reserved_slots(self):
         cfg = parse_write_config(self.make_command(5, [1, 2, 63, 255],
@@ -216,6 +238,30 @@ class TxSequenceV2ProtocolTest(unittest.TestCase):
         self.assertIn("txusrclk2_monitor_out", top)
         self.assertIn("PACKAGE_PIN AE17 [get_ports gt_sequence_sync_out]", xdc)
         self.assertIn("PACKAGE_PIN AD15 [get_ports txusrclk2_monitor_out]", xdc)
+
+    def test_gpio9_monitor_ila_bus_is_tx_domain_observation_only(self):
+        core = (ROOT / "laser_tx.srcs/sources_1/new/laser_tx_core/laser_tx_core.v").read_text(encoding="utf-8")
+        expected_order = (
+            "enable_gpio_meta,      // [9]\n"
+            "        eom_clock_safe_meta,   // [8]\n"
+            "        scope_sync_reset_tx,   // [7]\n"
+            "        enable_tx,             // [6]\n"
+            "        eom_clock_safe_tx,     // [5]\n"
+            "        rate_block_tx,         // [4]\n"
+            "        gt_ready,              // [3]\n"
+            "        enable_gpio_tx,        // [2]\n"
+            "        soft_reset_tx,         // [1]\n"
+            "        tx_rst                 // [0]"
+        )
+        self.assertIn("output wire [9:0]  dbg_gpio9_tx_bus", core)
+        self.assertIn("assign dbg_gpio9_tx_bus = {", core)
+        self.assertIn(expected_order, core)
+
+        bd_script = (ROOT / "scripts/bd_add_laser_ila.tcl").read_text(encoding="utf-8")
+        refresh_script = (ROOT / "scripts/refresh_tx_sequence_v2_bd_module_refs.tcl").read_text(encoding="utf-8")
+        self.assertIn("laser_get_or_create_ila ila_laser_tx 16", bd_script)
+        self.assertIn("dbg_gpio9_tx_bus ila_laser_tx/probe15", bd_script)
+        self.assertIn("CONFIG.C_PROBE15_WIDTH {10}", refresh_script)
 
 
 if __name__ == "__main__":

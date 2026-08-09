@@ -1,5 +1,10 @@
 # EOM 功能变化总结
 
+> TX Sequence V2 production baseline update: `soa_gate_out`不再来自
+> `phase_active`。`tx_eom_window_generator`现在用同一条经过安全门控的
+> EOM window net同时驱动`eom_out`和`soa_gate_out`。两者逻辑窗口起止、
+> reset和clock-unsafe行为完全一致；只有独立封装/PCB输出延迟可能不同。
+
 ## 1. 文档范围与证据边界
 
 本文基于分支 `fix/tx-sequence-v2-user-cdc-methodology` 当前工作树，对 EOM 从

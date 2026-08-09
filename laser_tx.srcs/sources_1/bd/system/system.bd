@@ -1823,7 +1823,7 @@
             "value": "Native"
           },
           "C_NUM_OF_PROBES": {
-            "value": "15"
+            "value": "16"
           },
           "C_PROBE0_WIDTH": {
             "value": "64"
@@ -1842,6 +1842,9 @@
           },
           "C_PROBE14_WIDTH": {
             "value": "1"
+          },
+          "C_PROBE15_WIDTH": {
+            "value": "10"
           },
           "C_PROBE1_WIDTH": {
             "value": "64"
@@ -2159,6 +2162,11 @@
           },
           "txusrclk2_monitor_out": {
             "direction": "O"
+          },
+          "dbg_gpio9_tx_bus": {
+            "direction": "O",
+            "left": "9",
+            "right": "0"
           },
           "dbg_bram_en": {
             "direction": "O"
@@ -2700,6 +2708,12 @@
         "ports": [
           "laser_tx_core_0/dbg_engine_start_tx",
           "ila_laser_tx/probe14"
+        ]
+      },
+      "laser_tx_core_0_dbg_gpio9_tx_bus": {
+        "ports": [
+          "laser_tx_core_0/dbg_gpio9_tx_bus",
+          "ila_laser_tx/probe15"
         ]
       },
       "laser_tx_core_0_dbg_pattern_valid_tx": {

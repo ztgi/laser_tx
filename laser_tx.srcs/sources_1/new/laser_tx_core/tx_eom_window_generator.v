@@ -28,6 +28,7 @@ module tx_eom_window_generator (
     output reg          request_valid_tx,
     output reg          request_busy_tx,
     output wire         eom_out,
+    output wire         soa_gate_out,
     output reg          eom_active,
     output reg          eom_fired,
     output reg          done_toggle,
@@ -208,6 +209,9 @@ module tx_eom_window_generator (
     reg [3:0] eom_state;
     reg eom_window;
     assign eom_out = eom_window & async_output_safe & clock_safe_sync;
+    // SOA and EOM intentionally share the exact same logical window.  This
+    // is a second output load only; no additional state or CDC is introduced.
+    assign soa_gate_out = eom_out;
 
     // The physical output is independently gated by async_output_safe above.
     // Internal state samples the TX-registered clock_safe level through a
